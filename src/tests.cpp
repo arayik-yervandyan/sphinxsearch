@@ -13,7 +13,6 @@
 
 #include "sphinx.h"
 #include "sphinxexpr.h"
-#include "sphinxutils.h"
 #include "sphinxquery.h"
 #include <math.h>
 
@@ -55,11 +54,9 @@ bool CreateSynonymsFile ( const char * sMagic )
 ISphTokenizer * CreateTestTokenizer ( bool bUTF8, bool bSynonyms, bool bEscaped = false )
 {
 	CSphString sError;
-	CSphTokenizerSettings tSettings;
-	tSettings.m_iType = bUTF8 ? TOKENIZER_UTF8 : TOKENIZER_SBCS;
-	tSettings.m_iMinWordLen = 2;
-	ISphTokenizer * pTokenizer = ISphTokenizer::Create ( tSettings, sError );
+	ISphTokenizer * pTokenizer = bUTF8 ? sphCreateUTF8Tokenizer () : sphCreateSBCSTokenizer ();
 	assert ( pTokenizer->SetCaseFolding ( "-, 0..9, A..Z->a..z, _, a..z, U+80..U+FF", sError ) );
+	pTokenizer->SetMinWordLen ( 2 );
 	pTokenizer->AddSpecials ( "!-" );
 	if ( bSynonyms )
 		assert ( pTokenizer->LoadSynonyms ( g_sTmpfile, sError ) );
@@ -68,6 +65,7 @@ ISphTokenizer * CreateTestTokenizer ( bool bUTF8, bool bSynonyms, bool bEscaped 
 	{	
 		ISphTokenizer * pOldTokenizer = pTokenizer;
 		pTokenizer = pTokenizer->Clone ( true );
+		pTokenizer->SetMinWordLen ( 2 );
 		SafeDelete ( pOldTokenizer );
 	}
 
@@ -203,14 +201,9 @@ void TestTokenizer ( bool bUTF8 )
 		// test short word callbacks
 		printf ( "%s for short token handling\n", sPrefix );
 		ISphTokenizer * pShortTokenizer = pTokenizer->Clone ( bEscaped );
-
 		CSphRemapRange tStar ( '*', '*', '*' );
 		pShortTokenizer->AddCaseFolding ( tStar );
-
-		CSphTokenizerSettings tSettings = pShortTokenizer->GetSettings();
-		tSettings.m_iMinWordLen = 5;
-		pShortTokenizer->Setup ( tSettings );
-
+		pShortTokenizer->SetMinWordLen ( 5 );
 		pShortTokenizer->EnableQueryParserMode ( true );
 
 		char * dTestsShort[] =
@@ -482,7 +475,8 @@ void TestExpr ()
 		printf ( "testing expression evaluation, test %d/%d... ", 1+iTest, iTests );
 
 		CSphString sError;
-		CSphScopedPtr<ISphExpr> pExpr ( sphExprParse ( dTests[iTest].m_sExpr, tSchema, NULL, sError ) );
+		bool bCalcGeoDist;
+		CSphScopedPtr<ISphExpr> pExpr ( sphExprParse ( dTests[iTest].m_sExpr, tSchema, bCalcGeoDist, sError ) );
 		if ( !pExpr.Ptr() )
 		{
 			printf ( "FAILED; %s\n", sError.cstr() );
@@ -511,7 +505,7 @@ void TestExpr ()
 #define BBB float(tMatch.m_pRowitems[1])
 #define CCC float(tMatch.m_pRowitems[2])
 
-NOINLINE float ExprNative1 ( const CSphMatch & tMatch )	{ return AAA+BBB*CCC-1.0f;}
+NOINLINE float ExprNative1 ( const CSphMatch & tMatch )	{ return AAA+BBB*CCC-0.75f;}
 NOINLINE float ExprNative2 ( const CSphMatch & tMatch )	{ return AAA+BBB*CCC*2.0f-3.0f/4.0f*5.0f/6.0f*BBB; }
 NOINLINE float ExprNative3 ( const CSphMatch & )		{ return (float)sqrt ( 2.0f ); }
 
@@ -543,7 +537,7 @@ void BenchExpr ()
 	};
 	ExprBench_t dBench[] =
 	{
-		{ "aaa+bbb*(ccc)-1",				ExprNative1 },
+		{ "aaa+bbb*(ccc)-0.75",				ExprNative1 },
 		{ "aaa+bbb*ccc*2-3/4*5/6*bbb",		ExprNative2 },
 		{ "sqrt(2)",						ExprNative3 }
 	};
@@ -552,9 +546,9 @@ void BenchExpr ()
 	{
 		printf ( "run %d: ", iRun+1 );
 
-		DWORD uType;
 		CSphString sError;
-		CSphScopedPtr<ISphExpr> pExpr ( sphExprParse ( dBench[iRun].m_sExpr, tSchema, &uType, sError ) );
+		bool bCalcGeoDist;
+		CSphScopedPtr<ISphExpr> pExpr ( sphExprParse ( dBench[iRun].m_sExpr, tSchema, bCalcGeoDist, sError ) );
 		if ( !pExpr.Ptr() )
 		{
 			printf ( "FAILED; %s\n", sError.cstr() );
@@ -568,22 +562,11 @@ void BenchExpr ()
 		for ( int i=0; i<NRUNS; i++ ) fValue += pExpr->Eval(tMatch);
 		fTime = sphLongTimer() - fTime;
 
-		float fTimeInt = sphLongTimer ();
-		if ( uType==SPH_ATTR_INTEGER )
-		{
-			int uValue = 0;
-			for ( int i=0; i<NRUNS; i++ ) uValue += pExpr->IntEval(tMatch);
-		}
-		fTimeInt = sphLongTimer() - fTimeInt;
-
 		float fTimeNative = sphLongTimer ();
 		for ( int i=0; i<NRUNS; i++ ) fValue += dBench[iRun].m_pFunc ( tMatch );
 		fTimeNative = sphLongTimer() - fTimeNative;
 
-		if ( uType==SPH_ATTR_INTEGER )
-			printf ( "int-eval %.1fM/sec, ", float(NRUNS)/float(1000000.0f)/fTimeInt );
-
-		printf ( "flt-eval %.1fM/sec, native %.1fM/sec\n",
+		printf ( "interpreted %.1f Mcalls/sec, native %.1f Mcalls/sec\n",
 			float(NRUNS)/float(1000000.0f)/fTime,
 			float(NRUNS)/float(1000000.0f)/fTimeNative );
 	}
@@ -653,9 +636,8 @@ void TestQueryParser ()
 	tCol.m_sName = "title"; tSchema.m_dFields.Add ( tCol );
 	tCol.m_sName = "content"; tSchema.m_dFields.Add ( tCol );
 
-	CSphDictSettings tDictSettings;
 	CSphScopedPtr<ISphTokenizer> pTokenizer ( sphCreateSBCSTokenizer () );
-	CSphScopedPtr<CSphDict> pDict ( sphCreateDictionaryCRC ( tDictSettings, pTokenizer.Ptr(), sTmp ) );
+	CSphScopedPtr<CSphDict> pDict ( sphCreateDictionaryCRC ( NULL, NULL, NULL, pTokenizer.Ptr(), sTmp ) );
 	assert ( pTokenizer.Ptr() );
 	assert ( pDict.Ptr() );
 

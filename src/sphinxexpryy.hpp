@@ -29,32 +29,30 @@
    /* Put the tokens into the symbol table, so that GDB and other debuggers
       know about them.  */
    enum yytokentype {
-     TOK_CONST_INT = 258,
-     TOK_CONST_FLOAT = 259,
-     TOK_ATTR_INT = 260,
-     TOK_ATTR_BITS = 261,
-     TOK_ATTR_FLOAT = 262,
-     TOK_FUNC = 263,
-     TOK_DOCINFO = 264,
-     TOK_NE = 265,
-     TOK_EQ = 266,
-     TOK_GTE = 267,
-     TOK_LTE = 268,
-     TOK_NEG = 269
+     TOK_NUMBER = 258,
+     TOK_ATTR_INT = 259,
+     TOK_ATTR_BITS = 260,
+     TOK_ATTR_FLOAT = 261,
+     TOK_FUNC = 262,
+     TOK_DOCINFO = 263,
+     TOK_NE = 264,
+     TOK_EQ = 265,
+     TOK_GTE = 266,
+     TOK_LTE = 267,
+     TOK_NEG = 268
    };
 #endif
-#define TOK_CONST_INT 258
-#define TOK_CONST_FLOAT 259
-#define TOK_ATTR_INT 260
-#define TOK_ATTR_BITS 261
-#define TOK_ATTR_FLOAT 262
-#define TOK_FUNC 263
-#define TOK_DOCINFO 264
-#define TOK_NE 265
-#define TOK_EQ 266
-#define TOK_GTE 267
-#define TOK_LTE 268
-#define TOK_NEG 269
+#define TOK_NUMBER 258
+#define TOK_ATTR_INT 259
+#define TOK_ATTR_BITS 260
+#define TOK_ATTR_FLOAT 261
+#define TOK_FUNC 262
+#define TOK_DOCINFO 263
+#define TOK_NE 264
+#define TOK_EQ 265
+#define TOK_GTE 266
+#define TOK_LTE 267
+#define TOK_NEG 268
 
 
 
@@ -62,8 +60,7 @@
 #if ! defined (YYSTYPE) && ! defined (YYSTYPE_IS_DECLARED)
 
 typedef union YYSTYPE {
-	int				iConst;			// constant value
-	float			fConst;			// constant value
+	float			fNumber;		// constant value
 	int				iAttrLocator;	// attribute locator (rowitem for int/float; offset+size for bits)
 	int				iFunc;			// function id
 	Docinfo_e		eDocinfo;		// docinfo entry id

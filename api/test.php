@@ -35,7 +35,6 @@ if ( !is_array($_SERVER["argv"]) || empty($_SERVER["argv"]) )
 	print ( "-gs,--groupsort <EXPR>\tsort groups by 'EXPR'\n" );
 	print ( "-d, --distinct <ATTR>\tcount distinct values of 'ATTR''\n" );
 	print ( "-l, --limit <COUNT>\tretrieve COUNT matches (default: 20)\n" );
-	print ( "--select <EXPRLIST>\tuse 'EXPRLIST' as select-list (default: *)\n" );
 	exit;
 }
 
@@ -56,7 +55,6 @@ $distinct = "";
 $sortby = "";
 $limit = 20;
 $ranker = SPH_RANK_PROXIMITY_BM25;
-$select = "";
 for ( $i=0; $i<count($args); $i++ )
 {
 	$arg = $args[$i];
@@ -77,7 +75,6 @@ for ( $i=0; $i<count($args); $i++ )
 	else if ( $arg=="-gs"|| $arg=="--groupsort" )	$groupsort = $args[++$i];
 	else if ( $arg=="-d" || $arg=="--distinct" )	$distinct = $args[++$i];
 	else if ( $arg=="-l" || $arg=="--limit" )		$limit = (int)$args[++$i];
-	else if ( $arg=="--select" )					$select = $args[++$i];
 	else if ( $arg=="-r" )
 	{
 		$arg = strtolower($args[++$i]);
@@ -95,6 +92,7 @@ for ( $i=0; $i<count($args); $i++ )
 
 $cl = new SphinxClient ();
 $cl->SetServer ( $host, $port );
+$cl->SetConnectTimeout ( 1 );
 $cl->SetWeights ( array ( 100, 1 ) );
 $cl->SetMatchMode ( $mode );
 if ( count($filtervals) )	$cl->SetFilter ( $filter, $filtervals );
@@ -102,7 +100,6 @@ if ( $groupby )				$cl->SetGroupBy ( $groupby, SPH_GROUPBY_ATTR, $groupsort );
 if ( $sortby )				$cl->SetSortMode ( SPH_SORT_EXTENDED, $sortby );
 if ( $sortexpr )			$cl->SetSortMode ( SPH_SORT_EXPR, $sortexpr );
 if ( $distinct )			$cl->SetGroupDistinct ( $distinct );
-if ( $select )				$cl->SetSelect ( $select );
 if ( $limit )				$cl->SetLimits ( 0, $limit, ( $limit>1000 ) ? $limit : 1000 );
 $cl->SetRankingMode ( $ranker );
 $cl->SetArrayResult ( true );

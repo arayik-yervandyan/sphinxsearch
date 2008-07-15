@@ -674,7 +674,7 @@ protected:
 
 	bool				Error ( const char * sTemplate, ... );
 	void				Warning ( const char * sTemplate, ... );
-	bool				ParseFields ( DWORD & uFields, int & iMaxFieldPos, ISphTokenizer * pTokenizer, const CSphSchema * pSchema );
+	bool				ParseFields ( DWORD & uFields, ISphTokenizer * pTokenizer, const CSphSchema * pSchema );
 	bool				AddField ( DWORD & uFields, const char * szField, int iLen, const CSphSchema * pSchema );
 
 	void				PushNode ();					///< push new empty node onto stack
@@ -883,10 +883,9 @@ bool CSphExtendedQueryParser::AddField ( DWORD & uFields, const char * szField, 
 }
 
 
-bool CSphExtendedQueryParser::ParseFields ( DWORD & uFields, int & iMaxFieldPos, ISphTokenizer * pTokenizer, const CSphSchema * pSchema )
+bool CSphExtendedQueryParser::ParseFields ( DWORD & uFields, ISphTokenizer * pTokenizer, const CSphSchema * pSchema )
 {
 	uFields = 0;
-	iMaxFieldPos = 0;
 
 	if ( m_dStack.GetLength() )
 		return Error ( "field specification is only allowed at top level" );
@@ -918,6 +917,7 @@ bool CSphExtendedQueryParser::ParseFields ( DWORD & uFields, int & iMaxFieldPos,
 	{
 		// handle @(
 		bBlock = true; pPtr++;
+
 	}
 
 	// handle invalid chars
@@ -928,10 +928,9 @@ bool CSphExtendedQueryParser::ParseFields ( DWORD & uFields, int & iMaxFieldPos,
 	}
 	assert ( sphIsAlpha(*pPtr) ); // i think i'm paranoid
 
-	// handle field specification
+	// handle standalone field specification
 	if ( !bBlock )
 	{
-		// handle standalone field specification
 		const char * pFieldStart = pPtr;
 		while ( sphIsAlpha(*pPtr) && pPtr<pLastPtr )
 			pPtr++;
@@ -943,77 +942,54 @@ bool CSphExtendedQueryParser::ParseFields ( DWORD & uFields, int & iMaxFieldPos,
 		pTokenizer->SetBufferPtr ( pPtr );
 		if ( bNegate && uFields )
 			uFields = ~uFields;
-
-	} else
-	{
-		// handle fields block specification
-		assert ( sphIsAlpha(*pPtr) && bBlock ); // and complicated
-
-		bool bOK = false;
-		const char * pFieldStart = NULL;
-		while ( pPtr<pLastPtr )
-		{
-			// accumulate field name, while we can
-			if ( sphIsAlpha(*pPtr) )
-			{
-				if ( !pFieldStart )
-					pFieldStart = pPtr;
-				pPtr++;
-				continue;
-			}
-
-			// separator found
-			if ( pFieldStart==NULL )
-			{
-				return Error ( "separator without preceding field name in field block operator", *pPtr );
-
-			} if ( *pPtr==',' )
-			{
-				if ( !AddField ( uFields, pFieldStart, pPtr-pFieldStart, pSchema ) )
-					return false;
-
-				pFieldStart = NULL;
-				pPtr++;
-
-			} else if ( *pPtr==')' )
-			{
-				if ( !AddField ( uFields, pFieldStart, pPtr-pFieldStart, pSchema ) )
-					return false;
-
-				pTokenizer->SetBufferPtr ( ++pPtr );
-				if ( bNegate && uFields )
-					uFields = ~uFields;
-
-				bOK = true;
-				break;
-
-			} else
-			{
-				return Error ( "invalid character '%c' in field block operator", *pPtr );
-			}
-		}
-		if ( !bOK )
-			return Error ( "missing closing ')' in field block operator" );
+		return true;
 	}
 
-	// handle optional position range modifier
-	if ( pPtr[0]=='[' && isdigit(pPtr[1]) )
-	{
-		// skip '[' and digits
-		const char * p = pPtr+1;
-		while ( *p && isdigit(*p) ) p++;
+	// handle fields block specification
+	assert ( sphIsAlpha(*pPtr) && bBlock ); // and complicated
 
-		// check that the range ends with ']' (FIXME! maybe report an error if it does not?)
-		if ( *p!=']' )
+	const char * pFieldStart = NULL;
+	while ( pPtr<pLastPtr )
+	{
+		// accumulate field name, while we can
+		if ( sphIsAlpha(*pPtr) )
+		{
+			if ( !pFieldStart )
+				pFieldStart = pPtr;
+			pPtr++;
+			continue;
+		}
+
+		// separator found
+		if ( pFieldStart==NULL )
+		{
+			return Error ( "separator without preceding field name in field block operator", *pPtr );
+
+		} if ( *pPtr==',' )
+		{
+			if ( !AddField ( uFields, pFieldStart, pPtr-pFieldStart, pSchema ) )
+				return false;
+
+			pFieldStart = NULL;
+			pPtr++;
+
+		} else if ( *pPtr==')' )
+		{
+			if ( !AddField ( uFields, pFieldStart, pPtr-pFieldStart, pSchema ) )
+				return false;
+
+			pTokenizer->SetBufferPtr ( pPtr+1 );
+			if ( bNegate && uFields )
+				uFields = ~uFields;
 			return true;
 
-		// fetch my value
-		iMaxFieldPos = strtoul ( pPtr+1, NULL, 10 );
-		pTokenizer->SetBufferPtr ( p+1 );
+		} else
+		{
+			return Error ( "invalid character '%c' in field block operator", *pPtr );
+		}
 	}
 
-	// well done
-	return true;
+	return Error ( "missing closing ')' in field block operator" );
 }
 
 
@@ -1087,7 +1063,6 @@ bool CSphExtendedQueryParser::Parse ( CSphExtendedQuery & tParsed, const char * 
 
 	bool bAny = false;
 	DWORD uFields = 0xFFFFFFFF;
-	int iMaxFieldPos = 0;
 	int iAtomPos = 0;
 
 	bool bRedo = false;
@@ -1231,7 +1206,6 @@ bool CSphExtendedQueryParser::Parse ( CSphExtendedQuery & tParsed, const char * 
 			PushNode ();
 			m_dStack.Last().m_bAny = bAny;
 			m_dStack.Last().m_pNode->m_tAtom.m_uFields = uFields;
-			m_dStack.Last().m_pNode->m_tAtom.m_iMaxFieldPos = iMaxFieldPos;
 			m_dStack.Last().m_pNode->m_tAtom.m_dWords.Add ( tAW );
 			bAny = false;
 			PopNode ();
@@ -1246,7 +1220,7 @@ bool CSphExtendedQueryParser::Parse ( CSphExtendedQuery & tParsed, const char * 
 
 		if ( iSpecial=='@' )
 		{
-			if ( !ParseFields ( uFields, iMaxFieldPos, pMyTokenizer.Ptr (), pSchema ) )
+			if ( !ParseFields ( uFields, pMyTokenizer.Ptr (), pSchema ) )
 				return false;
 
 			if ( pSchema->m_dFields.GetLength () != 32 )
@@ -1335,7 +1309,6 @@ bool CSphExtendedQueryParser::Parse ( CSphExtendedQuery & tParsed, const char * 
 				PushNode ();
 				m_dStack.Last().m_bAny = bAny;
 				m_dStack.Last().m_pNode->m_tAtom.m_uFields = uFields;
-				m_dStack.Last().m_pNode->m_tAtom.m_iMaxFieldPos = iMaxFieldPos;
 				m_dStack.Last().m_pNode->m_tAtom.m_iMaxDistance = 0;
 				bAny = false;
 				dState.Add ( XQS_PHRASE );

@@ -4,16 +4,14 @@
 %error-verbose
 
 %union {
-	int				iConst;			// constant value
-	float			fConst;			// constant value
+	float			fNumber;		// constant value
 	int				iAttrLocator;	// attribute locator (rowitem for int/float; offset+size for bits)
 	int				iFunc;			// function id
 	Docinfo_e		eDocinfo;		// docinfo entry id
 	int				iNode;			// node index
 };
 
-%token <iConst>			TOK_CONST_INT
-%token <fConst>			TOK_CONST_FLOAT
+%token <fNumber>		TOK_NUMBER
 %token <iAttrLocator>	TOK_ATTR_INT
 %token <iAttrLocator>	TOK_ATTR_BITS
 %token <iAttrLocator>	TOK_ATTR_FLOAT
@@ -37,8 +35,7 @@ exprline:
 	;
 
 expr:
-	TOK_CONST_INT					{ $$ = pParser->AddNodeInt ( $1 ); }
-	| TOK_CONST_FLOAT				{ $$ = pParser->AddNodeFloat ( $1 ); }
+	TOK_NUMBER						{ $$ = pParser->AddNodeNumber ( $1 ); }
 	| TOK_ATTR_INT					{ $$ = pParser->AddNodeAttr ( TOK_ATTR_INT, $1 ); }
 	| TOK_ATTR_BITS					{ $$ = pParser->AddNodeAttr ( TOK_ATTR_BITS, $1 ); }
 	| TOK_ATTR_FLOAT				{ $$ = pParser->AddNodeAttr ( TOK_ATTR_FLOAT, $1 ); }
