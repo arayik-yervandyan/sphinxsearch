@@ -617,34 +617,30 @@ class SphinxConfig
 	}
 
 
-	function CompareResultSetFixup ( &$set )
-	{
-		if ( !is_array($set) )
-			return;
-
-		unset ( $set["time"] );
-		unset ( $set["warning"] );
-		unset ( $set["status"] );
-		unset ( $set["fields"] );
-	}
-
-	function CompareResultSets ( $set1, $set2 )
-	{
-		$this->CompareResultSetFixup ( $set1 );
-		$this->CompareResultSetFixup ( $set2 );
-		return $set1==$set2;
-	}
-
 	function CompareResults ( $query1, $query2 )
 	{
 		if ( count($query1)!=count($query2) )
 			return false;
 
 		for ( $i=0; $i<count($query1); $i++ )
-			if ( !$this->CompareResultSets ( $query1[$i], $query2[$i] ) )
-				return false;
+		{
+			if ( is_array($query1[$i]) )
+			{
+				unset ( $query1[$i]["time"] );
+				unset ( $query1[$i]["warning"] );
+				unset ( $query1[$i]["status"] );
+				unset ( $query1[$i]["fields"] );
+			}
+			if ( is_array($query2[$i]) )
+			{
+				unset ( $query2[$i]["time"] );
+				unset ( $query2[$i]["warning"] );
+				unset ( $query2[$i]["status"] );
+				unset ( $query2[$i]["fields"] );
+			}
+		}
 
-		return true;
+		return $query1==$query2;
 	}
 
 
@@ -805,7 +801,7 @@ class SphinxConfig
 
 		foreach ( $this->_results_model [ $this->SubtestNo() ] as $ref )
 		{
-			if ( $this->CompareResultSets ( $ref, $this->_results[$nquery] ) )
+			if ( $ref==$this->_results[$nquery] )
 			{
 				$nquery++;
 				continue;
@@ -813,6 +809,7 @@ class SphinxConfig
 
 			$result_f_cur = $this->FormatResultSet ( $nquery + 1, $this->_results[$nquery] );
 			$result_f_ref = $this->FormatResultSet ( $nquery + 1, $ref );
+
 			file_put_contents ( "current", $result_f_cur );
 			file_put_contents ( "reference", $result_f_ref );
 			system ( "diff --unified=3 reference current > diffed.txt" );
@@ -830,13 +827,13 @@ class SphinxConfig
 	}
 
 
-	function WriteConfig ( $filename, $agentid )
+	function WriteConfig ( $filename )
 	{
 		$fp = fopen ( $filename, 'w' );
 		if ( !$fp )
 			return FALSE;
 
-		$this->Dump ( $this->_config, $fp, false, $agentid );
+		$this->Dump ( $this->_config, $fp, false );
 	
 		fclose ( $fp );
 	
@@ -846,7 +843,7 @@ class SphinxConfig
 
 	function WriteDiff ( $fp )
 	{
-		$this->Dump ( $this->_config, $fp, true, "all" );
+		$this->Dump ( $this->_config, $fp, true );
 	}
 
 
@@ -861,13 +858,14 @@ class SphinxConfig
 	{
 		global $sd_log, $sd_query_log, $sd_read_timeout, $sd_max_children, $sd_pid_file, $sd_max_matches;
 
-		fwrite ( $fp, "\tlisten			= {$this->_sd_address}:{$this->_sd_port}\n" );
-		fwrite ( $fp, "\tlog			= $sd_log\n" );
+		fwrite ( $fp, "\taddress			= ".$this->_sd_address."\n" );
+		fwrite ( $fp, "\tport			= ".$this->_sd_port."\n" );
+		fwrite ( $fp, "\tlog				= $sd_log\n" );
 		fwrite ( $fp, "\tquery_log		= $sd_query_log\n" );
 		fwrite ( $fp, "\tread_timeout	= $sd_read_timeout\n" );
 		fwrite ( $fp, "\tmax_children	= $sd_max_children\n" );
 		fwrite ( $fp, "\tpid_file		= ".$this->_sd_pid_file."\n" );
-		fwrite ( $fp, "\tmax_matches	= $sd_max_matches\n" );
+		fwrite ( $fp, "\tmax_matches		= $sd_max_matches\n" );
 	}
 
 	function WriteSqlSettings ( $fp )
@@ -882,7 +880,7 @@ class SphinxConfig
 	}
 
 
-	function Dump ( $node, $fp, $dynamic_only, $agentid )
+	function Dump ( $node, $fp, $dynamic_only )
 	{
 		global $index_data_path, $agent_address, $agent_port;
 
@@ -897,27 +895,24 @@ class SphinxConfig
 			case "data_path":			fwrite ( $fp, $index_data_path ); return;
 		}
 
-		$nodename = strtolower ( $node->nodeName );
-		if ( $nodename=="variant" )
+		switch ( strtolower ( $node->nodeName ) )
 		{
-			fwrite ( $fp, "$node->nodeValue\n" );
+			case "variant":
+				fwrite ( $fp, "$node->nodeValue\n" );
+				break;
 
-		} else if ( $nodename=="dynamic" )
-		{
-			if ( !is_null($node->id) )
-			{
-				$variants = ChildrenArray ( $node,"variant" );
-				$this->Dump ( $variants[$this->_counters[$node->id]], $fp, $dynamic_only, $agentid );
-			}
-		} else if ( strpos ( $nodename, "agent" )===0 )
-		{
-				if ( $agentid==="all" || $nodename=="agent$agentid" )
-					foreach ( ChildrenArray($node) as $child )
-						$this->Dump ( $child, $fp, $dynamic_only, $agentid );
-		} else
-		{
+			case "dynamic":
+				if ( !is_null($node->id) )
+				{
+					$variants = ChildrenArray ( $node,"variant" );
+					$this->Dump ( $variants[$this->_counters[$node->id]], $fp, $dynamic_only );
+				}
+				break;
+
+			default:
 				foreach ( ChildrenArray($node) as $child )
-					$this->Dump ( $child, $fp, $dynamic_only, $agentid );
+					$this->Dump ( $child, $fp, $dynamic_only );
+			break;
 		}
 	}
 }
@@ -1000,8 +995,8 @@ function RunTest ( $test_dir )
 		$config->WriteReportHeader ( $report );
 
 		$config->SetAgent ( $agents [0] );
-		$config->WriteConfig ( $conf_dir."/"."config_".$config->SubtestNo ().".conf", "all" );
-		$config->WriteConfig ( "config.conf", "all" );
+		$config->WriteConfig ( $conf_dir."/"."config_".$config->SubtestNo ().".conf" );
+		$config->WriteConfig ( "config.conf" );
 
 		EraseDirContents ( $indexer_data_path );
 
@@ -1060,8 +1055,9 @@ function RunTest ( $test_dir )
 
 				$config->SetAgent ( $agents [$i] );
 				$config->SetPIDFile ( $pid_file );
-				$config->WriteConfig ( $config_file, $i );
+				$config->WriteConfig ( $config_file );
 
+				
 				$searchd_ret = StartSearchd ( $config_file, "error_$i.txt", $pid_file, $error );
 
 				if ( $searchd_ret == 1 )

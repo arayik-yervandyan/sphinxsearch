@@ -60,22 +60,12 @@ public:
 		return pEntry ? pEntry->intval() : iDefault;
 	}
 
-	/// get float option value by key and default value
-	float GetFloat ( const char * sKey, float fDefault=0.0f ) const
-	{
-		CSphVariant * pEntry = (*this)( sKey );
-		return pEntry ? pEntry->floatval() : fDefault;
-	}
-
 	/// get string option value by key and default value
 	const char * GetStr ( const char * sKey, const char * sDefault="" ) const
 	{
 		CSphVariant * pEntry = (*this)( sKey );
 		return pEntry ? pEntry->cstr() : sDefault;
 	}
-
-	/// get size option (plain int, or with K/M prefix) value by key and default value
-	int GetSize ( const char * sKey, int iDefault ) const;
 };
 
 /// config section type (hash of sections)
@@ -119,24 +109,8 @@ protected:
 
 /////////////////////////////////////////////////////////////////////////////
 
-enum
-{
-	 TOKENIZER_SBCS		= 1
-	,TOKENIZER_UTF8		= 2
-	,TOKENIZER_NGRAM	= 3
-};
-
-/// configure tokenizer from index definition section
-bool	sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings & tSettings, CSphString & sError );
-
-/// configure dictionary from index definition section
-void	sphConfDictionary ( const CSphConfigSection & hIndex, CSphDictSettings & tSettings );
-
-/// configure index from index definition section
-void	sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSettings );
-
-/// try to set dictionary, tokenizer and misc settings for an index (if not already set)
-bool	sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hIndex, CSphString & sError );
+/// create and configure tokenizer from index definition section
+ISphTokenizer *		sphConfTokenizer ( const CSphConfigSection & hIndex, CSphString & sError );
 
 #endif // _sphinxutils_
 

@@ -283,30 +283,14 @@ void operator delete [] ( void * pPtr )
 // HELPERS
 /////////////////////////////////////////////////////////////////////////////
 
-static SphDieCallback_t g_pfDieCallback = NULL;
-
-
-void sphSetDieCallback ( SphDieCallback_t pfDieCallback )
-{
-	g_pfDieCallback = pfDieCallback;
-}
-
-
 void sphDie ( const char * sTemplate, ... )
 {
-	char sBuf[256];
-
 	va_list ap;
 	va_start ( ap, sTemplate );
-	vsnprintf ( sBuf, sizeof(sBuf), sTemplate, ap );
+	fprintf ( stdout, "FATAL: " );
+	vfprintf ( stdout, sTemplate, ap );
+	fprintf ( stdout, "\n" );
 	va_end ( ap );
-
-	// if there's no callback,
-	// or if callback returns true,
-	// log to stdout
-	if ( !g_pfDieCallback || g_pfDieCallback ( sBuf ) )
-		fprintf ( stdout, "FATAL: %s\n", sBuf );
-
 	exit ( 1 );
 }
 

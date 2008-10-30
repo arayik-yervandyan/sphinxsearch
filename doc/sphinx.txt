@@ -1,5 +1,5 @@
-Sphinx 0.9.8 reference manual
-=============================
+Sphinx 0.9.8.1 reference manual
+===============================
 
 Free open-source SQL full-text search engine
 --------------------------------------------
@@ -21,10 +21,9 @@ Table of Contents
 2. Installation
    2.1. Supported systems
    2.2. Required tools
-   2.3. Installing Sphinx on Linux
-   2.4. Installing Sphinx on Windows
-   2.5. Known installation issues
-   2.6. Quick Sphinx usage tour
+   2.3. Installing Sphinx
+   2.4. Known installation issues
+   2.5. Quick Sphinx usage tour
 
 3. Indexing
    3.1. Data sources
@@ -49,156 +48,142 @@ Table of Contents
    4.7. Distributed searching
    4.8. searchd query log format
 
-5. Command line tools reference
-   5.1. indexer command reference
-   5.2. searchd command reference
-   5.3. search command reference
-   5.4. spelldump command reference
+5. API reference
+   5.1. General API functions
+      5.1.1. GetLastError
+      5.1.2. GetLastWarning
+      5.1.3. SetServer
+      5.1.4. SetRetries
+      5.1.5. SetArrayResult
 
-6. API reference
-   6.1. General API functions
-      6.1.1. GetLastError
-      6.1.2. GetLastWarning
-      6.1.3. SetServer
-      6.1.4. SetRetries
-      6.1.5. SetConnectTimeout
-      6.1.6. SetArrayResult
+   5.2. General query settings
+      5.2.1. SetLimits
+      5.2.2. SetMaxQueryTime
 
-   6.2. General query settings
-      6.2.1. SetLimits
-      6.2.2. SetMaxQueryTime
+   5.3. Full-text search query settings
+      5.3.1. SetMatchMode
+      5.3.2. SetRankingMode
+      5.3.3. SetSortMode
+      5.3.4. SetWeights
+      5.3.5. SetFieldWeights
+      5.3.6. SetIndexWeights
 
-   6.3. Full-text search query settings
-      6.3.1. SetMatchMode
-      6.3.2. SetRankingMode
-      6.3.3. SetSortMode
-      6.3.4. SetWeights
-      6.3.5. SetFieldWeights
-      6.3.6. SetIndexWeights
+   5.4. Result set filtering settings
+      5.4.1. SetIDRange
+      5.4.2. SetFilter
+      5.4.3. SetFilterRange
+      5.4.4. SetFilterFloatRange
+      5.4.5. SetGeoAnchor
 
-   6.4. Result set filtering settings
-      6.4.1. SetIDRange
-      6.4.2. SetFilter
-      6.4.3. SetFilterRange
-      6.4.4. SetFilterFloatRange
-      6.4.5. SetGeoAnchor
+   5.5. GROUP BY settings
+      5.5.1. SetGroupBy
+      5.5.2. SetGroupDistinct
 
-   6.5. GROUP BY settings
-      6.5.1. SetGroupBy
-      6.5.2. SetGroupDistinct
+   5.6. Querying
+      5.6.1. Query
+      5.6.2. AddQuery
+      5.6.3. RunQueries
+      5.6.4. ResetFilters
+      5.6.5. ResetGroupBy
 
-   6.6. Querying
-      6.6.1. Query
-      6.6.2. AddQuery
-      6.6.3. RunQueries
-      6.6.4. ResetFilters
-      6.6.5. ResetGroupBy
+   5.7. Additional functionality
+      5.7.1. BuildExcerpts
+      5.7.2. UpdateAttributes
+      5.7.3. BuildKeywords
+      5.7.4. EscapeString
 
-   6.7. Additional functionality
-      6.7.1. BuildExcerpts
-      6.7.2. UpdateAttributes
-      6.7.3. BuildKeywords
-      6.7.4. EscapeString
+6. MySQL storage engine (SphinxSE)
+   6.1. SphinxSE overview
+   6.2. Installing SphinxSE
+      6.2.1. Compiling MySQL 5.0.x with SphinxSE
+      6.2.2. Compiling MySQL 5.1.x with SphinxSE
+      6.2.3. Checking SphinxSE installation
 
-   6.8. Persistent connections
-      6.8.1. Open
-      6.8.2. Close
+   6.3. Using SphinxSE
 
-7. MySQL storage engine (SphinxSE)
-   7.1. SphinxSE overview
-   7.2. Installing SphinxSE
-      7.2.1. Compiling MySQL 5.0.x with SphinxSE
-      7.2.2. Compiling MySQL 5.1.x with SphinxSE
-      7.2.3. Checking SphinxSE installation
+7. Reporting bugs
+8. sphinx.conf options reference
+   8.1. Data source configuration options
+      8.1.1. type
+      8.1.2. sql_host
+      8.1.3. sql_port
+      8.1.4. sql_user
+      8.1.5. sql_pass
+      8.1.6. sql_db
+      8.1.7. sql_sock
+      8.1.8. mysql_connect_flags
+      8.1.9. sql_query_pre
+      8.1.10. sql_query
+      8.1.11. sql_query_range
+      8.1.12. sql_range_step
+      8.1.13. sql_attr_uint
+      8.1.14. sql_attr_bool
+      8.1.15. sql_attr_timestamp
+      8.1.16. sql_attr_str2ordinal
+      8.1.17. sql_attr_float
+      8.1.18. sql_attr_multi
+      8.1.19. sql_query_post
+      8.1.20. sql_query_post_index
+      8.1.21. sql_ranged_throttle
+      8.1.22. sql_query_info
+      8.1.23. xmlpipe_command
+      8.1.24. xmlpipe_field
+      8.1.25. xmlpipe_attr_uint
+      8.1.26. xmlpipe_attr_bool
+      8.1.27. xmlpipe_attr_timestamp
+      8.1.28. xmlpipe_attr_str2ordinal
+      8.1.29. xmlpipe_attr_float
+      8.1.30. xmlpipe_attr_multi
 
-   7.3. Using SphinxSE
+   8.2. Index configuration options
+      8.2.1. type
+      8.2.2. source
+      8.2.3. path
+      8.2.4. docinfo
+      8.2.5. mlock
+      8.2.6. morphology
+      8.2.7. stopwords
+      8.2.8. wordforms
+      8.2.9. exceptions
+      8.2.10. min_word_len
+      8.2.11. charset_type
+      8.2.12. charset_table
+      8.2.13. ignore_chars
+      8.2.14. min_prefix_len
+      8.2.15. min_infix_len
+      8.2.16. prefix_fields
+      8.2.17. infix_fields
+      8.2.18. enable_star
+      8.2.19. ngram_len
+      8.2.20. ngram_chars
+      8.2.21. phrase_boundary
+      8.2.22. phrase_boundary_step
+      8.2.23. html_strip
+      8.2.24. html_index_attrs
+      8.2.25. html_remove_elements
+      8.2.26. local
+      8.2.27. agent
+      8.2.28. agent_connect_timeout
+      8.2.29. agent_query_timeout
+      8.2.30. preopen
 
-8. Reporting bugs
-9. sphinx.conf options reference
-   9.1. Data source configuration options
-      9.1.1. type
-      9.1.2. sql_host
-      9.1.3. sql_port
-      9.1.4. sql_user
-      9.1.5. sql_pass
-      9.1.6. sql_db
-      9.1.7. sql_sock
-      9.1.8. mysql_connect_flags
-      9.1.9. sql_query_pre
-      9.1.10. sql_query
-      9.1.11. sql_query_range
-      9.1.12. sql_range_step
-      9.1.13. sql_attr_uint
-      9.1.14. sql_attr_bool
-      9.1.15. sql_attr_timestamp
-      9.1.16. sql_attr_str2ordinal
-      9.1.17. sql_attr_float
-      9.1.18. sql_attr_multi
-      9.1.19. sql_query_post
-      9.1.20. sql_query_post_index
-      9.1.21. sql_ranged_throttle
-      9.1.22. sql_query_info
-      9.1.23. xmlpipe_command
-      9.1.24. xmlpipe_field
-      9.1.25. xmlpipe_attr_uint
-      9.1.26. xmlpipe_attr_bool
-      9.1.27. xmlpipe_attr_timestamp
-      9.1.28. xmlpipe_attr_str2ordinal
-      9.1.29. xmlpipe_attr_float
-      9.1.30. xmlpipe_attr_multi
+   8.3. indexer program configuration options
+      8.3.1. mem_limit
+      8.3.2. max_iops
+      8.3.3. max_iosize
 
-   9.2. Index configuration options
-      9.2.1. type
-      9.2.2. source
-      9.2.3. path
-      9.2.4. docinfo
-      9.2.5. mlock
-      9.2.6. morphology
-      9.2.7. stopwords
-      9.2.8. wordforms
-      9.2.9. exceptions
-      9.2.10. min_word_len
-      9.2.11. charset_type
-      9.2.12. charset_table
-      9.2.13. ignore_chars
-      9.2.14. min_prefix_len
-      9.2.15. min_infix_len
-      9.2.16. prefix_fields
-      9.2.17. infix_fields
-      9.2.18. enable_star
-      9.2.19. ngram_len
-      9.2.20. ngram_chars
-      9.2.21. phrase_boundary
-      9.2.22. phrase_boundary_step
-      9.2.23. html_strip
-      9.2.24. html_index_attrs
-      9.2.25. html_remove_elements
-      9.2.26. local
-      9.2.27. agent
-      9.2.28. agent_connect_timeout
-      9.2.29. agent_query_timeout
-      9.2.30. preopen
-
-   9.3. indexer program configuration options
-      9.3.1. mem_limit
-      9.3.2. max_iops
-      9.3.3. max_iosize
-
-   9.4. searchd program configuration options
-      9.4.1. listen
-      9.4.2. address
-      9.4.3. port
-      9.4.4. log
-      9.4.5. query_log
-      9.4.6. read_timeout
-      9.4.7. client_timeout
-      9.4.8. max_children
-      9.4.9. pid_file
-      9.4.10. max_matches
-      9.4.11. seamless_rotate
-      9.4.12. preopen_indexes
-      9.4.13. unlink_old
-      9.4.14. attr_flush_period
+   8.4. searchd program configuration options
+      8.4.1. address
+      8.4.2. port
+      8.4.3. log
+      8.4.4. query_log
+      8.4.5. read_timeout
+      8.4.6. max_children
+      8.4.7. pid_file
+      8.4.8. max_matches
+      8.4.9. seamless_rotate
+      8.4.10. preopen_indexes
+      8.4.11. unlink_old
 
 A. Sphinx revision history
 
@@ -267,9 +252,6 @@ Currently, Sphinx distribution tarball includes the following software:
      applications) to search through fulltext indexes;
    * sphinxapi: a set of searchd client API libraries for popular Web
      scripting languages (PHP, Python, Perl, Ruby).
-   * spelldump: a simple command-line tool to extract the items from an
-     ispell dictionary to help customize your index, for use with
-     wordforms.
 
 1.4. License
 ------------
@@ -391,13 +373,13 @@ Other compilers/environments will probably work as well, but for the time
 being, you will have to build makefile (or other environment specific
 project files) manually.
 
-2.3. Installing Sphinx on Linux
--------------------------------
+2.3. Installing Sphinx
+----------------------
 
    1. Extract everything from the distribution tarball (haven't you
       already?) and go to the sphinx subdirectory:
 
-      | $ tar xzvf sphinx-0.9.8.tar.gz
+      | $ tar xzvf sphinx-0.9.7.tar.gz
       | $ cd sphinx
 
    2. Run the configuration program:
@@ -407,8 +389,7 @@ project files) manually.
       There's a number of options to configure. The complete listing may be
       obtained by using --help switch. The most important ones are:
 
-      * --prefix, which specifies where to install Sphinx; such as
-        --prefix=/usr/local/sphinx (all of the examples use this prefix)
+      * --prefix, which specifies where to install Sphinx;
       * --with-mysql, which specifies where to look for MySQL include and
         library files, if auto-detection fails;
       * --with-pgsql, which specifies where to look for PostgreSQL include
@@ -418,43 +399,11 @@ project files) manually.
 
       | $ make
 
-   4. Install the binaries in the directory of your choice: (defaults to
-      /usr/local/bin/ on *nix systems, but is overridden with configure
-      --prefix)
+   4. Install the binaries in the directory of your choice:
 
       | $ make install
 
-2.4. Installing Sphinx on Windows
----------------------------------
-
-Installing Sphinx on a Windows server is often easier than installing on
-a Linux environment; unless you are preparing code patches, you can use the
-pre-compiled binary files from the Downloads area on the website.
-
-   1. Extract everything from the .zip file you have downloaded -
-      sphinx-0.9.8-win32.zip (or sphinx-0.9.8-win32-pgsql.zip if you need
-      PostgresSQL support as well.) You can use Windows Explorer in Windows
-      XP and up to extract the files, or a freeware package like 7Zip to
-      open the archive.
-
-      For the remainder of this guide, we will assume that the folders are
-      unzipped into C:\Sphinx, such that searchd.exe can be found in
-      C:\Sphinx\bin\searchd.exe. If you decide to use any different
-      location for the folders or configuration file, please change it
-      accordingly.
-
-   2. Install the searchd system as a Windows service:
-
-      C:\Sphinx> C:\Sphinx\searchd --install --config C:\Sphinx\sphinx.conf
-      --servicename SphinxSearch
-
-   3. The searchd service will now be listed in the Services panel within
-      the Management Console, available from Administrative Tools. It will
-      not have been started, as you will need to configure it and build
-      your indexes with indexer before starting the service. A guide to do
-      this can be found under Quick tour.
-
-2.5. Known installation issues
+2.4. Known installation issues
 ------------------------------
 
 If configure fails to locate MySQL headers and/or libraries, try checking
@@ -484,12 +433,11 @@ I could properly fix them in next releases.
 If you keep getting any other error, or the suggestions above do not seem
 to help you, please don't hesitate to contact me.
 
-2.6. Quick Sphinx usage tour
+2.5. Quick Sphinx usage tour
 ----------------------------
 
 All the example commands below assume that you installed Sphinx in
-/usr/local/sphinx, so searchd can be found in
-/usr/local/sphinx/bin/searchd.
+/usr/local/sphinx.
 
 To use Sphinx, you will need to:
 
@@ -500,8 +448,7 @@ To use Sphinx, you will need to:
 
       Sample configuration file, sphinx.conf.dist, which has all the
       options documented, is created by configure. Copy and edit that
-      sample file to make your own configuration: (assuming Sphinx is
-      installed into /usr/local/sphinx/)
+      sample file to make your own configuration:
 
       | $ cd /usr/local/sphinx/etc
       | $ cp sphinx.conf.dist sphinx.conf
@@ -586,27 +533,13 @@ allows to attach a number of additional attributes to each document, and
 store their values in the full-text index. It's then possible to use stored
 values to filter, sort, or group full-text matches.
 
-Attributes, unlike the fields, are not full-text indexed. They are stored
-in the index, but it is not possible to search them as full-text, and
-attempting to do so results in an error.
-
-For example, it is impossible to use the extended matching mode expression
-@column 1 to match documents where column is 1, if column is an attribute,
-and this is still true even if the numeric digits are normally indexed.
-
-Attributes can be used for filtering, though, to restrict returned rows, as
-well as sorting or result grouping; it is entirely possible to sort results
-purely based on attributes, and ignore the search relevance tools.
-Additionally, attributes are returned from the search daemon, while the
-indexed text is not.
-
-A good example for attributes would be a forum posts table. Assume that
-only title and content fields need to be full-text searchable - but that
-sometimes it is also required to limit search to a certain author or
-a sub-forum (ie. search only those rows that have some specific values of
-author_id or forum_id columns in the SQL table); or to sort matches by
-post_date column; or to group matching posts by month of the post_date and
-calculate per-group match counts.
+A good example would be a forum posts table. Assume that only title and
+contentfields need to be full-text searchable - but that sometimes it is
+also required to limit search to a certain author or a sub-forum (ie.
+search only those rows that have some specific values of author_id or
+forum_id columns in the SQL table); or to sort matches by post_date column;
+or to group matching posts by month of the post_date and calculate
+per-group match counts.
 
 This can be achieved by specifying all the mentioned columns (excluding
 title and content, that are full-text fields) as attributes, indexing them,
@@ -788,18 +721,18 @@ submit your tables for other languages!
 With all the SQL drivers, indexing generally works as follows.
 
    * connection to the database is established;
-   * pre-query (see Section 9.1.9, <<sql_query_pre>>) is executed to
+   * pre-query (see Section 8.1.9, <<sql_query_pre>>) is executed to
      perform any necessary initial setup, such as setting per-connection
      encoding with MySQL;
-   * main query (see Section 9.1.10, <<sql_query>>) is executed and the
+   * main query (see Section 8.1.10, <<sql_query>>) is executed and the
      rows it returns are indexed;
-   * post-query (see Section 9.1.19, <<sql_query_post>>) is executed to
+   * post-query (see Section 8.1.19, <<sql_query_post>>) is executed to
      perform any necessary cleanup;
    * connection to the database is closed;
    * indexer does the sorting phase (to be pedantic, index-type specific
      post-processing);
    * connection to the database is established again;
-   * post-index query (see Section 9.1.20, <<sql_query_post_index>>) is
+   * post-index query (see Section 8.1.20, <<sql_query_post_index>>) is
      executed to perform any necessary final cleanup;
    * connection to the database is closed again.
 
@@ -986,7 +919,7 @@ sphinx:attr
       * "name", specifies the element name that should be treated as an
         attribute in the subsequent documents.
       * "type", specifies the attribute type. Possible values are "int",
-        "timestamp", "str2ordinal", "bool", "float" and "multi".
+        "timestamp", "str2ordinal", "bool", and "float".
       * "bits", specifies the bit size for "int" attribute type. Valid
         values are 1 to 32.
       * "default", specifies the default value for this attribute that
@@ -1124,35 +1057,20 @@ There are the following matching modes available:
    * SPH_MATCH_BOOLEAN, matches query as a boolean expression (see
      Section 4.2, <<Boolean query syntax>>);
    * SPH_MATCH_EXTENDED, matches query as an expression in Sphinx internal
-     query language (see Section 4.3, <<Extended query syntax>>). As of
-     0.9.9, this has been superceded by SPH_MATCH_EXTENDED2, providing
-     additional functionality and better performance. The ident is retained
-     for legacy application code that will continue to be compatible once
-     Sphinx and its components, including the API, are upgraded.
-   * SPH_MATCH_EXTENDED2, matches query using the second version of the
-     Extended matching mode.
-   * SPH_MATCH_FULLSCAN, matches query, forcibly using the "full scan" mode
-     as below. NB, any query terms will be ignored, such that filters,
-     filter-ranges and grouping will still be applied, but no
-     text-matching.
+     query language (see Section 4.3, <<Extended query syntax>>).
 
-The SPH_MATCH_FULLSCAN mode will be automatically activated in place of the
-specified matching mode when the following conditions are met:
+There also is a special "full scan" mode that will be automatically
+activated when the following conditions are met:
 
    1. The query string is empty (ie. its length is zero).
    2. docinfo storage is set to extern.
 
 In full scan mode, all the indexed documents will be considered as
-matching. Such queries will still apply filters, sorting, and group by, but
-will not perform any full-text searching. This can be useful to unify
+matching. Such queries will still apply filters, sorting, or group by, but
+will not perform any real full-text searching. This can be useful to unify
 full-text and non-full-text searching code, or to offload SQL server (there
 are cases when Sphinx scans will perform better than analogous MySQL
-queries). An example of using the full scan mode might be to find posts in
-a forum. By selecting the forum's user ID via SetFilter() but not actually
-providing any search text, Sphinx will match every document (i.e. every
-post) where SetFilter() would match - in this case providing every post
-from that user. By default this will be ordered by relevancy, followed by
-Sphinx document ID in ascending order (earliest first).
+queries).
 
 4.2. Boolean query syntax
 -------------------------
@@ -1214,14 +1132,6 @@ matching mode:
 
       | @title hello @body world
 
-   * multiple-field search operator:
-
-      | @(title, body) hello world
-
-   * all-field search operator:
-
-      | @* hello
-
    * phrase search operator:
 
       | "hello world"
@@ -1236,24 +1146,9 @@ matching mode:
 
 Here's an example query which uses most of these operators:
 
-Example 6. Extended matching mode: query example
+Example 6. Extended query example
 
-   | "hello world" @title "example program"~5 @body python -(php|perl) @* code
-
-The full meaning of this search is:
-
-   * Find the words 'hello' and 'world' adjacently in any field in
-     a document;
-   * Additionally, the same document must also contain the words 'example'
-     and 'program' in the title field, with up to, but not including, 10
-     words between the words in question; (E.g. "example PHP program" would
-     be matched however "example script to introduce outside data into the
-     correct context for your program" would not because two terms have 10
-     or more words between them)
-   * Additionally, the same document must contain the word 'python' in the
-     body field, but not contain either 'php' or 'perl';
-   * Additionally, the same document must contain the word 'code' in any
-     field.
+   | "hello world" @title "example program"~5 @body python -(php|perl)
 
 There always is implicit AND operator, so "hello world" means that both
 "hello" and "world" must be present in matching document.
@@ -1357,7 +1252,7 @@ matches by relevance rank. All other modes require an additional sorting
 clause, with the syntax depending on specific mode. SPH_SORT_ATTR_ASC,
 SPH_SORT_ATTR_DESC and SPH_SORT_TIME_SEGMENTS modes require simply an
 attribute name. SPH_SORT_RELEVANCE is equivalent to sorting by "@weight
-DESC, @id ASC" in extended sorting mode, SPH_SORT_ATTR_ASC is equivalent to
+DESC, @id ASC" in extended mode, SPH_SORT_ATTR_ASC is equivalent to
 "attribute ASC, @weight DESC, @id ASC", and SPH_SORT_ATTR_DESC to
 "attribute DESC, @weight DESC, @id ASC" respectively.
 
@@ -1408,7 +1303,6 @@ Known internal attributes are:
    * @weight (match weight)
    * @rank (match weight)
    * @relevance (match weight)
-   * @random (return results in random order)
 
 @rank and @relevance are just additional aliases to @weight.
 
@@ -1596,11 +1490,7 @@ Match mode can take one of the following values:
    * "any" for SPH_MATCH_ANY mode;
    * "phr" for SPH_MATCH_PHRASE mode;
    * "bool" for SPH_MATCH_BOOLEAN mode;
-   * "ext" for SPH_MATCH_EXTENDED mode;
-   * "ext2" for SPH_MATCH_EXTENDED2 mode;
-   * "scan" if the full scan mode was used, either by being specified with
-     SPH_MATCH_FULLSCAN, or if the query was empty (as documented under
-     Matching Modes)
+   * "ext" for SPH_MATCH_EXTENDED mode.
 
 Sort mode can take one of the following values:
 
@@ -1610,504 +1500,7 @@ Sort mode can take one of the following values:
    * "tsegs" for SPH_SORT_TIME_SEGMENTS mode;
    * "ext" for SPH_SORT_EXTENDED mode.
 
-Additionally, if searchd was started with --iostats, there will be a block
-of data after where the index(es) searched are listed.
-
-A query log entry might take the form of:
-
-   | [Fri Jun 29 21:17:58 2007] 0.004 sec [all/0/rel 35254 (0,20)] [lj] [ios=6 kb=111.1 ms=0.5] test
-
-This additional block is information regarding I/O operations in performing
-the search: the number of file I/O operations carried out, the amount of
-data in kilobytes read from the index files and time spent on I/O
-operations (although there is a background processing component, the bulk
-of this time is the I/O operation time)
-
-5. Command line tools reference
-===============================
-
-As mentioned elsewhere, Sphinx is not a single program called 'sphinx', but
-a collection of 4 separate programs which collectively form Sphinx. This
-section covers these tools and how to use them.
-
-5.1. indexer command reference
-------------------------------
-
-indexer is the first of the two principle tools as part of Sphinx. Invoked
-from either the command line directly, or as part of a larger script,
-indexer is solely responsible for gathering the data that will be
-searchable.
-
-The calling syntax for indexer is as follows:
-
-   | indexer [OPTIONS] [indexname1 [indexname2 [...]]]
-
-Essentially you would list the different possible indexes (that you would
-later make available to search) in sphinx.conf, so when calling indexer, as
-a minimum you need to be telling it what index (or indexes) you want to
-index.
-
-If sphinx.conf contained details on 2 indexes, mybigindex and mysmallindex,
-you could do the following:
-
-   | $ indexer mybigindex
-   | $ indexer mysmallindex mybigindex
-
-As part of the configuration file, sphinx.conf, you specify one or more
-indexes for your data. You might call indexer to reindex one of them,
-ad-hoc, or you can tell it to process all indexes - you are not limited to
-calling just one, or all at once, you can always pick some combination of
-the available indexes.
-
-The majority of the options for indexer are given in the configuration
-file, however there are some options you might need to specify on the
-command line as well, as they can affect how the indexing operation is
-performed. These options are:
-
-   * --config <file> (-c <file> for short) tells indexer to use the given
-     file as its configuration. Normally, it will look for sphinx.conf in
-     the installation directory (e.g. /usr/local/sphinx/etc/sphinx.conf if
-     installed into /usr/local/sphinx), followed by the current directory
-     you are in when calling indexer from the shell. This is most of use in
-     shared environments where the binary files are installed somewhere
-     like /usr/local/sphinx/ but you want to provide users with the ability
-     to make their own custom Sphinx set-ups, or if you want to run
-     multiple instances on a single server. In cases like those you could
-     allow them to create their own sphinx.conf files and pass them to
-     indexer with this option. For example:
-
-      | $ indexer --config /home/myuser/sphinx.conf myindex
-
-   * --all tells indexer to update every index listed in sphinx.conf,
-     instead of listing individual indexes. This would be useful in small
-     configurations, or cron-type or maintenance jobs where the entire
-     index set will get rebuilt each day, or week, or whatever period is
-     best. Example usage:
-
-      | $ indexer --config /home/myuser/sphinx.conf --all
-
-   * --rotate is used for rotating indexes. Unless you have the situation
-     where you can take the search function offline without troubling
-     users, you will almost certainly need to keep search running whilst
-     indexing new documents. --rotate creates a second index, parallel to
-     the first (in the same place, simply including .new in the filenames).
-     Once complete, indexer notifies searchd via sending the SIGHUP signal,
-     and searchd will attempt to rename the indexes (renaming the existing
-     ones to include .old and renaming the .new to replace them), and then
-     start serving from the newer files. Depending on the setting of
-     seamless_rotate, there may be a slight delay in being able to search
-     the newer indexes. Example usage:
-
-      | $ indexer --rotate --all
-
-   * --quiet tells indexer not to output anything, unless there is an
-     error. Again, most used for cron-type, or other script jobs where the
-     output is irrelevant or unnecessary, except in the event of some kind
-     of error. Example usage:
-
-      | $ indexer --rotate --all --quiet
-
-   * --noprogress does not display progress details as they occur; instead,
-     the final status details (such as documents indexed, speed of indexing
-     and so on are only reported at completion of indexing. In instances
-     where the script is not being run on a console (or 'tty'), this will
-     be on by default. Example usage:
-
-      | $ indexer --rotate --all --noprogress
-
-   * --buildstops <outputfile.text> <N> reviews the index source, as if it
-     were indexing the data, and produces a list of the terms that are
-     being indexed. In other words, it produces a list of all the
-     searchable terms that are becoming part of the index. Note; it does
-     not update the index in question, it simply processes the data 'as if'
-     it were indexing, including running queries defined with sql_query_pre
-     or sql_query_post. outputfile.txt will contain the list of words, one
-     per line, sorted by frequency with most frequent first, and
-     N specifies the maximum number of words that will be listed; if
-     sufficiently large to encompass every word in the index, only that
-     many words will be returned. Such a dictionary list could be used for
-     client application features around "Did you mean..." functionality,
-     usually in conjunction with --buildfreqs, below. Example:
-
-      | $ indexer myindex --buildstops word_freq.txt 1000
-
-     This would produce a document in the current directory, word_freq.txt
-     with the 1,000 most common words in 'myindex', ordered by most common
-     first. Note that the file will pertain to the last index indexed when
-     specified with multiple indexes or --all (i.e. the last one listed in
-     the configuration file)
-   * --buildfreqs works with --buildstops (and is ignored if --buildstops
-     is not specified). As --buildstops provides the list of words used
-     within the index, --buildfreqs adds the quantity present in the index,
-     which would be useful in establishing whether certain words should be
-     considered stopwords if they are too prevalent. It will also help with
-     developing "Did you mean..." features where you can how much more
-     common a given word compared to another, similar one. Example:
-
-      | $ indexer myindex --buildstops word_freq.txt 1000 --buildfreqs
-
-     This would produce the word_freq.txt as above, however after each word
-     would be the number of times it occurred in the index in question.
-   * --merge <dst-index> <src-index> is used for physically merging indexes
-     together, for example if you have a main+delta scheme, where the main
-     index rarely changes, but the delta index is rebuilt frequently, and
-     --merge would be used to combine the two. The operation moves from
-     right to left - the contents of src-index get examined and physically
-     combined with the contents of dst-index and the result is left in
-     dst-index. In pseudo-code, it might be expressed as: dst-index +=
-     src-index An example:
-
-      | $ indexer --merge main delta --rotate
-
-     In the above example, where the main is the master, rarely modified
-     index, and delta is the less frequently modified one, you might use
-     the above to call indexer to combine the contents of the delta into
-     the main index and rotate the indexes.
-   * --merge-dst-range <attr> <min> <max> runs the filter range given upon
-     merging. Specifically, as the merge is applied to the destination
-     index (as part of --merge, and is ignored if --merge is not
-     specified), indexer will also filter the documents ending up in the
-     destination index, and only documents will pass through the filter
-     given will end up in the final index. This could be used for example,
-     in an index where there is a 'deleted' attribute, where 0 means 'not
-     deleted'. Such an index could be merged with:
-
-      | $ indexer --merge main delta --merge-dst-range deleted 0 0
-
-     Any documents marked as deleted (value 1) would be removed from the
-     newly-merged destination index. It can be added several times to the
-     command line, to add successive filters to the merge, all of which
-     must be met in order for a document to become part of the final index.
-
-5.2. searchd command reference
-------------------------------
-
-searchd is the second of the two principle tools as part of Sphinx. searchd
-is the part of the system which actually handles searches; it functions as
-a server and is responsible for receiving queries, processing them and
-returning a dataset back to the different APIs for client applications.
-
-Unlike indexer, searchd is not designed to be run either from a regular
-script or command-line calling, but instead either as a daemon to be called
-from init.d (on Unix/Linux type systems) or to be called as a service (on
-Windows-type systems), so not all of the command line options will always
-apply, and so will be build-dependent.
-
-Calling searchd is simply a case of:
-
-   | $ searchd [OPTIONS]
-
-The options available to searchd on all builds are:
-
-   * --help (-h for short) lists all of the parameters that can be called
-     in your particular build of searchd.
-   * --config <file> (-c <file> for short) tells searchd to use the given
-     file as its configuration, just as with indexer above.
-   * --stop is used to stop searchd, using the details of the PID file as
-     specified in the sphinx.conf file, so you may also need to confirm to
-     searchd which configuration file to use with the --config option. NB,
-     calling --stop will also make sure any changes applied to the indexes
-     with UpdateAttributes() will be applied to the index files themselves.
-     Example:
-
-      | $ searchd --config /home/myuser/sphinx.conf --stop
-
-   * --pidfile is used to explicitly state a PID file, where the process
-     information is stored regarding searchd, used for inter-process
-     communications (for example, indexer will need to know the PID to
-     contact searchd for rotating indexes). Normally, searchd would use
-     a PID if running in regular mode (i.e. not with --console), but it is
-     possible that you will be running it in console mode whilst the index
-     is being updated and rotated, for which a PID file will be needed.
-
-      | $ searchd --config /home/myuser/sphinx.conf --pidfile /home/myuser/sphinx.pid
-
-   * --console is used to force searchd into console mode; typically it
-     will be running as a conventional server application, and will aim to
-     dump information into the log files (as specified in sphinx.conf).
-     Sometimes though, when debugging issues in the configuration or the
-     daemon itself, or trying to diagnose hard-to-track-down problems, it
-     may be easier to force it to dump information directly to the
-     console/command line from which it is being called. Running in console
-     mode also means that the process will not be forked (so searches are
-     done in sequence) and logs will not be written to. (It should be noted
-     that console mode is not the intended method for running searchd) You
-     can invoke it as such:
-
-      | $ searchd --config /home/myuser/sphinx.conf --console
-
-   * --iostats is used in conjuction with the logging options (the
-     query_log will need to have been activated in sphinx.conf) to provide
-     more detailed information on a per-query basis as to the input/output
-     operations carried out in the course of that query, with a slight
-     performance hit and of course bigger logs. Further details are
-     available under the query log format section. You might start searchd
-     thus:
-
-      | $ searchd --config /home/myuser/sphinx.conf --iostats
-
-   * --port portnumber (-p for short) is used to specify the post that
-     searchd should listen on, usually for debugging purposes. This will
-     usually default to 3312, but sometimes you need to run it on
-     a different port. Specifying it on the command line will override
-     anything specified in the configuration file. The valid range is 0 to
-     65535, but ports numbered 1024 and below usually require a privileged
-     account in order to run. An example of usage:
-
-      | $ searchd --port 3313
-
-   * --index <index> forces this instance of searchd only to serve the
-     specified index. Like --port, above, this is usually for debugging
-     purposes; more long-term changes would generally be applied to the
-     configuration file itself. Example usage:
-
-      | $ searchd --index myindex
-
-There are some options for searchd that are specific to Windows platforms,
-concerning handling as a service, are only be available on Windows
-binaries.
-
-Note that on Windows searchd will default to --console mode, unless you
-install it as a service.
-
-   * --install installs searchd as a service into the Microsoft Management
-     Console (Control Panel / Administrative Tools / Services). Any other
-     parameters specified on the command line, where --install is specified
-     will also become part of the command line on future starts of the
-     service. For example, as part of calling searchd, you will likely also
-     need to specify the configuration file with --config, and you would do
-     that as well as specifying --install. Once called, the usual
-     start/stop facilities will become available via the management
-     console, so any methods you could use for starting, stopping and
-     restarting services would also apply to searchd. Example:
-
-      | C:\WINDOWS\system32> C:\Sphinx\bin\searchd.exe --install --config C:\Sphinx\sphinx.conf
-
-     If you wanted to have the I/O stats every time you started searchd,
-     you would specify its option on the same line as the --install command
-     thus:
-
-      | C:\WINDOWS\system32> C:\Sphinx\bin\searchd.exe --install --config C:\Sphinx\sphinx.conf --iostats
-
-   * --delete removes the service from the Microsoft Management Console and
-     other places where services are registered, after previously installed
-     with --install. Note, this does not uninstall the software or delete
-     the indexes. It means the service will not be called from the services
-     systems, and will not be started on the machine's next start. If
-     currently running as a service, the current instance will not be
-     terminated (until the next reboot, or searchd is called with --stop).
-     If the service was installed with a custom name (with --servicename),
-     the same name will need to be specified with --servicename when
-     calling to uninstall. Example:
-
-      | C:\WINDOWS\system32> C:\Sphinx\bin\searchd.exe --delete
-
-   * --servicename <name> applies the given name to searchd when installing
-     or deleting the service, as would appear in the Management Console;
-     this will default to searchd, but if being deployed on servers where
-     multiple administrators may log into the system, or a system with
-     multiple searchd instances, a more descriptive name may be applicable.
-     Note that unless combined with --install or --delete, this option does
-     not do anything. Example:
-
-      | C:\WINDOWS\system32> C:\Sphinx\bin\searchd.exe --install --config C:\Sphinx\sphinx.conf --servicename SphinxSearch
-
-   * --ntservice is the option that is passed by the Management Console to
-     searchd to invoke it as a service on Windows platforms. It would not
-     normally be necessary to call this directly; this would normally be
-     called by Windows when the service would be started, although if you
-     wanted to call this as a regular service from the command-line (as the
-     complement to --console) you could do so in theory.
-
-5.3. search command reference
------------------------------
-
-search is one of the two less prominent tools within the Sphinx package.
-Whereas searchd is responsible for searches in a server-type environment,
-search is aimed at testing the index from the command line, and testing the
-index quickly without building a framework to make the connection to the
-server and process its response.
-
-Note: search is not intended to be deployed as part of a client
-application; it is strongly recommended you do not write an interface to
-search instead of searchd, and none of the bundled client APIs support this
-method. (In any event, search will reload files each time, whereas searchd
-will cache them in memory for performance.)
-
-That said, many types of query that you could build in the APIs could also
-be made with search, however for very complex searches it may be easier to
-construct them using a small script and the corresponding API.
-Additionally, some newer features may be available in the searchd system
-that have not yet been brought into search.
-
-The calling syntax for search is as follows:
-
-   | search [OPTIONS] word1 [word2 [word3 [...]]]
-
-When calling search, it is not necessary to have searchd running; simply
-that the account running search has read access to the configuration file
-and the location and files of the indexes.
-
-The default behaviour is to apply a search for word1 (AND word2 AND
-word3... as specified) to all fields in all indexes as given in the
-configuration file. If constructing the equivalent in the API, this would
-be the equivalent to passing SPH_MATCH_ALL to SetMatchMode, and specifying
-* as the indexes to query as part of Query.
-
-There are many options available to search. Firstly, the general options:
-
-   * --config <file> (-c <file> for short) tells search to use the given
-     file as its configuration, just as with indexer above.
-   * --index <index> (-i <index> for short) tells search to limit searching
-     to the specified index only; normally it would attempt to search all
-     of the physical indexes listed in sphinx.conf, not any distributed
-     ones.
-   * --stdin tells search to accept the query from the standard input,
-     rather than the command line. This can be useful for testing purposes
-     whereby you could feed input via pipes and from scripts.
-
-Options for setting matches:
-
-   * --any (-a for short) changes the matching mode to match any of the
-     words as part of the query (word1 OR word2 OR word3). In the API this
-     would be equivalent to passing SPH_MATCH_ANY to SetMatchMode.
-   * --phrase (-p for short) changes the matching mode to match all of the
-     words as part of the query, and do so in the phrase given (not
-     including punctuation). In the API this would be equivalent to passing
-     SPH_MATCH_PHRASE to SetMatchMode.
-   * --boolean (-b for short) changes the matching mode to Boolean
-     matching. Note if using Boolean syntax matching on the command line,
-     you may need to escape the symbols (with a backslash) to avoid the
-     shell/command line processor applying them, such as ampersands being
-     escaped on a Unix/Linux system to avoid it forking to the search
-     process, although this can be resolved by using --stdin, as below. In
-     the API this would be equivalent to passing SPH_MATCH_BOOLEAN to
-     SetMatchMode.
-   * --ext (-e for short) changes the matching mode to Extended matching.
-     In the API this would be equivalent to passing SPH_MATCH_EXTENDED to
-     SetMatchMode, and it should be noted that use of this mode is being
-     discouraged in favour of Extended2, below.
-   * --ext2 (-e2 for short) changes the matching mode to Extended matching,
-     version 2. In the API this would be equivalent to passing
-     SPH_MATCH_EXTENDED2 to SetMatchMode, and it should be noted that use
-     of this mode is being recommended in favour of Extended, due to being
-     more efficient and providing other features.
-   * --filter <attr> <v> (-f <attr> <v> for short) filters the results such
-     that only documents where the attribute given (attr) matches the value
-     given (v). For example, --filter deleted 0 only matches documents with
-     an attribute called 'deleted' where its value is 0. You can also add
-     multiple filters on the command line, by specifying multiple --filter
-     multiple times, however if you apply a second filter to an attribute
-     it will override the first defined filter.
-
-Options for handling the results:
-
-   * --limit <count> (-l count for short) limits the total number of
-     matches back to the number given. If a 'group' is specified, this will
-     be the number of grouped results. This defaults to 20 results if not
-     specified (as do the APIs)
-   * --offset <count> (-o <count> for short) offsets the result list by the
-     number of places set by the count; this would be used for pagination
-     through results, where if you have 20 results per 'page', the second
-     page would begin at offset 20, the third page at offset 40, etc.
-   * --group <attr> (-g <attr> for short) specifies that results should be
-     grouped together based on the attribute specified. Like the GROUP BY
-     clause in SQL, it will combine all results where the attribute given
-     matches, and returns a set of results where each returned result is
-     the best from each group. Unless otherwise specified, this will be the
-     best match on relevance.
-   * --groupsort <expr> (-gs <expr> for short) instructs that when results
-     are grouped with -group, the expression given in <expr> shall
-     determine the order of the groups. Note, this does not specify which
-     is the best item within the group, only the order in which the groups
-     themselves shall be returned.
-   * --sortby <clause> (-s <clause> for short) specifies that results
-     should be sorted in the order listed in <clause>. This allows you to
-     specify the order you wish results to be presented in, ordering by
-     different columns. For example, you could say --sortby "@weight DESC
-     entrytime DESC" to sort entries first by weight (or relevance) and
-     where two or more entries have the same weight, to then sort by the
-     time with the highest time (newest) first. You will usually need to
-     put the items in quotes (--sortby "@weight DESC") or use commas
-     (--sortby @weight,DESC) to avoid the items being treated separately.
-     Additionally, like the regular sorting modes, if --group (grouping) is
-     being used, this will state how to establish the best match within
-     each group.
-   * --sortexpr expr (-S expr for short) specifies that the search results
-     should be presented in an order determined by an arithmetic
-     expression, stated in expr. For example: --sortexpr "@weight + (
-     user_karma + ln(pageviews) )*0.1" (again noting that this will have to
-     be quoted to avoid the shell dealing with the asterisk). Extended sort
-     mode is discussed in more detail under the SPH_SORT_EXTENDED entry
-     under the Sorting modes chapter of the manual.
-   * --sort=date specifies that the results should be sorted by descending
-     (i.e. most recent first) date. This requires that there is an
-     attribute in the index that is set as a timestamp.
-   * --rsort=date specifies that the results should be sorted by ascending
-     (i.e. oldest first) date. This requires that there is an attribute in
-     the index that is set as a timestamp.
-   * --sort=ts specifies that the results should be sorted by timestamp in
-     groups; it will return all of the documents whose timestamp is within
-     the last hour, then sorted within that bracket for relevance. After,
-     it would return the documents from the last day, sorted by relevance,
-     then the last week and then the last month. It is discussed in more
-     detail under the SPH_SORT_TIME_SEGMENTS entry under the Sorting modes
-     chapter of the manual.
-
-Other options:
-
-   * --noinfo (-q for short) instructs search not to look-up data in your
-     SQL database. Specifically, for debugging with MySQL and search, you
-     can provide it with a query to look up the full article based on the
-     returned document ID. It is explained in more detail under the
-     sql_query_info directive.
-   * --dumpheader path instructs search to report the entire attribute and
-     field list for a given index; you would need to specify the full path
-     to the .sph file that is part of the index you wish to examine. It
-     will provide a breakdown of how the index is constructed, which can be
-     useful for debugging.
-
-5.4. spelldump command reference
---------------------------------
-
-spelldump is the second of the two less prominent tools within the Sphinx
-package.
-
-It is used to extract the contents of a dictionary file that uses ispell
-format, which can help build word lists for wordforms - all of the possible
-forms are pre-built for you.
-
-Its general usage is:
-
-   | spelldump [options] <dictionary> <affix> [result] [locale-name]
-
-The two main parameters are the dictionary's main file and its affix file;
-usually these are named as [language-prefix].dict and [language-prefix].aff
-and will be available with most common Linux distributions, as well as
-various places online.
-
-[result] specifies where the dictionary data should be output to, and
-[locale-name] additionally specifies the locale details you wish to use.
-
-There is an additional option, -c [file], which specifies a file for case
-conversion details.
-
-Examples of its usage are:
-
-   | spelldump en.dict en.aff
-   | spelldump ru.dict ru.aff ru.txt ru_RU.CP1251
-   | spelldump ru.dict ru.aff ru.txt .1251
-
-The results file will contain a list of all the words in the dictionary in
-alphabetic order, output in the format of a wordforms file, which you can
-use to customise for your specific circumstances. An example of the result
-file:
-
-   | zone > zone
-   | zoned > zoned
-   | zoning > zoning
-
-6. API reference
+5. API reference
 ================
 
 There is a number of native searchd client API implementations for Sphinx.
@@ -2126,10 +1519,10 @@ well. There might be minor differences as to the method naming conventions
 or specific data structures used. But the provided functionality must not
 differ across languages.
 
-6.1. General API functions
+5.1. General API functions
 --------------------------
 
-6.1.1. GetLastError
+5.1.1. GetLastError
 -------------------
 
 Prototype: function GetLastError()
@@ -2144,7 +1537,7 @@ contain the error description.
 The error message is not reset by this call; so you can safely call it
 several times if needed.
 
-6.1.2. GetLastWarning
+5.1.2. GetLastWarning
 ---------------------
 
 Prototype: function GetLastWarning ()
@@ -2161,7 +1554,7 @@ agents timed out. In that case, a warning message would be produced.
 The warning message is not reset by this call; so you can safely call it
 several times if needed.
 
-6.1.3. SetServer
+5.1.3. SetServer
 ----------------
 
 Prototype: function SetServer ( $host, $port )
@@ -2170,7 +1563,7 @@ Sets searchd host name and TCP port. All subsequent requests will use the
 new host and port settings. Default host and port are 'localhost' and 3312,
 respectively.
 
-6.1.4. SetRetries
+5.1.4. SetRetries
 -----------------
 
 Prototype: function SetRetries ( $count, $delay=0 )
@@ -2184,25 +1577,7 @@ on temporary failure; it only tells searchd to do so. Currently, the list
 of temporary failures includes all kinds of connect() failures and maxed
 out (too busy) remote agents.
 
-6.1.5. SetConnectTimeout
-------------------------
-
-Prototype: function SetConnectTimeout ( $timeout )
-
-Sets the time allowed to spend connecting to the server before giving up.
-
-Under some circumstances, the server can be delayed in responding, either
-due to network delays, or a query backlog. In either instance, this allows
-the client application programmer some degree of control over how their
-program interacts with searchd when not available, and can ensure that the
-client application does not fail due to exceeding the script execution
-limits (especially in PHP).
-
-In the event of a failure to connect, an appropriate error code should be
-returned back to the application in order for application-level error
-handling to advise the user.
-
-6.1.6. SetArrayResult
+5.1.5. SetArrayResult
 ---------------------
 
 Prototype: function SetArrayResult ( $arrayresult )
@@ -2221,10 +1596,10 @@ result sets may contain duplicate document IDs. Thus they need to be
 returned as plain arrays, because hashes will only keep one entry per
 document ID.
 
-6.2. General query settings
+5.2. General query settings
 ---------------------------
 
-6.2.1. SetLimits
+5.2.1. SetLimits
 ----------------
 
 Prototype: function SetLimits ( $offset, $limit, $max_matches=0, $cutoff=0
@@ -2263,7 +1638,7 @@ $cutoff setting is intended for advanced performance control. It tells
 searchd to forcibly stop search query once $cutoff matches had been found
 and processed.
 
-6.2.2. SetMaxQueryTime
+5.2.2. SetMaxQueryTime
 ----------------------
 
 Prototype: function SetMaxQueryTime ( $max_query_time )
@@ -2277,10 +1652,10 @@ once that much time has elapsed. Note that if you're performing a search
 which queries several local indexes, this limit applies to each index
 separately.
 
-6.3. Full-text search query settings
+5.3. Full-text search query settings
 ------------------------------------
 
-6.3.1. SetMatchMode
+5.3.1. SetMatchMode
 -------------------
 
 Prototype: function SetMatchMode ( $mode )
@@ -2294,7 +1669,7 @@ in quotes, that syntax specifies a string and is incorrect:
    | $cl->SetMatchMode ( "SPH_MATCH_ANY" ); // INCORRECT! will not work as expected
    | $cl->SetMatchMode ( SPH_MATCH_ANY ); // correct, works OK
 
-6.3.2. SetRankingMode
+5.3.2. SetRankingMode
 ---------------------
 
 Prototype: function SetRankingMode ( $ranker )
@@ -2326,7 +1701,7 @@ Currently implemented modes are:
      essentially equivalent to boolean searching. A weight of 1 is assigned
      to all matches.
 
-6.3.3. SetSortMode
+5.3.3. SetSortMode
 ------------------
 
 Prototype: function SetSortMode ( $mode, $sortby="" )
@@ -2340,7 +1715,7 @@ in quotes, that syntax specifies a string and is incorrect:
    | $cl->SetSortMode ( "SPH_SORT_ATTR_DESC" ); // INCORRECT! will not work as expected
    | $cl->SetSortMode ( SPH_SORT_ATTR_ASC ); // correct, works OK
 
-6.3.4. SetWeights
+5.3.4. SetWeights
 -----------------
 
 Prototype: function SetWeights ( $weights )
@@ -2348,7 +1723,7 @@ Prototype: function SetWeights ( $weights )
 Binds per-field weights in the order of appearance in the index.
 DEPRECATED, use SetFieldWeights() instead.
 
-6.3.5. SetFieldWeights
+5.3.5. SetFieldWeights
 ----------------------
 
 Prototype: function SetFieldWeights ( $weights )
@@ -2374,7 +1749,7 @@ Section 4.4, <<Weighting>>) by 1 or more (phrase proximity rank). The
 result is at least 10 billion that does not fit in 32 bits and will be
 wrapped around, producing unexpected results.
 
-6.3.6. SetIndexWeights
+5.3.6. SetIndexWeights
 ----------------------
 
 Prototype: function SetIndexWeights ( $weights )
@@ -2399,10 +1774,10 @@ also in index B with the weight of 3, and you called SetIndexWeights (
 array ( "A"=>100, "B"=>10 ) ), the final weight return to the client will
 be 2*100+3*10 = 230.
 
-6.4. Result set filtering settings
+5.4. Result set filtering settings
 ----------------------------------
 
-6.4.1. SetIDRange
+5.4.1. SetIDRange
 -----------------
 
 Prototype: function SetIDRange ( $min, $max )
@@ -2413,7 +1788,7 @@ Defaults are 0 and 0; that combination means to not limit by range.
 After this call, only those records that have document ID between $min and
 $max (including IDs exactly equal to $min or $max) will be matched.
 
-6.4.2. SetFilter
+5.4.2. SetFilter
 ----------------
 
 Prototype: function SetFilter ( $attribute, $values, $exclude=false )
@@ -2430,7 +1805,7 @@ Only those documents where $attribute column value stored in the index
 matches any of the values from $values array will be matched (or rejected,
 if $exclude is true).
 
-6.4.3. SetFilterRange
+5.4.3. SetFilterRange
 ---------------------
 
 Prototype: function SetFilterRange ( $attribute, $min, $max, $exclude=false
@@ -2449,7 +1824,7 @@ Only those documents where $attribute column value stored in the index is
 between $min and $max (including values that are exactly equal to $min or
 $max) will be matched (or rejected, if $exclude is true).
 
-6.4.4. SetFilterFloatRange
+5.4.4. SetFilterFloatRange
 --------------------------
 
 Prototype: function SetFilterFloatRange ( $attribute, $min, $max,
@@ -2468,7 +1843,7 @@ Only those documents where $attribute column value stored in the index is
 between $min and $max (including values that are exactly equal to $min or
 $max) will be matched (or rejected, if $exclude is true).
 
-6.4.5. SetGeoAnchor
+5.4.5. SetGeoAnchor
 -------------------
 
 Prototype: function SetGeoAnchor ( $attrlat, $attrlong, $lat, $long )
@@ -2489,10 +1864,10 @@ SetGeoAnchor and the index attribute data are expected to be in radians.
 The result will be returned in meters, so geodistance value of 1000.0 means
 1 km. 1 mile is approximately 1609.344 meters.
 
-6.5. GROUP BY settings
+5.5. GROUP BY settings
 ----------------------
 
-6.5.1. SetGroupBy
+5.5.1. SetGroupBy
 -----------------
 
 Prototype: function SetGroupBy ( $attribute, $func, $groupsort="@group
@@ -2515,13 +1890,13 @@ by the following pseudo code:
    | SELECT ... GROUP BY $func($attribute) ORDER BY $groupsort
 
 Note that it's $groupsort that affects the order of matches in the final
-result set. Sorting mode (see Section 6.3.3, <<SetSortMode>>) affect the
+result set. Sorting mode (see Section 5.3.3, <<SetSortMode>>) affect the
 ordering of matches within group, ie. what match will be selected as the
 best one from the group. So you can for instance order the groups by
 matches count and select the most relevant match within each group at the
 same time.
 
-6.5.2. SetGroupDistinct
+5.5.2. SetGroupDistinct
 -----------------------
 
 Prototype: function SetGroupDistinct ( $attribute )
@@ -2554,23 +1929,20 @@ queries will return one matching row for each category. In addition to
 indexed attributes, matches will also contain total per-category matches
 count, and the count of distinct vendor IDs within each category.
 
-6.6. Querying
+5.6. Querying
 -------------
 
-6.6.1. Query
+5.6.1. Query
 ------------
 
-Prototype: function Query ( $query, $index="*", $comment="" )
+Prototype: function Query ( $query, $index="*" )
 
 Connects to searchd server, runs given search query with current settings,
 obtains and returns the result set.
 
 $query is a query string. $index is an index name (or names) string.
 Returns false and sets GetLastError() message on general error. Returns
-search result set on success. Additionally, the contents of $comment are
-sent to the query log, marked in square brackets, just before the search
-terms, which can be very useful for debugging. Currently, the comment is
-limited to 128 characters.
+search result set on success.
 
 Default value for $index is "*" that means to query all local indexes.
 Characters allowed in index names include Latin letters (a-z), numbers
@@ -2620,22 +1992,13 @@ values:
    Query warning message reported by searchd (string, human readable).
    Empty if there were no warnings.
 
-It should be noted that Query() carries out the same actions as AddQuery()
-and RunQueries() without the intermediate steps; it is analoguous to
-a single AddQuery() call, followed by a corresponding RunQueries(), then
-returning the first array element of matches (from the first, and only,
-query.)
-
-6.6.2. AddQuery
+5.6.2. AddQuery
 ---------------
 
-Prototype: function AddQuery ( $query, $index="*", $comment="" )
+Prototype: function AddQuery ( $query, $index="*" )
 
 Adds additional query with current settings to multi-query batch. $query is
-a query string. $index is an index name (or names) string. Additionally if
-provided, the contents of $comment are sent to the query log, marked in
-square brackets, just before the search terms, which can be very useful for
-debugging. Currently, this is limited to 128 characters. Returns index to
+a query string. $index is an index name (or names) string. Returns index to
 results array returned from RunQueries().
 
 Batch queries (or multi-queries) enable searchd to perform internal
@@ -2680,15 +2043,9 @@ index and sort results by relevance, 2nd query will search for "ipod" in
 SetSortMode() call does not affect the first query (because it's already
 added) but affects both other subsequent queries.
 
-Additionally, any filters set up before an AddQuery() will fall through to
-subsequent queries. So, if SetFilter() is called before the first query,
-the same filter will be in place for the second (and subsequent) queries
-batched through AddQuery() unless you call ResetFilters() first.
-Alternatively, you can add additional filters as well.
-
-This would also be true for grouping options and sorting options; no
-current sorting, filtering, and grouping settings are affected by this
-call; so subsequent queries will reuse current query settings.
+AddQuery() does not modify the current state. That is, all current sorting,
+filtering, and grouping settings will not be affected by this call; so
+subsequent queries can easily reuse current query settings.
 
 AddQuery() returns an index into an array of results that will be returned
 from RunQueries() call. It is simply a sequentially increasing 0-based
@@ -2696,7 +2053,7 @@ integer, ie. first call will return 0, second will return 1, and so on.
 Just a small helper so you won't have to track the indexes manualy if you
 need then.
 
-6.6.3. RunQueries
+5.6.3. RunQueries
 -----------------
 
 Prototype: function RunQueries ()
@@ -2721,7 +2078,7 @@ because API was able to succesfully connect to searchd, submit the batch,
 and receive the results - but every result set will have a specific error
 message.
 
-6.6.4. ResetFilters
+5.6.4. ResetFilters
 -------------------
 
 Prototype: function ResetFilters ()
@@ -2733,7 +2090,7 @@ want to set different filters for different queries in the batch. To do
 that, you should call ResetFilters() and add new filters using the
 respective calls.
 
-6.6.5. ResetGroupBy
+5.6.5. ResetGroupBy
 -------------------
 
 Prototype: function ResetGroupBy ()
@@ -2747,10 +2104,10 @@ calls. ResetGroupBy() fully resets previous group-by settings and disables
 group-by mode in the current state, so that subsequent AddQuery() calls can
 perform non-grouping searches.
 
-6.7. Additional functionality
+5.7. Additional functionality
 -----------------------------
 
-6.7.1. BuildExcerpts
+5.7.1. BuildExcerpts
 --------------------
 
 Prototype: function BuildExcerpts ( $docs, $index, $words, $opts=array() )
@@ -2763,10 +2120,8 @@ $index is an index name string. Different settings (such as charset,
 morphology, wordforms) from given index will be used. $words is a string
 that contains the keywords to highlight. They will be processed with
 respect to index settings. For instance, if English stemming is enabled in
-the index, "shoes" will be highlighted even if keyword is "shoe". Keywords
-can contain wildcards, that work similarly to star-syntax available in
-queries. $opts is a hash which contains additional optional highlighting
-parameters:
+the index, "shoes" will be highlighted even if keyword is "shoe". $opts is
+a hash which contains additional optional highlighting parameters:
 
 "before_match":
    A string to insert before a keyword match. Default is "<b>".
@@ -2790,12 +2145,17 @@ parameters:
    individual keywords. Boolean, default is false.
 
 "single_passage":
-   whether to extract single best passage only. Boolean, default is false.
+   Whether to extract single best passage only. Boolean, default is false.
+
+"weight_order":
+   Whether to sort the extracted passages in order of relevance (decreasing
+   weight), or in order of appearance in the document (increasing
+   position). Boolean, default is false.
 
 Returns false on failure. Returns a plain array of strings with excerpts
 (snippets) on success.
 
-6.7.2. UpdateAttributes
+5.7.2. UpdateAttributes
 -----------------------
 
 Prototype: function UpdateAttributes ( $index, $attrs, $values )
@@ -2830,7 +2190,7 @@ in index "products". For document 1001, the new price will be set to 123
 and the new amount in stock to 5; for document 1002, the new price will be
 37 and the new amount will be 11; etc.
 
-6.7.3. BuildKeywords
+5.7.3. BuildKeywords
 --------------------
 
 Prototype: function BuildKeywords ( $query, $index, $hits )
@@ -2848,7 +2208,7 @@ Usage example:
 
    | $keywords = $cl->BuildKeywords ( "this.is.my query", "test1", false );
 
-6.7.4. EscapeString
+5.7.4. EscapeString
 -------------------
 
 Prototype: function EscapeString ( $string )
@@ -2867,30 +2227,10 @@ Usage example:
 
    | $escaped = $cl->EscapeString ( "escaping-sample@query/string" );
 
-6.8. Persistent connections
----------------------------
-
-Persistent connections allow to use single network connection to run
-multiple commands that would otherwise require reconnects.
-
-6.8.1. Open
------------
-
-Prototype: function Open ()
-
-Opens persistent connection to the server.
-
-6.8.2. Close
-------------
-
-Prototype: function Close ()
-
-Closes previously opened persistent connection.
-
-7. MySQL storage engine (SphinxSE)
+6. MySQL storage engine (SphinxSE)
 ==================================
 
-7.1. SphinxSE overview
+6.1. SphinxSE overview
 ----------------------
 
 SphinxSE is MySQL storage engine which can be compiled into MySQL server
@@ -2912,7 +2252,7 @@ Obvious SphinxSE applications include:
      side is required (eg. JOINs with original document tables, additional
      MySQL-side filtering, etc).
 
-7.2. Installing SphinxSE
+6.2. Installing SphinxSE
 ------------------------
 
 You will need to obtain a copy of MySQL sources, prepare those, and then
@@ -2928,7 +2268,7 @@ If such tarball is not available, or does not work for you for any reason,
 you would have to prepare sources manually. You will need to GNU Autotools
 framework (autoconf, automake and libtool) installed to do that.
 
-7.2.1. Compiling MySQL 5.0.x with SphinxSE
+6.2.1. Compiling MySQL 5.0.x with SphinxSE
 ------------------------------------------
 
 Skips steps 1-3 if using already prepared delta tarball.
@@ -2960,7 +2300,7 @@ Skips steps 1-3 if using already prepared delta tarball.
       | make
       | make install
 
-7.2.2. Compiling MySQL 5.1.x with SphinxSE
+6.2.2. Compiling MySQL 5.1.x with SphinxSE
 ------------------------------------------
 
 Skip steps 1-2 if using already prepared delta tarball.
@@ -2984,7 +2324,7 @@ Skip steps 1-2 if using already prepared delta tarball.
       | make
       | make install
 
-7.2.3. Checking SphinxSE installation
+6.2.3. Checking SphinxSE installation
 -------------------------------------
 
 To check whether SphinxSE has been succesfully compiled into MySQL, launch
@@ -3004,7 +2344,7 @@ should see a list of all available engines. Sphinx should be present and
    | +------------+----------+----------------------------------------------------------------+
    | 13 rows in set (0.00 sec)    
 
-7.3. Using SphinxSE
+6.3. Using SphinxSE
 -------------------
 
 To search via SphinxSE, you would need to create special ENGINE=SPHINX
@@ -3137,21 +2477,6 @@ ENGINE SPHINX STATUS statement:
    | +--------+-------+-------------------------------------------------+
    | 2 rows in set (0.00 sec)
 
-This information can also be accessed through status variables. Note that
-this method does not require super-user privileges.
-
-   | mysql> SHOW STATUS LIKE 'sphinx_%';
-   | +--------------------+----------------------------------+
-   | | Variable_name      | Value                            |
-   | +--------------------+----------------------------------+
-   | | sphinx_total       | 25                               | 
-   | | sphinx_total_found | 25                               | 
-   | | sphinx_time        | 126                              | 
-   | | sphinx_word_count  | 2                                | 
-   | | sphinx_words       | sphinx:591:1256 soft:11076:15945 | 
-   | +--------------------+----------------------------------+
-   | 5 rows in set (0.00 sec)
-
 You could perform JOINs on SphinxSE search table and tables using other
 engines. Here's an example with "documents" from example.sql:
 
@@ -3175,7 +2500,7 @@ engines. Here's an example with "documents" from example.sql:
    | +--------+-------+---------------------------------------------+
    | 2 rows in set (0.00 sec)
 
-8. Reporting bugs
+7. Reporting bugs
 =================
 
 Unfortunately, Sphinx is not yet 100% bug free (even though I'm working
@@ -3294,13 +2619,13 @@ additional helpful information which could be retrieved from it. You do not
 need to send me this file (as the debug info there is closely tied to your
 system) but I might need to ask you a few additional questions about it.
 
-9. sphinx.conf options reference
+8. sphinx.conf options reference
 ================================
 
-9.1. Data source configuration options
+8.1. Data source configuration options
 --------------------------------------
 
-9.1.1. type
+8.1.1. type
 -----------
 
 Data source type. Mandatory, no default value. Known types are mysql,
@@ -3315,7 +2640,7 @@ Example:
 
    | type = mysql
 
-9.1.2. sql_host
+8.1.2. sql_host
 ---------------
 
 SQL server host to connect to. Mandatory, no default value. Applies to SQL
@@ -3333,7 +2658,7 @@ Example:
 
    | sql_host = localhost
 
-9.1.3. sql_port
+8.1.3. sql_port
 ---------------
 
 SQL server IP port to connect to. Optional, default is 3306 for mysql
@@ -3345,7 +2670,7 @@ Example:
 
    | sql_port = 3306
 
-9.1.4. sql_user
+8.1.4. sql_user
 ---------------
 
 SQL user to use when connecting to sql_host. Mandatory, no default value.
@@ -3355,7 +2680,7 @@ Example:
 
    | sql_user = test
 
-9.1.5. sql_pass
+8.1.5. sql_pass
 ---------------
 
 SQL user password to use when connecting to sql_host. Mandatory, no default
@@ -3365,7 +2690,7 @@ Example:
 
    | sql_pass = mysecretpassword
 
-9.1.6. sql_db
+8.1.6. sql_db
 -------------
 
 SQL database (in MySQL terms) to use after the connection and perform
@@ -3376,7 +2701,7 @@ Example:
 
    | sql_db = test
 
-9.1.7. sql_sock
+8.1.7. sql_sock
 ---------------
 
 UNIX socket name to connect to for local SQL servers. Optional, default
@@ -3391,7 +2716,7 @@ Example:
 
    | sql_sock = /tmp/mysql.sock
 
-9.1.8. mysql_connect_flags
+8.1.8. mysql_connect_flags
 --------------------------
 
 MySQL client connection flags. Optional, default value is 0 (do not set any
@@ -3420,7 +2745,7 @@ Example:
 
    | mysql_connect_flags = 32 # enable compression
 
-9.1.9. sql_query_pre
+8.1.9. sql_query_pre
 --------------------
 
 Pre-fetch query, or pre-query. Multi-value, optional, default is empty list
@@ -3455,7 +2780,7 @@ Example:
    | sql_query_pre = SET NAMES utf8
    | sql_query_pre = SET SESSION query_cache_type=OFF
 
-9.1.10. sql_query
+8.1.10. sql_query
 -----------------
 
 Main document fetch query. Mandatory, no default value. Applies to SQL
@@ -3480,7 +2805,7 @@ Example:
    | 		title, content \
    | 	FROM documents
 
-9.1.11. sql_query_range
+8.1.11. sql_query_range
 -----------------------
 
 Range query setup. Optional, default is empty. Applies to SQL source types
@@ -3509,7 +2834,7 @@ Example:
 
    | sql_query_range = SELECT MIN(id),MAX(id) FROM documents
 
-9.1.12. sql_range_step
+8.1.12. sql_range_step
 ----------------------
 
 Range query step. Optional, default is 1024. Applies to SQL source types
@@ -3530,7 +2855,7 @@ Example:
 
    | sql_range_step = 1000
 
-9.1.13. sql_attr_uint
+8.1.13. sql_attr_uint
 ---------------------
 
 Unsigned integer attribute declaration. Multi-value (there might be
@@ -3553,7 +2878,7 @@ Example:
    | sql_attr_uint = group_id
    | sql_attr_uint = forum_id:9 # 9 bits for forum_id
 
-9.1.14. sql_attr_bool
+8.1.14. sql_attr_bool
 ---------------------
 
 Boolean attribute declaration. Multi-value (there might be multiple
@@ -3564,7 +2889,7 @@ Example:
 
    | sql_attr_bool = is_deleted # will be packed to 1 bit
 
-9.1.15. sql_attr_timestamp
+8.1.15. sql_attr_timestamp
 --------------------------
 
 UNIX timestamp attribute declaration. Multi-value (there might be multiple
@@ -3585,7 +2910,7 @@ Example:
 
    | sql_attr_timestamp = UNIX_TIMESTAMP(added_datetime) AS added_ts
 
-9.1.16. sql_attr_str2ordinal
+8.1.16. sql_attr_str2ordinal
 ----------------------------
 
 Ordinal string number attribute declaration. Multi-value (there might be
@@ -3629,7 +2954,7 @@ Example:
 
    | sql_attr_str2ordinal = author_name
 
-9.1.17. sql_attr_float
+8.1.17. sql_attr_float
 ----------------------
 
 Floating point attribute declaration. Multi-value (there might be multiple
@@ -3648,7 +2973,7 @@ Example:
    | sql_attr_float = lat_radians
    | sql_attr_float = long_radians
 
-9.1.18. sql_attr_multi
+8.1.18. sql_attr_multi
 ----------------------
 
 Multi-valued attribute (MVA) declaration. Multi-value (ie. there may be
@@ -3682,7 +3007,7 @@ Example:
    | 	SELECT id, tag FROM tags WHERE id>=$start AND id<=$end; \
    | 	SELECT MIN(id), MAX(id) FROM tags
 
-9.1.19. sql_query_post
+8.1.19. sql_query_post
 ----------------------
 
 Post-fetch query. Optional, default value is empty. Applies to SQL source
@@ -3701,7 +3026,7 @@ Example:
 
    | sql_query_post = DROP TABLE my_tmp_table
 
-9.1.20. sql_query_post_index
+8.1.20. sql_query_post_index
 ----------------------------
 
 Post-index query. Optional, default value is empty. Applies to SQL source
@@ -3718,7 +3043,7 @@ Example:
    | sql_query_post_index = REPLACE INTO counters ( id, val ) \
    |     VALUES ( 'max_indexed_id', $maxid )
 
-9.1.21. sql_ranged_throttle
+8.1.21. sql_ranged_throttle
 ---------------------------
 
 Ranged query throttling period, in milliseconds. Optional, default is 0 (no
@@ -3733,7 +3058,7 @@ Example:
 
    | sql_ranged_throttle = 1000 # sleep for 1 sec before each query step
 
-9.1.22. sql_query_info
+8.1.22. sql_query_info
 ----------------------
 
 Document info query. Optional, default is empty. Applies to mysql source
@@ -3749,7 +3074,7 @@ Example:
 
    | sql_query_info = SELECT * FROM documents WHERE id=$id
 
-9.1.23. xmlpipe_command
+8.1.23. xmlpipe_command
 -----------------------
 
 Shell command that invokes xmlpipe stream producer. Mandatory. Applies to
@@ -3763,7 +3088,7 @@ Example:
 
    | xmlpipe_command = cat /home/sphinx/test.xml
 
-9.1.24. xmlpipe_field
+8.1.24. xmlpipe_field
 ---------------------
 
 xmlpipe field declaration. Multi-value, optional. Applies to xmlpipe2
@@ -3774,7 +3099,7 @@ Example:
    | xmlpipe_field = subject
    | xmlpipe_field = content
 
-9.1.25. xmlpipe_attr_uint
+8.1.25. xmlpipe_attr_uint
 -------------------------
 
 xmlpipe integer attribute declaration. Multi-value, optional. Applies to
@@ -3784,7 +3109,7 @@ Example:
 
    | xmlpipe_attr_uint = author
 
-9.1.26. xmlpipe_attr_bool
+8.1.26. xmlpipe_attr_bool
 -------------------------
 
 xmlpipe boolean attribute declaration. Multi-value, optional. Applies to
@@ -3794,7 +3119,7 @@ Example:
 
    | xmlpipe_attr_bool = is_deleted # will be packed to 1 bit
 
-9.1.27. xmlpipe_attr_timestamp
+8.1.27. xmlpipe_attr_timestamp
 ------------------------------
 
 xmlpipe UNIX timestamp attribute declaration. Multi-value, optional.
@@ -3805,7 +3130,7 @@ Example:
 
    | xmlpipe_attr_timestamp = published
 
-9.1.28. xmlpipe_attr_str2ordinal
+8.1.28. xmlpipe_attr_str2ordinal
 --------------------------------
 
 xmlpipe string ordinal attribute declaration. Multi-value, optional.
@@ -3816,7 +3141,7 @@ Example:
 
    | xmlpipe_attr_str2ordinal = author_sort
 
-9.1.29. xmlpipe_attr_float
+8.1.29. xmlpipe_attr_float
 --------------------------
 
 xmlpipe floating point attribute declaration. Multi-value, optional.
@@ -3828,7 +3153,7 @@ Example:
    | xmlpipe_attr_float = lat_radians
    | xmlpipe_attr_float = long_radians
 
-9.1.30. xmlpipe_attr_multi
+8.1.30. xmlpipe_attr_multi
 --------------------------
 
 xmlpipe MVA attribute declaration. Multi-value, optional. Applies to
@@ -3843,10 +3168,10 @@ Example:
 
    | xmlpipe_attr_multi = taglist
 
-9.2. Index configuration options
+8.2. Index configuration options
 --------------------------------
 
-9.2.1. type
+8.2.1. type
 -----------
 
 Index type. Optional, default is empty (index is plain local index). Known
@@ -3863,7 +3188,7 @@ Example:
 
    | type = distributed
 
-9.2.2. source
+8.2.2. source
 -------------
 
 Adds document source to local index. Multi-value, mandatory.
@@ -3919,7 +3244,7 @@ Example:
    | source = srcpart2
    | source = srcpart3
 
-9.2.3. path
+8.2.3. path
 -----------
 
 Index files path and file name (without extension). Mandatory.
@@ -3946,7 +3271,7 @@ Example:
 
    | path = /var/data/test1
 
-9.2.4. docinfo
+8.2.4. docinfo
 --------------
 
 Document attribute values (docinfo) storage mode. Optional, default is
@@ -3970,7 +3295,7 @@ Example:
 
    | docinfo = inline
 
-9.2.5. mlock
+8.2.5. mlock
 ------------
 
 Memory locking for cached data. Optional, default is 0 (do not call
@@ -3993,7 +3318,7 @@ Example:
 
    | mlock = 1
 
-9.2.6. morphology
+8.2.6. morphology
 -----------------
 
 A list of morphology preprocessors to apply. Optional, default is empty (do
@@ -4033,7 +3358,7 @@ Example:
 
    | morphology = stem_en, libstemmer_sv
 
-9.2.7. stopwords
+8.2.7. stopwords
 ----------------
 
 Stopword files list (space separated). Optional, default is empty.
@@ -4061,7 +3386,7 @@ Example:
    | stopwords = /usr/local/sphinx/data/stopwords.txt
    | stopwords = stopwords-ru.txt stopwords-en.txt
 
-9.2.8. wordforms
+8.2.8. wordforms
 ----------------
 
 Word forms dictionary. Optional, default is empty.
@@ -4105,7 +3430,7 @@ Example:
 
    | wordforms = /usr/local/sphinx/data/wordforms.txt
 
-9.2.9. exceptions
+8.2.9. exceptions
 -----------------
 
 Tokenizing exceptions file. Optional, default is empty.
@@ -4183,7 +3508,7 @@ Example:
 
    | exceptions = /usr/local/sphinx/data/exceptions.txt
 
-9.2.10. min_word_len
+8.2.10. min_word_len
 --------------------
 
 Minimum indexed word length. Optional, default is 1 (index everything).
@@ -4196,7 +3521,7 @@ Example:
 
    | min_word_len = 4
 
-9.2.11. charset_type
+8.2.11. charset_type
 --------------------
 
 Character set encoding type. Optional, default is 'sbcs'. Known values are
@@ -4221,7 +3546,7 @@ Example:
 
    | charset_type = utf-8
 
-9.2.12. charset_table
+8.2.12. charset_table
 ---------------------
 
 Accepted characters table, with case folding rules. Optional, default value
@@ -4293,7 +3618,7 @@ Example:
    | charset_table = 0..9, A..Z->a..z, _, a..z, \
    | 	U+410..U+42F->U+430..U+44F, U+430..U+44F
 
-9.2.13. ignore_chars
+8.2.13. ignore_chars
 --------------------
 
 Ignored characters list. Optional, default is empty.
@@ -4313,7 +3638,7 @@ Example:
 
    | ignore_chars = U+AD
 
-9.2.14. min_prefix_len
+8.2.14. min_prefix_len
 ----------------------
 
 Minimum word prefix length to index. Optional, default is 0 (do not index
@@ -4350,7 +3675,7 @@ Example:
 
    | min_prefix_len = 3
 
-9.2.15. min_infix_len
+8.2.15. min_infix_len
 ---------------------
 
 Minimum infix prefix length to index. Optional, default is 0 (do not index
@@ -4376,7 +3701,7 @@ Example:
 
    | min_infix_len = 3
 
-9.2.16. prefix_fields
+8.2.16. prefix_fields
 ---------------------
 
 The list of full-text fields to limit prefix indexing to. Optional, default
@@ -4393,7 +3718,7 @@ Example:
 
    | prefix_fields = url, domain
 
-9.2.17. infix_fields
+8.2.17. infix_fields
 --------------------
 
 The list of full-text fields to limit infix indexing to. Optional, default
@@ -4406,7 +3731,7 @@ Example:
 
    | infix_fields = url, domain
 
-9.2.18. enable_star
+8.2.18. enable_star
 -------------------
 
 Enables star-syntax (or wildcard syntax) when searching through
@@ -4443,7 +3768,7 @@ Example:
 
    | enable_star = 1
 
-9.2.19. ngram_len
+8.2.19. ngram_len
 -----------------
 
 N-gram lengths for N-gram indexing. Optional, default is 0 (disable n-gram
@@ -4483,7 +3808,7 @@ Example:
 
    | ngram_len = 1
 
-9.2.20. ngram_chars
+8.2.20. ngram_chars
 -------------------
 
 N-gram characters list. Optional, default is empty.
@@ -4497,7 +3822,7 @@ Example:
 
    | ngram_chars = U+3000..U+2FA1F
 
-9.2.21. phrase_boundary
+8.2.21. phrase_boundary
 -----------------------
 
 Phrase boundary characters list. Optional, default is empty.
@@ -4523,7 +3848,7 @@ Example:
 
    | phrase_boundary = ., ?, !, U+2026 # horizontal ellipsis
 
-9.2.22. phrase_boundary_step
+8.2.22. phrase_boundary_step
 ----------------------------
 
 Phrase boundary word position increment. Optional, default is 0.
@@ -4535,7 +3860,7 @@ Example:
 
    | phrase_boundary_step = 100
 
-9.2.23. html_strip
+8.2.23. html_strip
 ------------------
 
 Whether to strip HTML markup from incoming full-text data. Optional,
@@ -4557,7 +3882,7 @@ Example:
 
    | html_strip = 1
 
-9.2.24. html_index_attrs
+8.2.24. html_index_attrs
 ------------------------
 
 A list of markup attributes to index when stripping HTML. Optional, default
@@ -4571,7 +3896,7 @@ Example:
 
    | html_index_attrs = img=alt,title; a=title;
 
-9.2.25. html_remove_elements
+8.2.25. html_remove_elements
 ----------------------------
 
 A list of HTML elements for which to strip contents along with the elements
@@ -4590,7 +3915,7 @@ Example:
 
    | html_remove_elements = style, script
 
-9.2.26. local
+8.2.26. local
 -------------
 
 Local index declaration in the distributed index. Multi-value, optional,
@@ -4599,7 +3924,7 @@ default is empty.
 This setting is used to declare local indexes that will be searched when
 given distributed index is searched. All local indexes will be searched
 sequentially, utilizing only 1 CPU or core; to parallelize processing, you
-can configure searchd to query itself (refer to Section 9.2.27, <<agent>>
+can configure searchd to query itself (refer to Section 8.2.27, <<agent>>
 for the details). There might be several local indexes declared per each
 distributed index. Any local index can be mentioned several times in other
 distributed indexes.
@@ -4609,7 +3934,7 @@ Example:
    | local = chunk1
    | local = chunk2
 
-9.2.27. agent
+8.2.27. agent
 -------------
 
 Remote agents and indexes declaration in the distributed index.
@@ -4625,12 +3950,10 @@ searchd (in order to utilize many CPUs or cores).
 
 The value format is as follows:
 
-   | agent = specification:remote-indexes-list
-   | specification = hostname ":" port | path
+   | agent = hostname:port:remote-indexes-list
 
-Where 'hostname' is remote host name; 'port' is remote TCP port; 'path' is
-Unix-domain socket path and 'remote-indexes-list' is a comma-separated list
-of remote index names.
+where 'hostname' is remote host name; 'port' is remote TCP port; and
+'remote-indexes-list' is a comma-separated list of remote index names.
 
 All agents will be searched in parallel. However, all indexes specified for
 a given agent will be searched sequentially in this agent. This lets you
@@ -4665,10 +3988,9 @@ parallel.
 Example:
 
    | agent = localhost:3312:chunk2 # contact itself
-   | agent = /var/run/searchd.s:chunk2
    | agent = searchbox2:3312:chunk3,chunk4 # search remote indexes
 
-9.2.28. agent_connect_timeout
+8.2.28. agent_connect_timeout
 -----------------------------
 
 Remote agent connection timeout, in milliseconds. Optional, default is 1000
@@ -4683,7 +4005,7 @@ Example:
 
    | agent_connect_timeout = 300
 
-9.2.29. agent_query_timeout
+8.2.29. agent_query_timeout
 ---------------------------
 
 Remote agent query timeout, in milliseconds. Optional, default is 3000 (ie.
@@ -4700,7 +4022,7 @@ Example:
 
    | agent_query_timeout = 10000 # our query can be long, allow up to 10 sec
 
-9.2.30. preopen
+8.2.30. preopen
 ---------------
 
 Whether to pre-open all index files, or open them per each query. Optional,
@@ -4720,10 +4042,10 @@ Example:
 
    | preopen = 1
 
-9.3. indexer program configuration options
+8.3. indexer program configuration options
 ------------------------------------------
 
-9.3.1. mem_limit
+8.3.1. mem_limit
 ----------------
 
 Indexing RAM usage limit. Optional, default is 32M.
@@ -4749,7 +4071,7 @@ Example:
    | # mem_limit = 262144K # same, but in KB
    | # mem_limit = 268435456 # same, but in bytes
 
-9.3.2. max_iops
+8.3.2. max_iops
 ---------------
 
 Maximum I/O operations per second, for I/O throttling. Optional, default is
@@ -4772,7 +4094,7 @@ Example:
 
    | max_iops = 40
 
-9.3.3. max_iosize
+8.3.3. max_iosize
 -----------------
 
 Maximum allowed I/O operation size, in bytes, for I/O throttling. Optional,
@@ -4790,45 +4112,14 @@ Example:
 
    | max_iosize = 1048576
 
-9.4. searchd program configuration options
+8.4. searchd program configuration options
 ------------------------------------------
 
-9.4.1. listen
--------------
-
-This setting lets you specify IP address and port, or Unix-domain socket
-path, that searchd will listen on.
-
-The informal grammar for listen setting is:
-
-   | listen = address ":" port | port | path
-
-I.e. you can specify either an IP address (or hostname) and port number, or
-just a port number, or Unix socket path. If you specify port number but not
-the address, searchd will listen on all network interfaces. Unix path is
-identified by a leading slash.
-
-Examples:
-
-   | listen = localhost
-   | listen = localhost:5000
-   | listen = 192.168.0.1 
-   | listen = 192.168.0.1:5000
-   | listen = /var/run/sphinx.s
-   | listen = 3312
-
-There can be multiple listen directives, searchd will listen for client
-connections on all specified ports and sockets. If no listen directive is
-found then the server will listen on all available interfaces using the
-default port (which is 3312).
-
-Unix-domain sockets are not supported on Windows.
-
-9.4.2. address
+8.4.1. address
 --------------
 
 Interface IP address to bind on. Optional, default is 0.0.0.0 (ie. listen
-on all interfaces). DEPRECATED, use listen instead.
+on all interfaces).
 
 address setting lets you specify which network interface searchd will bind
 to, listen on, and accept incoming network connections on. The default
@@ -4839,17 +4130,16 @@ Example:
 
    | address = 192.168.0.1
 
-9.4.3. port
+8.4.2. port
 -----------
 
-searchd TCP port number. DEPRECATED, use listen instead. Used to be
-mandatory. Default port number is 3312.
+searchd TCP port number. Mandatory, default is 3312.
 
 Example:
 
    | port = 3312
 
-9.4.4. log
+8.4.3. log
 ----------
 
 Log file name. Optional, default is 'searchd.log'. All searchd run time
@@ -4859,7 +4149,7 @@ Example:
 
    | log = /var/log/searchd.log
 
-9.4.5. query_log
+8.4.4. query_log
 ----------------
 
 Query log file name. Optional, default is empty (do not log queries). All
@@ -4870,7 +4160,7 @@ Example:
 
    | query_log = /var/log/query.log
 
-9.4.6. read_timeout
+8.4.5. read_timeout
 -------------------
 
 Network client request read timeout, in seconds. Optional, default is
@@ -4881,17 +4171,7 @@ Example:
 
    | read_timeout = 1
 
-9.4.7. client_timeout
----------------------
-
-Maximum time to wait between requests (in seconds) when using persistent
-connections. Optional, default is five minutes.
-
-Example:
-
-   | client_timeout = 3600
-
-9.4.8. max_children
+8.4.6. max_children
 -------------------
 
 Maximum amount of children to fork (or in other words, concurrent searches
@@ -4907,7 +4187,7 @@ Example:
 
    | max_children = 10
 
-9.4.9. pid_file
+8.4.7. pid_file
 ---------------
 
 searchd process ID file name. Mandatory.
@@ -4923,8 +4203,8 @@ Example:
 
    | pid_file = /var/run/searchd.pid
 
-9.4.10. max_matches
--------------------
+8.4.8. max_matches
+------------------
 
 Maximum amount of matches that the daemon keeps in RAM for each index and
 can return to the client. Optional, default is 1000.
@@ -4962,8 +4242,8 @@ Example:
 
    | max_matches = 10000
 
-9.4.11. seamless_rotate
------------------------
+8.4.9. seamless_rotate
+----------------------
 
 Prevents searchd stalls while rotating indexes with huge amounts of data to
 precache. Optional, default is 1 (enable seamless rotation).
@@ -5004,7 +4284,7 @@ Example:
 
    | seamless_rotate = 1
 
-9.4.12. preopen_indexes
+8.4.10. preopen_indexes
 -----------------------
 
 Whether to forcibly preopen all indexes on startup. Optional, default is
@@ -5015,7 +4295,7 @@ Example:
 
    | preopen_indexes = 1
 
-9.4.13. unlink_old
+8.4.11. unlink_old
 ------------------
 
 Whether to unlink .old index copies on succesful rotation. Optional,
@@ -5025,25 +4305,47 @@ Example:
 
    | unlink_old = 0
 
-9.4.14. attr_flush_period
--------------------------
-
-When calling UpdateAttributes() to update document attributes in real-time,
-changes are first written to the in-memory copy of attributes (docinfo must
-be set to extern). Then, once searchd shuts down normally (via SIGTERM
-being sent), the changes are written to disk.
-
-Starting with 0.9.9, it is possible to tell searchd to periodically write
-these changes back to disk, to avoid them being lost. The time between
-those intervals is set with attr_flush_period, in seconds.
-
-It defaults to 0, which disables the periodic flushing, but flushing will
-still occur at normal shut-down.
-
 A. Sphinx revision history
 ==========================
 
-A.1. Version 0.9.8, 14 jul 2008
+A.1. Version 0.9.8.1, 30 oct 2008
+---------------------------------
+
+   * added configure script to libsphinxclient
+   * changed proximity/quorum operator syntax to require whitespace after
+     length
+   * fixed potential head process crash on SIGPIPE during "maxed out"
+     message
+   * fixed handling of incomplete remote replies (caused over-degraded
+     distributed results, in rare cases)
+   * fixed sending of big remote requests (caused distributed requests to
+     fail, in rare cases)
+   * fixed FD_SET() overflow (caused searchd to crash on startup, in rare
+     cases)
+   * fixed MVA vs distributed indexes (caused loss of 1st MVA value in
+     result set)
+   * fixed tokenizing of exceptions terminated by specials (eg. "GPS AT&T"
+     in extended mode)
+   * fixed buffer overrun in stemmer on overlong tokens occasionally
+     emitted by proximity/quorum operator parser (caused crashes on certain
+     proximity/quorum queries)
+   * fixed wordcount ranker (could be dropping hits)
+   * fixed --merge feature (numerous different fixes, caused broken
+     indexes)
+   * fixed --merge-dst-range performance
+   * fixed prefix/infix generation for stopwords
+   * fixed ignore_chars vs specials
+   * fixed misplaced F_SETLKW check (caused certain build types, eg. RPM
+     build on FC8, to fail)
+   * fixed dictionary-defined charsets support in spelldump, added \x-style
+     wordchars support
+   * fixed Java API to properly send long strings (over 64K; eg. long
+     document bodies for excerpts)
+   * fixed Python API to accept offset/limit of 'long' type
+   * fixed default ID range (that filtered out all 64-bit values) in Java
+     and Python APIs
+
+A.2. Version 0.9.8, 14 jul 2008
 -------------------------------
 
 Indexing
@@ -5223,7 +4525,7 @@ Changes and fixes since 0.9.8-RC2
      reusable sorter issue
    * fixed sorting of negative floats in SPH_SORT_EXTENDED mode
 
-A.2. Version 0.9.7, 02 apr 2007
+A.3. Version 0.9.7, 02 apr 2007
 -------------------------------
 
    * added support for sql_str2ordinal_column
@@ -5273,7 +4575,7 @@ A.2. Version 0.9.7, 02 apr 2007
    * fixed wrong assertion in SBCS encoder
    * fixed crashes with no-attribute indexes after rotate
 
-A.3. Version 0.9.7-RC2, 15 dec 2006
+A.4. Version 0.9.7-RC2, 15 dec 2006
 -----------------------------------
 
    * added support for extended matching mode (query language)
@@ -5295,7 +4597,7 @@ A.3. Version 0.9.7-RC2, 15 dec 2006
      paths)
    * fixes for 64-bit platforms
 
-A.4. Version 0.9.7-RC1, 26 oct 2006
+A.5. Version 0.9.7-RC1, 26 oct 2006
 -----------------------------------
 
    * added alpha index merging code
@@ -5324,7 +4626,7 @@ A.4. Version 0.9.7-RC1, 26 oct 2006
    * fixed line numbering in config parser
    * fixed some issues with index rotation
 
-A.5. Version 0.9.6, 24 jul 2006
+A.6. Version 0.9.6, 24 jul 2006
 -------------------------------
 
    * added support for empty indexes
@@ -5333,7 +4635,7 @@ A.5. Version 0.9.6, 24 jul 2006
    * fixed configure issues with --without-mysql and --with-pgsql options
    * fixed building on Solaris 9
 
-A.6. Version 0.9.6-RC1, 26 jun 2006
+A.7. Version 0.9.6-RC1, 26 jun 2006
 -----------------------------------
 
    * added boolean queries support (experimental, beta version)

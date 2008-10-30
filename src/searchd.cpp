@@ -26,11 +26,6 @@
 #include <stdarg.h>
 #include <limits.h>
 
-#define SEARCHD_BACKLOG			5
-#define SEARCHD_DEFAULT_PORT	3312
-
-#define SPH_ADDRESS_SIZE		sizeof("000.000.000.000")
-
 /////////////////////////////////////////////////////////////////////////////
 
 #if USE_WINDOWS
@@ -43,8 +38,6 @@
 	#define sphSockSend(_sock,_buf,_len)	::send(_sock,_buf,_len,0)
 	#define sphSockClose(_sock)				::closesocket(_sock)
 
-	#define stat		_stat
-
 #else
 	// UNIX-specific headers and calls
 	#include <unistd.h>
@@ -53,7 +46,6 @@
 	#include <sys/socket.h>
 	#include <sys/time.h>
 	#include <sys/wait.h>
-	#include <sys/un.h>
 	#include <netdb.h>
 
 	// there's no MSG_NOSIGNAL on OS X
@@ -62,7 +54,7 @@
 	#endif
 
 	#define sphSockRecv(_sock,_buf,_len)	::recv(_sock,_buf,_len,MSG_NOSIGNAL)
-	#define sphSockSend(_sock,_buf,_len)	::send(_sock,_buf,_len,0)
+	#define sphSockSend(_sock,_buf,_len)	::send(_sock,_buf,_len,MSG_NOSIGNAL)
 	#define sphSockClose(_sock)				::close(_sock)
 
 #endif
@@ -75,15 +67,16 @@ struct ServedIndex_t
 {
 	CSphIndex *			m_pIndex;
 	const CSphSchema *	m_pSchema;		///< pointer to index schema, managed by the index itself
+	CSphDict *			m_pDict;
+	ISphTokenizer *		m_pTokenizer;
 	CSphString			m_sIndexPath;
 	bool				m_bEnabled;		///< to disable index in cases when rotation fails
 	bool				m_bMlock;
 	bool				m_bPreopen;
-	bool				m_bOnDiskDict;
 	bool				m_bStar;
-	bool				m_bToDelete;
-	bool				m_bOnlyNew;
-	int					m_iUpdateTag;
+	bool				m_bHtmlStrip;			///< html stripping settings for excerpts
+	CSphString			m_sHtmlIndexAttrs;		///< html stripping settings for excerpts
+	CSphString			m_sHtmlRemoveElements;	///< html stripping settings for excerpts
 
 public:
 						ServedIndex_t ();
@@ -92,14 +85,6 @@ public:
 };
 
 /////////////////////////////////////////////////////////////////////////////
-
-enum ESphAddIndex
-{
-	ADD_ERROR	= 0,
-	ADD_LOCAL	= 1,
-	ADD_DISTR	= 2
-};
-
 
 enum ESphLogLevel
 {
@@ -120,44 +105,23 @@ static CSphVector<CSphString>	g_dArgs;
 static bool				g_bHeadDaemon	= false;
 static bool				g_bLogStdout	= true;
 
-static bool				g_bCrashLog_Enabled			= false;
-static const char *		g_sCrashLog_Path			= NULL;
-static const BYTE *		g_pCrashLog_LastQuery		= NULL;
-static int				g_iCrashLog_LastQuerySize	= 0;
-static BYTE				g_dCrashLog_LastHello[12];
-
 static ESphLogLevel		g_eLogLevel		= LOG_INFO;
 static int				g_iLogFile		= STDOUT_FILENO;	// log file descriptor
 static CSphString		g_sLogFile;							// log file name
 static bool				g_bLogTty		= false;			// cached isatty(g_iLogFile)
 
 static int				g_iReadTimeout	= 5;	// sec
-static int				g_iWriteTimeout	= 5;
-static int				g_iClientTimeout = 300;
+static int				g_iWriteTimeout = 5;
 static int				g_iChildren		= 0;
 static int				g_iMaxChildren	= 0;
 static bool				g_bPreopenIndexes = false;
-static bool				g_bOnDiskDicts	= false;
 static bool				g_bUnlinkOld	= true;
-static CSphVector<int>	g_dSockets;
+static int				g_iSocket		= 0;
 static int				g_iQueryLogFile	= -1;
 static CSphString		g_sQueryLogFile;
 static const char *		g_sPidFile		= NULL;
 static int				g_iPidFD		= -1;
 static int				g_iMaxMatches	= 1000;
-
-static int				g_iAttrFlushPeriod	= 0;			// in seconds; 0 means "do not flush"
-static int				g_iMaxPacketSize	= 8*1024*1024;	// in bytes; for both query packets from clients and response packets from agents
-static int				g_iMaxFilters		= 256;
-static int				g_iMaxFilterValues	= 4096;
-
-//////////////////////////////////////////////////////////////////////////
-
-static CSphString		g_sConfigFile;
-static DWORD			g_uCfgCRC32		= 0;
-static struct stat		g_tCfgStat;
-
-static CSphConfigParser * g_pCfg			= NULL;
 
 #if USE_WINDOWS
 static bool				g_bSeamlessRotate	= false;
@@ -166,10 +130,7 @@ static bool				g_bSeamlessRotate	= true;
 #endif
 
 static bool				g_bIOStats		= false;
-static bool				g_bOptConsole	= false;
-static bool				g_bOptNoDetach	= false;
 
-static volatile bool	g_bDoDelete			= false;	// do we need to delete any indexes?
 static volatile bool	g_bDoRotate			= false;	// flag that we are rotating now; set from SIGHUP; cleared on rotation success
 static volatile bool	g_bGotSighup		= false;	// we just received SIGHUP; need to log
 static volatile bool	g_bGotSigterm		= false;	// we just received SIGTERM; need to shutdown
@@ -181,10 +142,6 @@ static CSphVector<const char *>				g_dRotating;			// names of indexes to be rota
 static const char *							g_sPrereading	= NULL;	// name of index currently being preread
 static CSphIndex *							g_pPrereading	= NULL;	// rotation "buffer"
 
-static int				g_iUpdateTag		= 0;		// ever-growing update tag
-static bool				g_bFlushing			= false;	// update flushing in progress
-static int				g_iFlushTag			= 0;		// last flushed tag
-
 enum
 {
 	SPH_PIPE_UPDATED_ATTRS,
@@ -195,9 +152,9 @@ enum
 struct  PipeInfo_t
 {
 	int		m_iFD;			///< read-pipe to child
-	int		m_iHandler;		///< who's my handler (SPH_PIPE_xxx)
+	bool	m_bPrereader;	///< is that one prereader or "normal" child
 
-	PipeInfo_t () : m_iFD ( -1 ), m_iHandler ( -1 ) {}
+	PipeInfo_t () : m_iFD ( -1 ), m_bPrereader ( false ) {}
 };
 
 static CSphVector<PipeInfo_t>	g_dPipes;		///< currently open read-pipes to children processes
@@ -213,8 +170,7 @@ enum SearchdCommand_e
 	SEARCHD_COMMAND_EXCERPT		= 1,
 	SEARCHD_COMMAND_UPDATE		= 2,
 	SEARCHD_COMMAND_KEYWORDS	= 3,
-	SEARCHD_COMMAND_PERSIST		= 4,
-	
+
 	SEARCHD_COMMAND_TOTAL
 };
 
@@ -222,9 +178,9 @@ enum SearchdCommand_e
 /// known command versions
 enum
 {
-	VER_COMMAND_SEARCH		= 0x116,
+	VER_COMMAND_SEARCH		= 0x113,
 	VER_COMMAND_EXCERPT		= 0x100,
-	VER_COMMAND_UPDATE		= 0x102,
+	VER_COMMAND_UPDATE		= 0x101,
 	VER_COMMAND_KEYWORDS	= 0x100
 };
 
@@ -259,19 +215,12 @@ const int	MAX_RETRY_DELAY		= 1000;
 #define EINPROGRESS		WSAEINPROGRESS
 #define EINTR			WSAEINTR
 #define ECONNRESET		WSAECONNRESET
-#define ECONNABORTED	WSAECONNABORTED
 #define socklen_t		int
 
 #define ftruncate		_chsize
 #define getpid			GetCurrentProcessId
 
 #endif // USE_WINDOWS
-
-const int EXT_COUNT = 7;
-const char * g_dNewExts[EXT_COUNT] = { ".new.sph", ".new.spa", ".new.spi", ".new.spd", ".new.spp", ".new.spm", ".new.spk" };
-const char * g_dOldExts[EXT_COUNT] = { ".old.sph", ".old.spa", ".old.spi", ".old.spd", ".old.spp", ".old.spm", ".old.spk" };
-const char * g_dCurExts[EXT_COUNT] = { ".sph", ".spa", ".spi", ".spd", ".spp", ".spm", ".spk" };
-
 
 /////////////////////////////////////////////////////////////////////////////
 // MISC
@@ -285,19 +234,19 @@ ServedIndex_t::ServedIndex_t ()
 void ServedIndex_t::Reset ()
 {
 	m_pIndex	= NULL;
+	m_pDict		= NULL;
+	m_pTokenizer= NULL;
 	m_bEnabled	= true;
 	m_bMlock	= false;
 	m_bPreopen	= false;
-	m_bOnDiskDict = false;
 	m_bStar		= false;
-	m_bToDelete	= false;
-	m_bOnlyNew	= false;
-	m_iUpdateTag= 0;
 }
 
 ServedIndex_t::~ServedIndex_t ()
 {
 	SafeDelete ( m_pIndex );
+	SafeDelete ( m_pDict );
+	SafeDelete ( m_pTokenizer );
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -306,8 +255,6 @@ ServedIndex_t::~ServedIndex_t ()
 
 void Shutdown (); // forward ref for sphFatal()
 
-
-/// format current timestamp for logging
 void sphFormatCurrentTime ( char * sTimeBuf )
 {
 #if !USE_WINDOWS
@@ -347,11 +294,27 @@ void sphFormatCurrentTime ( char * sTimeBuf )
 		1900+tmp.tm_year );
 }
 
-
-/// physically emit log entry
-/// buffer must have 1 extra byte for linefeed
-void sphLogEntry ( ESphLogLevel eLevel, char * sBuf )
+void sphLog ( ESphLogLevel eLevel, const char * sFmt, va_list ap )
 {
+	if ( eLevel>g_eLogLevel || ( g_iLogFile<0 && !g_bService ) )
+		return;
+
+	char sTimeBuf[128];
+	sphFormatCurrentTime ( sTimeBuf );
+
+	const char * sBanner = "";
+	if ( eLevel==LOG_FATAL )	sBanner = "FATAL: ";
+	if ( eLevel==LOG_WARNING )	sBanner = "WARNING: ";
+
+	char sBuf [ 1024 ];
+	if ( !g_bLogTty )
+		snprintf ( sBuf, sizeof(sBuf)-1, "[%s] [%5d] %s", sTimeBuf, (int)getpid(), sBanner );
+	else
+		strcpy ( sBuf, sBanner );
+	int iLen = strlen(sBuf);
+
+	vsnprintf ( sBuf+iLen, sizeof(sBuf)-iLen-1, sFmt, ap );
+
 #if USE_WINDOWS
 	if ( g_bService && g_iLogFile==STDOUT_FILENO )
 	{
@@ -388,7 +351,7 @@ void sphLogEntry ( ESphLogLevel eLevel, char * sBuf )
 	} else
 #endif
 	{
-		strcat ( sBuf, "\n" );
+		strncat ( sBuf, "\n", sizeof(sBuf) );
 
 		lseek ( g_iLogFile, 0, SEEK_END );
 		write ( g_iLogFile, sBuf, strlen(sBuf) );
@@ -398,86 +361,6 @@ void sphLogEntry ( ESphLogLevel eLevel, char * sBuf )
 			write ( STDOUT_FILENO, sBuf, strlen(sBuf) );
 		}
 	}
-}
-
-
-/// log entry (with log levels, dupe catching, etc)
-/// call with NULL format for dupe flushing
-void sphLog ( ESphLogLevel eLevel, const char * sFmt, va_list ap )
-{
-	// dupe catcher state
-	static const float	FLUSH_THRESH_TIME	= 1.0f;
-	static const int	FLUSH_THRESH_COUNT	= 100;
-
-	static ESphLogLevel eLastLevel = LOG_INFO;
-	static DWORD uLastEntry = 0;
-	static float fLastStamp = -1.0f-FLUSH_THRESH_TIME;
-	static int iLastRepeats = 0;
-
-	// only if we can
-	if ( ( sFmt && eLevel>g_eLogLevel ) || ( g_iLogFile<0 && !g_bService ) )
-		return;
-
-	// format the banner
-	char sTimeBuf[128];
-	sphFormatCurrentTime ( sTimeBuf );
-
-	const char * sBanner = "";
-	if ( sFmt==NULL ) eLevel = eLastLevel;
-	if ( eLevel==LOG_FATAL ) sBanner = "FATAL: ";
-	if ( eLevel==LOG_WARNING ) sBanner = "WARNING: ";
-
-	char sBuf [ 1024 ];
-	if ( !g_bLogTty )
-		snprintf ( sBuf, sizeof(sBuf)-1, "[%s] [%5d] %s", sTimeBuf, (int)getpid(), sBanner );
-	else
-		strcpy ( sBuf, sBanner );
-	int iLen = strlen(sBuf);
-
-	// format the message
-	if ( sFmt )
-		vsnprintf ( sBuf+iLen, sizeof(sBuf)-iLen-1, sFmt, ap );
-
-	// catch dupes
-	DWORD uEntry = sFmt ? sphCRC32 ( (const BYTE*)( sBuf+iLen ) ) : 0;
-	float fNow = sphLongTimer ();
-
-	// accumulate while possible
-	if ( sFmt && eLevel==eLastLevel && uEntry==uLastEntry && iLastRepeats<FLUSH_THRESH_COUNT && fNow<fLastStamp+FLUSH_THRESH_TIME )
-	{
-		fLastStamp = fNow;
-		iLastRepeats++;
-		return;
-	}
-
-	// flush if needed
-	if ( iLastRepeats!=0 && ( sFmt || fNow>=fLastStamp+FLUSH_THRESH_TIME ) )
-	{
-		// flush if we actually have something to flush, and
-		// case 1: got a message we can't accumulate
-		// case 2: got a periodic flush and been otherwise idle for a thresh period
-		char sLast[256];
-		strncpy ( sLast, sBuf, iLen );
-		snprintf ( sLast+iLen, sizeof(sLast)-iLen, "last message repeated %d times", iLastRepeats );
-		sphLogEntry ( eLastLevel, sLast );
-
-		fLastStamp = fNow;
-		iLastRepeats = 0;
-		eLastLevel = LOG_INFO;
-		uLastEntry = 0;
-	}
-
-	// was that a flush-only call?
-	if ( !sFmt )
-		return;
-
-	fLastStamp = fNow;
-	iLastRepeats = 0;
-	eLastLevel = eLevel;
-	uLastEntry = uEntry;
-
-	// do the logging
-	sphLogEntry ( eLevel, sBuf );
 }
 
 
@@ -509,13 +392,6 @@ void sphInfo ( const char * sFmt, ... )
 	va_end ( ap );
 }
 
-void sphLogFatal ( const char * sFmt, ... )
-{
-	va_list ap;
-	va_start ( ap, sFmt );
-	sphLog ( LOG_FATAL, sFmt, ap );
-	va_end ( ap );
-}
 
 void LogInternalError ( const char * sError )
 {
@@ -760,24 +636,20 @@ public:
 
 	virtual void SetPrefix ( const char * sTemplate, ... )
 	{
+		va_list ap;
+		va_start ( ap, sTemplate );
 		for ( int i=m_iStart; i<=m_iEnd; i++ )
-		{
-			va_list ap;
-			va_start ( ap, sTemplate );
 			m_dLogs[i].VaSetPrefix ( ap, sTemplate );
-			va_end ( ap );
-		}
+		va_end ( ap );
 	}
 
 	virtual void Submit ( const char * sTemplate, ... )
 	{
+		va_list ap;
+		va_start ( ap, sTemplate );
 		for ( int i=m_iStart; i<=m_iEnd; i++ )
-		{
-			va_list ap;
-			va_start ( ap, sTemplate );
 			m_dLogs[i].VaSubmit ( ap, sTemplate );
-			va_end ( ap );
-		}
+		va_end ( ap );
 	}
 
 	SearchFailuresLog_c & operator [] ( int iIndex )
@@ -795,8 +667,6 @@ void Shutdown ()
 	// some head-only shutdown procedures
 	if ( g_bHeadDaemon )
 	{
-		SafeDelete ( g_pCfg );
-
 		// save attribute updates for all local indexes
 		g_hIndexes.IterateStart ();
 		while ( g_hIndexes.IterateNext () )
@@ -826,9 +696,8 @@ void Shutdown ()
 		}
 	}
 
-	ARRAY_FOREACH ( i, g_dSockets )
-		if ( g_dSockets[i]>=0 )
-			sphSockClose ( g_dSockets[i] );
+	if ( g_iSocket )
+		sphSockClose ( g_iSocket );
 
 #if USE_WINDOWS
 	CloseHandle ( g_hPipe );
@@ -840,27 +709,6 @@ void Shutdown ()
 
 
 #if !USE_WINDOWS
-
-void HandleCrash ( int )
-{
-	static char sBuffer[1024];
-	int iFd;
-
-	if ( !g_pCrashLog_LastQuery )
-		return;
-	
-	snprintf ( sBuffer, sizeof(sBuffer), "%s.%d", g_sCrashLog_Path, getpid() );
-	if ( ( iFd = open ( sBuffer, O_WRONLY | O_CREAT | O_TRUNC, 0644 ) ) != -1 )
-	{
-		const int iSize = Min( g_iCrashLog_LastQuerySize, g_iMaxPacketSize );
-		write ( iFd, g_dCrashLog_LastHello, sizeof(g_dCrashLog_LastHello) );
-		write ( iFd, g_pCrashLog_LastQuery, iSize );
-		close ( iFd );
-	}
-	else
-		sphWarning ( "crash log creation failed, errno=%d\n", errno );
-}
-
 void sighup ( int )
 {
 	g_bDoRotate = true;
@@ -889,48 +737,15 @@ void sigusr1 ( int )
 {
 	g_bGotSigusr1 = true;
 }
-
 #endif // !USE_WINDOWS
-
-
-void SetSignalHandlers ()
-{
-#if !USE_WINDOWS
-	struct sigaction sa;
-	sigfillset ( &sa.sa_mask );
-	sa.sa_flags = SA_NOCLDSTOP;
-
-	bool bSignalsSet = false;
-	for ( ;; )
-	{
-		sa.sa_handler = sigterm;	if ( sigaction ( SIGTERM, &sa, NULL )!=0 ) break;
-		sa.sa_handler = sigterm;	if ( sigaction ( SIGINT, &sa, NULL )!=0 ) break;
-		sa.sa_handler = sighup;		if ( sigaction ( SIGHUP, &sa, NULL )!=0 ) break;
-		sa.sa_handler = sigusr1;	if ( sigaction ( SIGUSR1, &sa, NULL )!=0 ) break;
-		sa.sa_handler = sigchld;	if ( sigaction ( SIGCHLD, &sa, NULL )!=0 ) break;
-		if ( g_bCrashLog_Enabled )
-		{
-			sa.sa_flags |= SA_RESETHAND;
-			sa.sa_handler = HandleCrash;	if ( sigaction ( SIGSEGV, &sa, NULL )!=0 ) break;
-			sa.sa_handler = HandleCrash;	if ( sigaction ( SIGBUS, &sa, NULL )!=0 ) break;
-			sa.sa_handler = HandleCrash;	if ( sigaction ( SIGABRT, &sa, NULL )!=0 ) break;
-			sa.sa_handler = HandleCrash;	if ( sigaction ( SIGILL, &sa, NULL )!=0 ) break;
-			sa.sa_handler = HandleCrash;	if ( sigaction ( SIGFPE, &sa, NULL )!=0 ) break;
-		}
-		bSignalsSet = true;
-		break;
-	}
-	if ( !bSignalsSet )
-		sphFatal ( "sigaction(): %s", strerror(errno) );
-#endif
-}
-
 
 /////////////////////////////////////////////////////////////////////////////
 // NETWORK STUFF
 /////////////////////////////////////////////////////////////////////////////
 
-const int		WIN32_PIPE_BUFSIZE		= 32;
+const int		MAX_PACKET_SIZE			= 8*1024*1024;
+const int		SEARCHD_MAX_ATTRS		= 256;
+const int		SEARCHD_MAX_ATTR_VALUES	= 4096;
 
 
 #if USE_WINDOWS
@@ -998,102 +813,24 @@ void sphSockSetErrno ( int iErr )
 }
 
 
-/// formats IP address given in network byte order into sBuffer
-/// returns the buffer
-char * sphFormatIP ( char * sBuffer, int iBufferSize, DWORD uAddress )
+int sphCreateServerSocket ( DWORD uAddr, int iPort )
 {
-	const BYTE *a = (const BYTE *)&uAddress;
-	snprintf ( sBuffer, iBufferSize, "%u.%u.%u.%u", a[0], a[1], a[2], a[3] );
-	return sBuffer;
-}
-
-
-static const bool GETADDR_STRICT = true; ///< strict check, will die with sphFatal() on failure
-
-DWORD sphGetAddress ( const char * sHost, bool bFatal=false )
-{
-	struct hostent * pHost = gethostbyname ( sHost );
-
-	if ( pHost==NULL || pHost->h_addrtype!=AF_INET)
-	{
-		if ( bFatal )
-			sphFatal ( "no AF_INET address found for: %s", sHost );
-		return 0;
-	}
-
-	struct in_addr ** ppAddrs = (struct in_addr **)pHost->h_addr_list;
-	assert ( ppAddrs[0] );
-
-	assert ( sizeof(DWORD)==pHost->h_length );
-	DWORD uAddr;
-	memcpy ( &uAddr, ppAddrs[0], sizeof(DWORD) );
-
-	if ( ppAddrs[1] )
-	{
-		char sBuf [ SPH_ADDRESS_SIZE ];
-		sphWarning ( "multiple addresses found for '%s', using the first one (ip=%s)",
-			sHost, sphFormatIP ( sBuf, sizeof(sBuf), uAddr ) );
-	}
-
-	return uAddr;
-}
-
-
-#if !USE_WINDOWS
-int sphCreateUnixSocket ( const char * sPath )
-{
-	static struct sockaddr_un uaddr;
-	size_t len = strlen ( sPath );
-
-	if ( len + 1 > sizeof( uaddr.sun_path ) )
-		sphFatal ( "UNIX socket path is too long (len=%d)", len );
-
-	sphInfo ( "listening on UNIX socket %s", sPath );
-	
-	memset ( &uaddr, 0, sizeof(uaddr) );
-	uaddr.sun_family = AF_UNIX;
-	memcpy ( uaddr.sun_path, sPath, len + 1 );
-	
-	int iSock = socket ( AF_UNIX, SOCK_STREAM, 0 );
-	if ( iSock == -1 )
-		sphFatal ( "failed to create UNIX socket: %s", sphSockError() );
-
-	if ( unlink ( sPath ) == -1 )
-	{
-		if ( errno != ENOENT )
-			sphFatal ( "unlink() on UNIX socket file failed: %s", sphSockError() );
-	}
-	
-	if ( bind ( iSock, (struct sockaddr *)&uaddr, sizeof(uaddr) ) != 0 )
-		sphFatal ( "bind() on UNIX socket failed: %s", sphSockError() );
-
-	if ( listen ( iSock, SEARCHD_BACKLOG ) == -1 )
-		sphFatal ( "listen() on UNIX socket failed: %s", sphSockError() );
-
-	return iSock;
-}
-#endif // !USE_WINDOWS
-
-
-int sphCreateInetSocket ( DWORD uAddr, int iPort )
-{
-	char sAddress[SPH_ADDRESS_SIZE];
-	sphFormatIP( sAddress, SPH_ADDRESS_SIZE, uAddr );
-		
-	if ( uAddr == htonl(INADDR_ANY) )
-		sphInfo ( "listening on all interfaces, port=%d", iPort );
-	else
-		sphInfo ( "listening on %s:%d", sAddress, iPort );
-	
 	static struct sockaddr_in iaddr;
-	memset ( &iaddr, 0, sizeof(iaddr) );
+
 	iaddr.sin_family = AF_INET;
 	iaddr.sin_addr.s_addr = uAddr;
 	iaddr.sin_port = htons ( (short)iPort );
 
+	char sAddr [ 256 ];
+	DWORD uHost = ntohl(uAddr);
+	snprintf ( sAddr, sizeof(sAddr), "%d.%d.%d.%d:%d", 
+		(uHost>>24) & 0xff, (uHost>>16) & 0xff, (uHost>>8) & 0xff, uHost & 0xff,
+		iPort );
+
+	sphInfo ( "creating server socket on %s", sAddr );
 	int iSock = socket ( AF_INET, SOCK_STREAM, 0 );
-	if ( iSock == -1 )
-		sphFatal ( "failed to create TCP socket: %s", sphSockError() );
+	if ( iSock<0 )
+		sphFatal ( "failed to create server socket on %s: %s", sAddr, sphSockError() );
 
 	int iOn = 1;
 	if ( setsockopt ( iSock, SOL_SOCKET, SO_REUSEADDR, (char*)&iOn, sizeof(iOn) ) )
@@ -1107,83 +844,13 @@ int sphCreateInetSocket ( DWORD uAddr, int iPort )
 		if ( iRes==0 )
 			break;
 
-		sphInfo ( "bind() failed on %s, retrying...", sAddress );
+		sphInfo ( "failed to bind on %s, retrying...", sAddr );
 		sphUsleep ( 3000 );
 	} while ( --iTries>0 );
 	if ( iRes )
-		sphFatal ( "bind() failed on %s: %s", sAddress, sphSockError() );
-
-	if ( listen ( iSock, SEARCHD_BACKLOG ) == -1 )
-		sphFatal ( "listen() failed: %s", sphSockError() );
+		sphFatal ( "failed to bind on %s", sAddr );
 
 	return iSock;
-}
-
-
-inline bool IsPortInRange ( int iPort )
-{
-	return ( iPort > 0 ) && ( iPort <= 0xFFFF );
-}
-
-
-void CheckPort ( int iPort )
-{
-	if ( !IsPortInRange(iPort) )
-		sphFatal ( "port %d is out of range", iPort );
-}
-
-
-int sphParseAndBind ( const CSphString & sListen )
-{
-	const char * sSpec = sListen.cstr();
-		
-	if ( sSpec[0]=='/' )
-	{
-#if USE_WINDOWS
-		sphFatal ( "UNIX sockets are not supported on Windows" );
-#else
-		return sphCreateUnixSocket ( sListen.cstr() );
-#endif
-	}
-
-	int iLen = strlen ( sSpec );
-	int iColon = -1;
-	bool bAllDigits = true;
-	
-	for ( int i = 0; i < iLen; i++ )
-	{
-		if ( sSpec[i] == ':' )
-		{
-			iColon = i;
-			bAllDigits = false;
-		}
-		else if ( bAllDigits && !isdigit(sSpec[i]) )
-			bAllDigits = false;
-	}
-	
-	if ( bAllDigits && iLen <= 5 )
-	{
-		int iPort = atol(sSpec);
-		if ( IsPortInRange(iPort) )
-			return sphCreateInetSocket ( htonl(INADDR_ANY), iPort );
-	}
-
-	int iPort, iAddress;
-	if ( iColon == -1 )
-	{
-		iPort = SEARCHD_DEFAULT_PORT;
-		iAddress = sphGetAddress ( sSpec, GETADDR_STRICT );
-	}
-	else
-	{
-		iPort = atol ( sSpec + iColon + 1 );
-		CheckPort ( iPort );
-		iAddress = iColon == 0
-			? htonl(INADDR_ANY)
-			: sphGetAddress ( sListen.SubString ( 0, iColon ).cstr(), GETADDR_STRICT );
-	}
-	
-	return sphCreateInetSocket ( iAddress, iPort );
 }
 
 
@@ -1198,11 +865,11 @@ int sphSetSockNB ( int iSock )
 }
 
 
-int sphSockRead ( int iSock, void * buf, int iLen, int iReadTimeout )
+int sphSockRead ( int iSock, void * buf, int iLen )
 {
 	assert ( iLen>0 );
 
-	int iTimeout = 1000*Max ( 1, iReadTimeout ); // ms to wait total
+	int iTimeout = 1000*Max ( 1, g_iReadTimeout ); // ms to wait total
 	int iLeftMs = iTimeout; // ms to wait left
 	int iLeftBytes = iLen; // bytes to read left
 	float tmStart = sphLongTimer ();
@@ -1344,10 +1011,8 @@ public:
 	float			GetFloat () { return sphDW2F ( ntohl ( GetT<DWORD> () ) ); }
 	CSphString		GetString ();
 	int				GetDwords ( DWORD ** pBuffer, int iMax, const char * sErrorTemplate );
+	bool			GetDwords ( CSphVector<DWORD> & dBuffer, int iMax, const char * sErrorTemplate );
 	bool			GetError () { return m_bError; }
-
-	template < typename T > bool	GetDwords ( CSphVector<T> & dBuffer, int iMax, const char * sErrorTemplate );
-	template < typename T > bool	GetQwords ( CSphVector<T> & dBuffer, int iMax, const char * sErrorTemplate );
 
 	virtual void	SendErrorReply ( const char *, ... ) = 0;
 
@@ -1380,21 +1045,11 @@ public:
 					NetInputBuffer_c ( int iSock );
 	virtual			~NetInputBuffer_c ();
 
-	bool			ReadFrom ( int iLen, int iTimeout );
-	bool			ReadFrom ( int iLen ) { return ReadFrom ( iLen, g_iReadTimeout ); };
-
+	bool			ReadFrom ( int iLen );
 	virtual void	SendErrorReply ( const char *, ... );
 
-	const BYTE *	GetBufferPtr () const { return m_pBuf; }
-
 protected:
-	static const int	NET_MINIBUFFER_SIZE = 4096;
-
-	int					m_iSock;
-
-	BYTE				m_dMinibufer[NET_MINIBUFFER_SIZE];
-	int					m_iMaxibuffer;
-	BYTE *				m_pMaxibuffer;
+	int				m_iSock;
 };
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1587,7 +1242,7 @@ CSphString InputBuffer_c::GetString ()
 	CSphString sRes;
 
 	int iLen = GetInt ();
-	if ( m_bError || iLen<0 || iLen>g_iMaxPacketSize || ( m_pCur+iLen > m_pBuf+m_iLen ) )
+	if ( m_bError || iLen<0 || iLen>MAX_PACKET_SIZE || ( m_pCur+iLen > m_pBuf+m_iLen ) )
 	{
 		SetError ( true );
 		return sRes;
@@ -1602,7 +1257,7 @@ CSphString InputBuffer_c::GetString ()
 bool InputBuffer_c::GetBytes ( void * pBuf, int iLen )
 {
 	assert ( pBuf );
-	assert ( iLen>0 && iLen<=g_iMaxPacketSize );
+	assert ( iLen>0 && iLen<=MAX_PACKET_SIZE );
 
 	if ( m_bError || ( m_pCur+iLen > m_pBuf+m_iLen ) )
 	{
@@ -1612,7 +1267,7 @@ bool InputBuffer_c::GetBytes ( void * pBuf, int iLen )
 
 	memcpy ( pBuf, m_pCur, iLen );
 	m_pCur += iLen;
-	return true;
+	return true;;
 }
 
 
@@ -1644,7 +1299,7 @@ int InputBuffer_c::GetDwords ( DWORD ** ppBuffer, int iMax, const char * sErrorT
 }
 
 
-template < typename T > bool InputBuffer_c::GetDwords ( CSphVector<T> & dBuffer, int iMax, const char * sErrorTemplate )
+bool InputBuffer_c::GetDwords ( CSphVector<DWORD> & dBuffer, int iMax, const char * sErrorTemplate )
 {
 	int iCount = GetInt ();
 	if ( iCount<0 || iCount>iMax )
@@ -1655,74 +1310,56 @@ template < typename T > bool InputBuffer_c::GetDwords ( CSphVector<T> & dBuffer,
 	}
 
 	dBuffer.Resize ( iCount );
-	ARRAY_FOREACH ( i, dBuffer )
-		dBuffer[i] = GetDword ();
-
-	if ( m_bError )
-		dBuffer.Reset ();
-
-	return !m_bError;
-}
-
-
-template < typename T > bool InputBuffer_c::GetQwords ( CSphVector<T> & dBuffer, int iMax, const char * sErrorTemplate )
-{
-	int iCount = GetInt ();
-	if ( iCount<0 || iCount>iMax )
+	if ( iCount )
 	{
-		SendErrorReply ( sErrorTemplate, iCount, iMax );
-		SetError ( true );
-		return false;
+		if ( !GetBytes ( &dBuffer[0], sizeof(int)*iCount ) )
+		{
+			dBuffer.Reset ();
+			return false;
+		}
+		ARRAY_FOREACH ( i, dBuffer )
+			dBuffer[i] = htonl ( dBuffer[i] );
 	}
 
-	dBuffer.Resize ( iCount );
-	ARRAY_FOREACH ( i, dBuffer )
-		dBuffer[i] = GetUint64 ();
-
-	if ( m_bError )
-		dBuffer.Reset ();
-
-	return !m_bError;
+	return true;
 }
+
 /////////////////////////////////////////////////////////////////////////////
 
 NetInputBuffer_c::NetInputBuffer_c ( int iSock )
-	: InputBuffer_c ( m_dMinibufer, sizeof(m_dMinibufer) )
+	: InputBuffer_c ( new BYTE [ MAX_PACKET_SIZE ], MAX_PACKET_SIZE )
 	, m_iSock ( iSock )
-	, m_iMaxibuffer ( 0 )
-	, m_pMaxibuffer ( NULL )
-{}
+{
+	if ( !m_pBuf )
+		m_bError = true;
+}
 
 
 NetInputBuffer_c::~NetInputBuffer_c ()
 {
-	SafeDeleteArray ( m_pMaxibuffer );
+	SafeDeleteArray ( m_pBuf );
 }
 
 
-bool NetInputBuffer_c::ReadFrom ( int iLen, int iTimeout )
+bool NetInputBuffer_c::ReadFrom ( int iLen )
 {
-	if ( iLen<=0 || iLen>g_iMaxPacketSize || m_iSock<0 )
-		return false;
+	assert ( iLen>0 );
+	assert ( iLen<=MAX_PACKET_SIZE );
+	assert ( m_iSock>0 );
 
-	BYTE * pBuf = m_dMinibufer;
-	if ( iLen>NET_MINIBUFFER_SIZE )
+	m_pCur = m_pBuf;
+
+	int iGot = sphSockRead ( m_iSock, const_cast<BYTE*>(m_pBuf), iLen );
+	if ( iGot!=iLen )
 	{
-		if ( iLen>m_iMaxibuffer )
-		{
-			SafeDeleteArray ( m_pMaxibuffer );
-			m_pMaxibuffer = new BYTE [ iLen ];
-			m_iMaxibuffer = iLen;
-		}
-		pBuf = m_pMaxibuffer;
+		m_bError = true;
+		m_iLen = 0;
+		return false;
 	}
 
-	m_pCur = m_pBuf = pBuf;
-	int iGot = sphSockRead ( m_iSock, pBuf, iLen, iTimeout );
-
-	m_bError = ( iGot!=iLen );
-	m_iLen = m_bError ? 0 : iLen;
-	return !m_bError;
+	m_bError = false;
+	m_iLen = iLen;
+	return true;
 }
 
 
@@ -1784,9 +1421,7 @@ struct Agent_t
 public:
 	CSphString		m_sHost;		///< remote searchd host
 	int				m_iPort;		///< remote searchd port, 0 if local
-	CSphString		m_sPath;		///< local searchd UNIX socket path
 	CSphString		m_sIndexes;		///< remote index names to query
-	bool			m_bBlackhole;	///< blackhole agent flag
 
 	int				m_iSock;		///< socket number, -1 if not connected
 	AgentState_e	m_eState;		///< current state
@@ -1801,13 +1436,13 @@ public:
 
 	CSphVector<CSphQueryResult>		m_dResults;		///< multi-query results
 
-	int				m_iFamily;
+protected:
+	int				m_iAddrType;
 	DWORD			m_uAddr;
 
 public:
 	Agent_t ()
 		: m_iPort ( -1 )
-		, m_bBlackhole ( false )
 		, m_iSock ( -1 )
 		, m_eState ( AGENT_UNUSED )
 		, m_bSuccess ( false )
@@ -1836,18 +1471,18 @@ public:
 		}
 	}
 
-	CSphString GetName() const
+	void SetAddr ( int iAddrType, int iAddrLen, const char * pAddr )
 	{
-		CSphString sName;
+		assert ( pAddr );
+		assert ( iAddrLen==sizeof(m_uAddr) );
 
-		switch ( m_iFamily )
-		{
-			case AF_INET: sName.SetSprintf ( "%s:%u", m_sHost.cstr(), m_iPort ); break;
-			case AF_UNIX: sName = m_sPath; break;
-		}
-
-		return sName;
+		m_iAddrType = iAddrType;
+		memcpy ( &m_uAddr, pAddr, iAddrLen );
 	}
+
+	int GetAddrType () const		{ return m_iAddrType; }
+	int GetAddrLen () const			{ return sizeof(m_uAddr); }
+	const char * GetAddr () const	{ return (const char *)&m_uAddr; }
 };
 
 /// distributed index
@@ -1857,12 +1492,10 @@ struct DistributedIndex_t
 	CSphVector<CSphString>		m_dLocal;					///< local indexes
 	int							m_iAgentConnectTimeout;		///< in msec
 	int							m_iAgentQueryTimeout;		///< in msec
-	bool						m_bToDelete;				///< should be deleted
 
 	DistributedIndex_t ()
 		: m_iAgentConnectTimeout ( 1000 )
 		, m_iAgentQueryTimeout ( 3000 )
-		, m_bToDelete ( false )
 	{}
 };
 
@@ -1895,28 +1528,13 @@ void ConnectToRemoteAgents ( CSphVector<Agent_t> & dAgents, bool bRetryOnly )
 		tAgent.m_eState = AGENT_UNUSED;
 		tAgent.m_bSuccess = false;
 
-		socklen_t len = 0;
-		struct sockaddr_storage ss;
-		memset ( &ss, 0, sizeof(ss) );
-		ss.ss_family = (short)tAgent.m_iFamily;
+		struct sockaddr_in sa;
+		memset ( &sa, 0, sizeof(sa) );
+		memcpy ( &sa.sin_addr, tAgent.GetAddr(), tAgent.GetAddrLen() );
+		sa.sin_family = (short)tAgent.GetAddrType();
+		sa.sin_port = htons ( (unsigned short)tAgent.m_iPort );
 
-		if ( ss.ss_family == AF_INET )
-		{
-			struct sockaddr_in *in = (struct sockaddr_in *)&ss;
-			in->sin_port = htons ( (unsigned short)tAgent.m_iPort );
-			in->sin_addr.s_addr = tAgent.m_uAddr;
-			len = sizeof(*in);
-		}
-		#if !USE_WINDOWS
-		else if ( ss.ss_family == AF_UNIX )
-		{
-			struct sockaddr_un *un = (struct sockaddr_un *)&ss;
-			snprintf ( un->sun_path, sizeof(un->sun_path), tAgent.m_sPath.cstr() );
-			len = sizeof(*un);
-		}
-		#endif
-			
-		tAgent.m_iSock = socket ( tAgent.m_iFamily, SOCK_STREAM, 0 );
+		tAgent.m_iSock = socket ( tAgent.GetAddrType(), SOCK_STREAM, 0 );
 		if ( tAgent.m_iSock<0 )
 		{
 			tAgent.m_sFailure.SetSprintf ( "socket() failed: %s", sphSockError() );
@@ -1929,7 +1547,7 @@ void ConnectToRemoteAgents ( CSphVector<Agent_t> & dAgents, bool bRetryOnly )
 			return;
 		}
 
-		if ( connect ( tAgent.m_iSock, (struct sockaddr*)&ss, len )<0 )
+		if ( connect ( tAgent.m_iSock, (struct sockaddr*)&sa, sizeof(sa) )<0 )
 		{
 			int iErr = sphSockGetErrno();
 			if ( iErr!=EINPROGRESS && iErr!=EINTR && iErr!=EWOULDBLOCK ) // check for EWOULDBLOCK is for winsock only
@@ -1973,7 +1591,7 @@ int QueryRemoteAgents ( CSphVector<Agent_t> & dAgents, int iTimeout, const IRequ
 			const Agent_t & tAgent = dAgents[i];
 			if ( tAgent.m_eState==AGENT_CONNECT || tAgent.m_eState==AGENT_HELLO )
 			{
-				assert ( !tAgent.m_sPath.IsEmpty() || tAgent.m_iPort>0 );
+				assert ( tAgent.m_iPort>0 );
 				assert ( tAgent.m_iSock>0 );
 
 				sphFDSet ( tAgent.m_iSock, ( tAgent.m_eState==AGENT_CONNECT ) ? &fdsWrite : &fdsRead );
@@ -2077,12 +1695,9 @@ int WaitForRemoteAgents ( CSphVector<Agent_t> & dAgents, int iTimeout, IReplyPar
 		ARRAY_FOREACH ( iAgent, dAgents )
 		{
 			Agent_t & tAgent = dAgents[iAgent];
-			if ( tAgent.m_bBlackhole )
-				continue;
-
 			if ( tAgent.m_eState==AGENT_QUERY || tAgent.m_eState==AGENT_REPLY )
 			{
-				assert ( !tAgent.m_sPath.IsEmpty() || tAgent.m_iPort>0 );
+				assert ( tAgent.m_iPort>0 );
 				assert ( tAgent.m_iSock>0 );
 
 				sphFDSet ( tAgent.m_iSock, &fdsRead );
@@ -2106,8 +1721,6 @@ int WaitForRemoteAgents ( CSphVector<Agent_t> & dAgents, int iTimeout, IReplyPar
 		ARRAY_FOREACH ( iAgent, dAgents )
 		{
 			Agent_t & tAgent = dAgents[iAgent];
-			if ( tAgent.m_bBlackhole )
-				continue;
 			if (!( tAgent.m_eState==AGENT_QUERY || tAgent.m_eState==AGENT_REPLY ))
 				continue;
 			if ( !FD_ISSET ( tAgent.m_iSock, &fdsRead ) )
@@ -2140,9 +1753,9 @@ int WaitForRemoteAgents ( CSphVector<Agent_t> & dAgents, int iTimeout, IReplyPar
 					tReplyHeader.m_iLength = ntohl ( tReplyHeader.m_iLength );
 
 					// check the packet
-					if ( tReplyHeader.m_iLength<0 || tReplyHeader.m_iLength>g_iMaxPacketSize ) // FIXME! add reasonable max packet len too
+					if ( tReplyHeader.m_iLength<0 || tReplyHeader.m_iLength>MAX_PACKET_SIZE ) // FIXME! add reasonable max packet len too
 					{
-						tAgent.m_sFailure.SetSprintf ( "invalid packet size (status=%d, len=%d, max_packet_size=%d)", tReplyHeader.m_iStatus, tReplyHeader.m_iLength, g_iMaxPacketSize );
+						tAgent.m_sFailure.SetSprintf ( "invalid packet size (status=%d, len=%d, max_packet_size=%d)", tReplyHeader.m_iStatus, tReplyHeader.m_iLength, MAX_PACKET_SIZE );
 						break;
 					}
 
@@ -2224,6 +1837,7 @@ int WaitForRemoteAgents ( CSphVector<Agent_t> & dAgents, int iTimeout, IReplyPar
 					tAgent.Close ();
 				
 					tAgent.m_bSuccess = true;
+					assert ( tAgent.m_dResults.GetLength() );
 				}
 
 				bFailure = false;
@@ -2242,9 +1856,7 @@ int WaitForRemoteAgents ( CSphVector<Agent_t> & dAgents, int iTimeout, IReplyPar
 	ARRAY_FOREACH ( iAgent, dAgents )
 	{
 		Agent_t & tAgent = dAgents[iAgent];
-		if ( tAgent.m_bBlackhole )
-			tAgent.Close ();
-		else if ( tAgent.m_eState==AGENT_QUERY )
+		if ( tAgent.m_eState==AGENT_QUERY )
 		{
 			assert ( !tAgent.m_dResults.GetLength() );
 			assert ( !tAgent.m_bSuccess );
@@ -2300,24 +1912,28 @@ protected:
 
 int SearchRequestBuilder_t::CalcQueryLen ( const char * sIndexes, const CSphQuery & q ) const
 {
-	int iReqSize = 104 + 2*sizeof(SphDocID_t) + 4*q.m_iWeights
+	int iReqSize = 96 + 2*sizeof(SphDocID_t) + 4*q.m_iWeights
 		+ strlen ( q.m_sSortBy.cstr() )
 		+ strlen ( q.m_sQuery.cstr() )
 		+ strlen ( sIndexes )
 		+ strlen ( q.m_sGroupBy.cstr() )
 		+ strlen ( q.m_sGroupSortBy.cstr() )
 		+ strlen ( q.m_sGroupDistinct.cstr() )
-		+ strlen ( q.m_sComment.cstr() )
-		+ strlen ( q.m_sSelect.cstr() );
+		+ strlen ( q.m_sComment.cstr() );
 	ARRAY_FOREACH ( j, q.m_dFilters )
 	{
 		const CSphFilter & tFilter = q.m_dFilters[j];
 		iReqSize += 12 + strlen ( tFilter.m_sAttrName.cstr() ); // string attr-name; int type; int exclude-flag
 		switch ( tFilter.m_eType )
 		{
-			case SPH_FILTER_VALUES:		iReqSize += 4 + 8*tFilter.GetNumValues (); break; // int values-count; uint64[] values
-			case SPH_FILTER_RANGE:		iReqSize += 16; break; // uint64 min-val, max-val
-			case SPH_FILTER_FLOATRANGE:	iReqSize += 8; break; // int/float min-val,max-val
+			case SPH_FILTER_VALUES:
+				iReqSize += 4 + 4*tFilter.m_dValues.GetLength(); // int values-count; int[] values
+				break;
+
+			case SPH_FILTER_RANGE:
+			case SPH_FILTER_FLOATRANGE:
+				iReqSize += 8; // int/float min-val,max-val
+				break;
 		}
 	}
 	if ( q.m_bGeoAnchor )
@@ -2326,9 +1942,6 @@ int SearchRequestBuilder_t::CalcQueryLen ( const char * sIndexes, const CSphQuer
 		iReqSize += 8 + strlen ( q.m_dIndexWeights[i].m_sName.cstr() ); // string index-name; int index-weight
 	ARRAY_FOREACH ( i, q.m_dFieldWeights )
 		iReqSize += 8 + strlen ( q.m_dFieldWeights[i].m_sName.cstr() ); // string field-name; int field-weight
-	ARRAY_FOREACH ( i, q.m_dOverrides )
-		iReqSize += 12 + strlen ( q.m_dOverrides[i].m_sAttr.cstr() ) + // string attr-name; int type; int values-count
-			( q.m_dOverrides[i].m_uAttrType==SPH_ATTR_BIGINT ? 16 : 12 )*q.m_dOverrides[i].m_dValues.GetLength(); // ( bigint id; int/float/bigint value )[] values
 	return iReqSize;
 }
 
@@ -2358,14 +1971,14 @@ void SearchRequestBuilder_t::SendQuery ( const char * sIndexes, NetOutputBuffer_
 		switch ( tFilter.m_eType )
 		{
 			case SPH_FILTER_VALUES:
-				tOut.SendInt ( tFilter.GetNumValues () );
-				for ( int k = 0; k < tFilter.GetNumValues (); k++ )
-					tOut.SendUint64 ( tFilter.GetValue ( k ) );
+				tOut.SendInt ( tFilter.m_dValues.GetLength() );
+				ARRAY_FOREACH ( k, tFilter.m_dValues )
+					tOut.SendInt ( tFilter.m_dValues[k] );
 				break;
 
 			case SPH_FILTER_RANGE:
-				tOut.SendUint64 ( tFilter.m_uMinValue );
-				tOut.SendUint64 ( tFilter.m_uMaxValue );
+				tOut.SendDword ( tFilter.m_uMinValue );
+				tOut.SendDword ( tFilter.m_uMaxValue );
 				break;
 
 			case SPH_FILTER_FLOATRANGE:
@@ -2405,25 +2018,6 @@ void SearchRequestBuilder_t::SendQuery ( const char * sIndexes, NetOutputBuffer_
 		tOut.SendInt ( q.m_dFieldWeights[i].m_iValue );
 	}
 	tOut.SendString ( q.m_sComment.cstr() );
-	tOut.SendInt ( q.m_dOverrides.GetLength() );
-	ARRAY_FOREACH ( i, q.m_dOverrides )
-	{
-		const CSphAttrOverride & tEntry = q.m_dOverrides[i];
-		tOut.SendString ( tEntry.m_sAttr.cstr() );
-		tOut.SendDword ( tEntry.m_uAttrType );
-		tOut.SendInt ( tEntry.m_dValues.GetLength() );
-		ARRAY_FOREACH ( j, tEntry.m_dValues )
-		{
-			tOut.SendUint64 ( tEntry.m_dValues[j].m_uDocID );
-			switch ( tEntry.m_uAttrType )
-			{
-				case SPH_ATTR_FLOAT:	tOut.SendFloat ( tEntry.m_dValues[j].m_fValue ); break;
-				case SPH_ATTR_BIGINT:	tOut.SendUint64 ( tEntry.m_dValues[j].m_uValue ); break;
-				default:				tOut.SendDword ( (DWORD)tEntry.m_dValues[j].m_uValue ); break;
-			}
-		}
-	}
-	tOut.SendString ( q.m_sSelect.cstr() );
 }
 
 
@@ -2520,7 +2114,7 @@ bool SearchReplyParser_t::ParseReply ( MemInputBuffer_c & tReq, Agent_t & tAgent
 					const CSphColumnInfo & tAttr = tSchema.GetAttr(j);
 					if ( tAttr.m_eAttrType & SPH_ATTR_MULTI )
 					{
-						tMatch.SetAttr ( tAttr.m_tLocator, g_dMvaStorage.GetLength() );
+						tMatch.SetAttr ( tAttr.m_iBitOffset, tAttr.m_iBitCount, g_dMvaStorage.GetLength() );
 
 						int iValues = tReq.GetDword ();
 						g_dMvaStorage.Add ( iValues );
@@ -2531,15 +2125,11 @@ bool SearchReplyParser_t::ParseReply ( MemInputBuffer_c & tReq, Agent_t & tAgent
 					else if ( tAttr.m_eAttrType == SPH_ATTR_FLOAT )
 					{
 						float fRes = tReq.GetFloat();
-						tMatch.SetAttr ( tAttr.m_tLocator, sphF2DW(fRes) );
-					}
-					else if ( tAttr.m_eAttrType == SPH_ATTR_BIGINT )
-					{
-						tMatch.SetAttr ( tAttr.m_tLocator, tReq.GetUint64() );
+						tMatch.SetAttr ( tAttr.m_iBitOffset, tAttr.m_iBitCount, sphF2DW(fRes) );
 					}
 					else
 					{
-						tMatch.SetAttr ( tAttr.m_tLocator, tReq.GetDword() );
+						tMatch.SetAttr ( tAttr.m_iBitOffset, tAttr.m_iBitCount, tReq.GetDword() );
 					}
 				}
 			}
@@ -2612,10 +2202,10 @@ bool MinimizeSchema ( CSphSchema & tDst, const CSphSchema & tSrc )
 				iSrcIdx = -1;
 				bEqual = false;
 
-			} else if ( tSrcAttr.m_tLocator.m_iBitCount!=dDst[i].m_tLocator.m_iBitCount )
+			} else if ( tSrcAttr.m_iBitCount!=dDst[i].m_iBitCount )
 			{
 				// different bit sizes? choose the max one
-				dDst[i].m_tLocator.m_iBitCount = Max ( dDst[i].m_tLocator.m_iBitCount, tSrcAttr.m_tLocator.m_iBitCount );
+				dDst[i].m_iBitCount = Max ( dDst[i].m_iBitCount, tSrcAttr.m_iBitCount );
 				bEqual = false;
 			}
 		}
@@ -2730,7 +2320,7 @@ bool ParseSearchQuery ( InputBuffer_c & tReq, CSphQuery & tQuery, int iVer )
 		tQuery.m_eRanker= (ESphRankMode) tReq.GetInt ();
 	tQuery.m_eSort		= (ESphSortOrder) tReq.GetInt ();
 	if ( iVer<=0x101 )
-		tQuery.m_iOldGroups = tReq.GetDwords ( &tQuery.m_pOldGroups, g_iMaxFilterValues, "invalid group count %d (should be in 0..%d range)" );
+		tQuery.m_iOldGroups = tReq.GetDwords ( &tQuery.m_pOldGroups, SEARCHD_MAX_ATTR_VALUES, "invalid group count %d (should be in 0..%d range)" );
 	if ( iVer>=0x102 )
 	{
 		tQuery.m_sSortBy = tReq.GetString ();
@@ -2780,9 +2370,9 @@ bool ParseSearchQuery ( InputBuffer_c & tReq, CSphQuery & tQuery, int iVer )
 	if ( iVer>=0x102 )
 	{
 		int iAttrFilters = tReq.GetInt ();
-		if ( iAttrFilters>g_iMaxFilters )
+		if ( iAttrFilters>SEARCHD_MAX_ATTRS )
 		{
-			tReq.SendErrorReply ( "too much attribute filters (req=%d, max=%d)", iAttrFilters, g_iMaxFilters );
+			tReq.SendErrorReply ( "too much attribute filters (req=%d, max=%d)", iAttrFilters, SEARCHD_MAX_ATTRS );
 			return false;
 		}
 
@@ -2800,8 +2390,8 @@ bool ParseSearchQuery ( InputBuffer_c & tReq, CSphQuery & tQuery, int iVer )
 				switch ( tFilter.m_eType )
 				{
 					case SPH_FILTER_RANGE:
-						tFilter.m_uMinValue = ( iVer>=0x114 ) ? tReq.GetUint64() : tReq.GetDword ();
-						tFilter.m_uMaxValue = ( iVer>=0x114 ) ? tReq.GetUint64() : tReq.GetDword ();
+						tFilter.m_uMinValue = tReq.GetDword ();
+						tFilter.m_uMaxValue = tReq.GetDword ();
 						break;
 
 					case SPH_FILTER_FLOATRANGE:
@@ -2810,13 +2400,8 @@ bool ParseSearchQuery ( InputBuffer_c & tReq, CSphQuery & tQuery, int iVer )
 						break;
 
 					case SPH_FILTER_VALUES:
-						{
-							bool bRes = ( iVer>=0x114 )
-								? tReq.GetQwords ( tFilter.m_dValues, g_iMaxFilterValues, "invalid attribute set length %d (should be in 0..%d range)" )
-								: tReq.GetDwords ( tFilter.m_dValues, g_iMaxFilterValues, "invalid attribute set length %d (should be in 0..%d range)" );
-							if ( !bRes )
-								return false;
-						}
+						if ( !tReq.GetDwords ( tFilter.m_dValues, SEARCHD_MAX_ATTR_VALUES, "invalid attribute set length %d (should be in 0..%d range)" ) )
+							return false;
 						break;
 
 					default:
@@ -2827,7 +2412,7 @@ bool ParseSearchQuery ( InputBuffer_c & tReq, CSphQuery & tQuery, int iVer )
 			} else
 			{
 				// pre-1.14
-				if ( !tReq.GetDwords ( tFilter.m_dValues, g_iMaxFilterValues, "invalid attribute set length %d (should be in 0..%d range)" ) )
+				if ( !tReq.GetDwords ( tFilter.m_dValues, SEARCHD_MAX_ATTR_VALUES, "invalid attribute set length %d (should be in 0..%d range)" ) )
 					return false;
 
 				if ( !tFilter.m_dValues.GetLength() )
@@ -2950,42 +2535,6 @@ bool ParseSearchQuery ( InputBuffer_c & tReq, CSphQuery & tQuery, int iVer )
 	if ( iVer>=0x113 )
 		tQuery.m_sComment = tReq.GetString ();
 
-	// v.1.21
-	if ( iVer>=0x115 )
-	{
-		tQuery.m_dOverrides.Resize ( tReq.GetInt() ); // FIXME! add sanity check
-		ARRAY_FOREACH ( i, tQuery.m_dOverrides )
-		{
-			CSphAttrOverride & tOverride = tQuery.m_dOverrides[i];
-			tOverride.m_sAttr = tReq.GetString ();
-			tOverride.m_uAttrType = tReq.GetDword ();
-
-			tOverride.m_dValues.Resize ( tReq.GetInt() ); // FIXME! add sanity check
-			ARRAY_FOREACH ( iVal, tOverride.m_dValues )
-			{
-				CSphAttrOverride::IdValuePair_t & tEntry = tOverride.m_dValues[iVal];
-				tEntry.m_uDocID = (SphDocID_t) tReq.GetUint64 ();
-
-				if ( tOverride.m_uAttrType==SPH_ATTR_FLOAT )		tEntry.m_fValue = tReq.GetFloat ();
-				else if ( tOverride.m_uAttrType==SPH_ATTR_BIGINT )	tEntry.m_uValue = tReq.GetUint64 ();
-				else												tEntry.m_uValue = tReq.GetDword ();
-			}
-		}
-	}
-
-	// v.1.22
-	if ( iVer>=0x116 )
-	{
-		tQuery.m_sSelect = tReq.GetString ();
-
-		CSphString sError;
-		if ( !tQuery.ParseSelectList ( sError ) )
-		{
-			tReq.SendErrorReply ( "select: %s", sError.cstr() );
-			return false;
-		}
-	}
-
 	/////////////////////
 	// additional checks
 	/////////////////////
@@ -3058,7 +2607,7 @@ void LogQuery ( const CSphQuery & tQuery, const CSphQueryResult & tRes )
 	sphFormatCurrentTime ( sTimeBuf );
 
 	sGroupBuf[0] = '\0';
-	if ( !tQuery.m_sGroupBy.IsEmpty() )
+	if ( tQuery.m_iGroupbyOffset>=0 )
 		snprintf ( sGroupBuf, sizeof(sGroupBuf), " @%s", tQuery.m_sGroupBy.cstr() );
 
 	static const char * sModes [ SPH_MATCH_TOTAL ] = { "all", "any", "phr", "bool", "ext", "scan", "ext2" };
@@ -3139,26 +2688,19 @@ int CalcResultLength ( int iVer, const CSphQueryResult * pRes, const CSphVector<
 	else
 		iRespLen += 4 + ( 8+4*USE_64BIT+4*pRes->m_tSchema.GetAttrsCount() )*pRes->m_iCount; // id64 tag and matches
 
-	if ( iVer>=0x114 )
-	{
-		// 64bit matches
-		int iWideAttrs = 0;
-		for ( int i=0; i<pRes->m_tSchema.GetAttrsCount(); i++ )
-			if ( pRes->m_tSchema.GetAttr(i).m_eAttrType==SPH_ATTR_BIGINT )
-				iWideAttrs++;
-		iRespLen += 4*pRes->m_iCount*iWideAttrs; // extra 4 bytes per attr per match
-	}
-
 	for ( int i=0; i<pRes->m_iNumWords; i++ ) // per-word stats
 		iRespLen += 12 + strlen ( pRes->m_tWordStats[i].m_sWord.cstr() ); // wordlen, word, docs, hits
 
 	// MVA values
-	CSphVector<CSphAttrLocator> dMvaItems;
+	CSphVector<int> dMvaItems;
 	for ( int i=0; i<pRes->m_tSchema.GetAttrsCount(); i++ )
 	{
 		const CSphColumnInfo & tCol = pRes->m_tSchema.GetAttr(i);
 		if ( tCol.m_eAttrType & SPH_ATTR_MULTI )
-			dMvaItems.Add ( tCol.m_tLocator );
+		{
+			assert ( tCol.m_iRowitem>=0 );
+			dMvaItems.Add ( tCol.m_iRowitem );
+		}
 	}
 
 	if ( iVer>=0x10C && dMvaItems.GetLength() )
@@ -3166,12 +2708,12 @@ int CalcResultLength ( int iVer, const CSphQueryResult * pRes, const CSphVector<
 		for ( int i=0; i<pRes->m_iCount; i++ )
 		{
 			const CSphMatch & tMatch = pRes->m_dMatches [ pRes->m_iOffset+i ];
-			const DWORD * pMvaPool = dTag2MVA [ tMatch.m_iTag ];
+			const DWORD * pMva = dTag2MVA [ tMatch.m_iTag ];
 			ARRAY_FOREACH ( j, dMvaItems )
 			{
-				const DWORD * pMva = tMatch.GetAttrMVA ( dMvaItems[j], pMvaPool );
-				if ( pMva )
-					iRespLen += pMva[0]*4; // FIXME? maybe add some sanity check here
+				DWORD iMvaIndex = tMatch.GetAttr ( dMvaItems[j] );
+				if ( iMvaIndex )
+					iRespLen += 4*pMva[iMvaIndex]; // FIXME? maybe add some sanity check here
 			}
 		}
 	}
@@ -3221,25 +2763,29 @@ void SendResult ( int iVer, NetOutputBuffer_c & tOut, const CSphQueryResult * pR
 		tOut.SendInt ( pRes->m_tSchema.GetAttrsCount() );
 		for ( int i=0; i<pRes->m_tSchema.GetAttrsCount(); i++ )
 		{
-			const CSphColumnInfo & tCol = pRes->m_tSchema.GetAttr(i);
-			tOut.SendString ( tCol.m_sName.cstr() );
-			tOut.SendDword ( (DWORD)tCol.m_eAttrType );
+			tOut.SendString ( pRes->m_tSchema.GetAttr(i).m_sName.cstr() );
+			tOut.SendDword ( (DWORD)pRes->m_tSchema.GetAttr(i).m_eAttrType );
 		}
 	}
 
 	// send matches
-	CSphAttrLocator iGIDLoc, iTSLoc;
+	int iGIDOffset = -1, iGIDCount = -1;
+	int iTSOffset = -1, iTSCount = -1;
 	if ( iVer<=0x101 )
 	{
 		for ( int i=0; i<pRes->m_tSchema.GetAttrsCount(); i++ )
 		{
 			const CSphColumnInfo & tAttr = pRes->m_tSchema.GetAttr(i);
-
-			if ( iTSLoc.m_iBitOffset<0 && tAttr.m_eAttrType==SPH_ATTR_TIMESTAMP )
-				iTSLoc = tAttr.m_tLocator;
-
-			if ( iGIDLoc.m_iBitOffset<0 && tAttr.m_eAttrType==SPH_ATTR_INTEGER )
-				iGIDLoc = tAttr.m_tLocator;
+			if ( iTSOffset<0 && tAttr.m_eAttrType==SPH_ATTR_TIMESTAMP )
+			{
+				iTSOffset = tAttr.m_iBitOffset;
+				iTSCount = tAttr.m_iBitCount;
+			}
+			if ( iGIDOffset<0 && tAttr.m_eAttrType==SPH_ATTR_INTEGER )
+			{
+				iGIDOffset = tAttr.m_iBitOffset;
+				iGIDCount = tAttr.m_iBitCount;
+			}
 		}
 	}
 
@@ -3259,14 +2805,14 @@ void SendResult ( int iVer, NetOutputBuffer_c & tOut, const CSphQueryResult * pR
 
 		if ( iVer<=0x101 )
 		{
-			tOut.SendDword ( iGIDLoc.m_iBitOffset>=0 ? (DWORD) tMatch.GetAttr ( iGIDLoc ) : 1 );
-			tOut.SendDword ( iTSLoc.m_iBitOffset>=0 ? (DWORD) tMatch.GetAttr ( iTSLoc ) : 1 );
+			tOut.SendDword ( iGIDOffset>=0 ? tMatch.GetAttr ( iGIDOffset, iGIDCount ) : 1 );
+			tOut.SendDword ( iTSOffset>=0 ? tMatch.GetAttr ( iTSOffset, iTSCount ) : 1 );
 			tOut.SendInt ( tMatch.m_iWeight );
 		} else
 		{
 			tOut.SendInt ( tMatch.m_iWeight );
 
-			const DWORD * pMvaPool = dTag2MVA [ tMatch.m_iTag ];
+			const DWORD * pMva = dTag2MVA [ tMatch.m_iTag ];
 
 			assert ( tMatch.m_iRowitems==pRes->m_tSchema.GetRowSize() );
 			for ( int j=0; j<pRes->m_tSchema.GetAttrsCount(); j++ )
@@ -3274,8 +2820,8 @@ void SendResult ( int iVer, NetOutputBuffer_c & tOut, const CSphQueryResult * pR
 				const CSphColumnInfo & tAttr = pRes->m_tSchema.GetAttr(j);
 				if ( tAttr.m_eAttrType & SPH_ATTR_MULTI )
 				{
-					const DWORD * pValues = tMatch.GetAttrMVA ( tAttr.m_tLocator, pMvaPool );
-					if ( iVer<0x10C || !pValues )
+					DWORD iMvaIndex = tMatch.GetAttr ( tAttr.m_iRowitem );
+					if ( iVer<0x10C || iMvaIndex==0 )
 					{
 						// for older clients, fixups column value to 0
 						// for newer clients, means that there are 0 values
@@ -3283,7 +2829,9 @@ void SendResult ( int iVer, NetOutputBuffer_c & tOut, const CSphQueryResult * pR
 					} else
 					{
 						// send MVA values
+						const DWORD * pValues = pMva + iMvaIndex;
 						int iValues = *pValues++;
+
 						tOut.SendDword ( iValues );
 						while ( iValues-- )
 							tOut.SendDword ( *pValues++ );
@@ -3292,11 +2840,9 @@ void SendResult ( int iVer, NetOutputBuffer_c & tOut, const CSphQueryResult * pR
 				{
 					// send plain attr
 					if ( tAttr.m_eAttrType==SPH_ATTR_FLOAT )
-						tOut.SendFloat ( tMatch.GetAttrFloat ( tAttr.m_tLocator ) );
-					else if ( iVer>=0x114 && tAttr.m_eAttrType==SPH_ATTR_BIGINT )
-						tOut.SendUint64 ( tMatch.GetAttr ( tAttr.m_tLocator ) );
+						tOut.SendFloat ( tMatch.GetAttrFloat ( tAttr.m_iRowitem ) );
 					else
-						tOut.SendDword ( (DWORD)tMatch.GetAttr ( tAttr.m_tLocator ) );
+						tOut.SendDword ( tMatch.GetAttr ( tAttr.m_iBitOffset, tAttr.m_iBitCount ) );
 				}
 			}
 		}
@@ -3326,7 +2872,7 @@ struct AggrResult_t : CSphQueryResult
 };
 
 
-bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery )
+bool MinimizeAggrResult ( AggrResult_t & tRes, CSphQuery & tQuery )
 {
 	// sanity check
 	int iExpected = 0;
@@ -3350,44 +2896,6 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery )
 	{
 		if ( !MinimizeSchema ( tRes.m_tSchema, tRes.m_dSchemas[i] ) )
 			bAllEqual = false;
-	}
-
-	// apply select-items on top of that
-	bool bStar = false;
-	ARRAY_FOREACH ( i, tQuery.m_dItems )
-		if ( tQuery.m_dItems[i].m_sExpr=="*" )
-	{
-		bStar = true;
-		break;
-	}
-
-	if ( !bStar && tQuery.m_dItems.GetLength() )
-	{
-		CSphSchema tItems;
-		for ( int i=0; i<tRes.m_tSchema.GetAttrsCount(); i++ )
-		{
-			const CSphColumnInfo & tCol = tRes.m_tSchema.GetAttr(i);
-			if ( !tCol.m_pExpr )
-			{
-				bool bAdd = false;
-				ARRAY_FOREACH ( i, tQuery.m_dItems )
-					if ( tQuery.m_dItems[i].m_sExpr==tCol.m_sName )
-				{
-					bAdd = true;
-					break;
-				}
-
-				if ( !bAdd )
-					continue;
-			}
-			tItems.AddAttr ( tCol );
-		}
-
-		if ( tRes.m_tSchema.GetAttrsCount()!=tItems.GetAttrsCount() )
-		{
-			tRes.m_tSchema = tItems;
-			bAllEqual = false;
-		}
 	}
 
 	// convert all matches to minimal schema
@@ -3421,7 +2929,9 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery )
 					{
 						const CSphColumnInfo & tDst = tRes.m_tSchema.GetAttr(j);
 						const CSphColumnInfo & tSrc = tRes.m_dSchemas[iSchema].GetAttr ( dMapFrom[j] );
-						tRow.SetAttr ( tDst.m_tLocator, tMatch.GetAttr(tSrc.m_tLocator) );
+
+						tRow.SetAttr ( tDst.m_iBitOffset, tDst.m_iBitCount,
+							tMatch.GetAttr ( tSrc.m_iBitOffset, tSrc.m_iBitCount ) );
 					}
 
 					// remapped row might need *more* space because of unpacked attributes; allocate if so
@@ -3446,19 +2956,14 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery )
 		SafeDeleteArray ( dMapFrom );
 	}
 
-	// we do not need to re-sort if there's exactly one result set
-	if ( tRes.m_iSuccesses==1 )
-		return true;
-
 	// create queue
-	// at this point, we do not need to compute anything; it all must be here
-	ISphMatchSorter * pSorter = sphCreateQueue ( &tQuery, tRes.m_tSchema, tRes.m_sError, false );
+	ISphMatchSorter * pSorter = sphCreateQueue ( &tQuery, tRes.m_tSchema, tRes.m_sError );
 	if ( !pSorter )
 		return false;
 
 	// kill all dupes
 	int iDupes = 0;
-	if ( pSorter->IsGroupby () )
+	if ( tQuery.m_iGroupbyOffset>=0 )
 	{
 		// groupby sorter does that automagically
 		pSorter->SetMVAPool ( NULL ); // because we must be able to group on @groupby anyway
@@ -3518,19 +3023,6 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery )
 
 	tRes.m_iTotalMatches -= iDupes;
 	return true;
-}
-
-
-void SetupKillListFilter ( CSphFilter & tFilter, const SphAttr_t * pKillList, int nEntries )
-{
-	assert ( nEntries && pKillList );
-
-	tFilter.m_bExclude = true;
-	tFilter.m_eType = SPH_FILTER_VALUES;
-	tFilter.m_uMinValue = pKillList [0];
-	tFilter.m_uMaxValue = pKillList [nEntries-1];
-	tFilter.m_sAttrName = "@id";
-	tFilter.SetExternalValues ( pKillList, nEntries );
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -3657,7 +3149,6 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 			( qCheck.m_dFilters.GetLength()!=qFirst.m_dFilters.GetLength() ) || // attr filters count
 			( qCheck.m_iCutoff!=qFirst.m_iCutoff ) || // cutoff
 			( qCheck.m_eSort==SPH_SORT_EXPR && qFirst.m_eSort==SPH_SORT_EXPR && qCheck.m_sSortBy!=qFirst.m_sSortBy ) || // sort expressions
-			( qCheck.m_bGeoAnchor!=qFirst.m_bGeoAnchor ) || // geodist expression
 			( qCheck.m_bGeoAnchor && qFirst.m_bGeoAnchor && ( qCheck.m_fGeoLatitude!=qFirst.m_fGeoLatitude || qCheck.m_fGeoLongitude!=qFirst.m_fGeoLongitude ) ) )  // some geodist cases
 		{
 			bMultiQueue = false;
@@ -3743,7 +3234,7 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 		const CSphSchema * pFirstSchema = g_hIndexes [ dLocal[0] ].m_pSchema;
 		for ( int i=1; i<dLocal.GetLength() && bAllEqual; i++ )
 		{
-			if ( !pFirstSchema->CompareTo ( *g_hIndexes [ dLocal[i] ].m_pSchema, sError ) )
+			if ( pFirstSchema->CompareTo ( *g_hIndexes [ dLocal[i] ].m_pSchema, sError )!=SPH_SCHEMAS_EQUAL )
 				bAllEqual = false;
 		}
 
@@ -3805,6 +3296,8 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 			{
 				const ServedIndex_t & tServed = g_hIndexes [ dLocal[iLocal] ];
 				assert ( tServed.m_pIndex );
+				assert ( tServed.m_pDict );
+				assert ( tServed.m_pTokenizer );
 				assert ( tServed.m_bEnabled );
 
 				if ( bMultiQueue )
@@ -3831,6 +3324,32 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 							continue;
 						}
 
+						if ( iQuery )
+						{
+							CSphQuery & tStartQuery = m_dQueries[0];
+
+							if ( tQuery.m_pExpr )
+							{
+								assert ( !tStartQuery.m_pExpr || tStartQuery.m_sSortBy == tQuery.m_sSortBy );
+								Swap ( tStartQuery.m_pExpr, tQuery.m_pExpr );
+							}
+
+							if ( tQuery.m_bCalcGeodist )
+							{
+								assert ( ( tStartQuery.m_sGeoLatAttr.IsEmpty () ||  tStartQuery.m_sGeoLatAttr == tQuery.m_sGeoLatAttr )
+									&& ( tStartQuery.m_sGeoLongAttr.IsEmpty () || tStartQuery.m_sGeoLongAttr == tQuery.m_sGeoLongAttr )
+									&& ( tStartQuery.m_fGeoLatitude == 0.0f || tStartQuery.m_fGeoLatitude == tQuery.m_fGeoLatitude )
+									&& ( tStartQuery.m_fGeoLongitude == 0.0f || tStartQuery.m_fGeoLongitude == tQuery.m_fGeoLongitude ) );
+
+								tStartQuery.m_bCalcGeodist = true;
+								tStartQuery.m_bGeoAnchor = tQuery.m_bGeoAnchor;
+								tStartQuery.m_sGeoLatAttr = tQuery.m_sGeoLatAttr;
+								tStartQuery.m_sGeoLongAttr = tQuery.m_sGeoLongAttr;
+								tStartQuery.m_fGeoLatitude = tQuery.m_fGeoLatitude;
+								tStartQuery.m_fGeoLongitude = tQuery.m_fGeoLongitude;
+							}
+						}
+
 						dSorterIndexes[iQuery] = dSorters.GetLength();
 						dSorters.Add ( pSorter );
 					}
@@ -3838,23 +3357,7 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 					if ( dSorters.GetLength() )
 					{
 						AggrResult_t tStats;
-
-						// set killlist
-						CSphQuery * pQuery = &m_dQueries[iStart];
-
-						int iNumFilters = pQuery->m_dFilters.GetLength ();
-						for ( int i = iLocal + 1; i < dLocal.GetLength (); i++ )
-						{
-							const ServedIndex_t & tServed = g_hIndexes [ dLocal[i] ];
-							if ( tServed.m_pIndex->GetKillListSize () )
-							{
-								CSphFilter tKillListFilter;
-								SetupKillListFilter ( tKillListFilter, tServed.m_pIndex->GetKillList (), tServed.m_pIndex->GetKillListSize () );
-								pQuery->m_dFilters.Add ( tKillListFilter );
-							}
-						}
-
-						if ( !tServed.m_pIndex->MultiQuery ( &m_dQueries[iStart], &tStats,
+						if ( !tServed.m_pIndex->MultiQuery ( tServed.m_pTokenizer, tServed.m_pDict, &m_dQueries[iStart], &tStats,
 							dSorters.GetLength(), &dSorters[0] ) )
 						{
 							// failed
@@ -3882,7 +3385,8 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 								for ( int i=0; i<tRes.m_iNumWords; i++ )
 									tRes.m_tWordStats[i] = tStats.m_tWordStats[i];
 
-								tRes.m_tSchema = pSorter->m_tOutgoingSchema;
+								tRes.m_tSchema = tStats.m_tSchema;
+								tRes.m_tSchema.BuildResultSchema ( &m_dQueries[iQuery] ); 
 
 								// extract matches from sorter
 								assert ( pSorter );
@@ -3897,9 +3401,6 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 								}
 							}
 						}
-
-						pQuery->m_dFilters.Resize ( iNumFilters );
-
 						ARRAY_FOREACH ( i, dSorters )
 							SafeDelete ( dSorters[i] );
 					}
@@ -3914,18 +3415,6 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 					{
 						CSphQuery & tQuery = m_dQueries[iQuery];
 						CSphString sError;
-
-						int iNumFilters = tQuery.m_dFilters.GetLength ();
-						for ( int i = iLocal + 1; i < dLocal.GetLength (); i++ )
-						{
-							const ServedIndex_t & tServed = g_hIndexes [ dLocal[i] ];
-							if ( tServed.m_pIndex->GetKillListSize () )
-							{
-								CSphFilter tKillListFilter;
-								SetupKillListFilter ( tKillListFilter, tServed.m_pIndex->GetKillList (), tServed.m_pIndex->GetKillListSize () );
-								tQuery.m_dFilters.Add ( tKillListFilter );
-							}
-						}
 
 						// create sorter, if needed
 						ISphMatchSorter * pSorter = pLocalSorter;
@@ -3949,7 +3438,7 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 
 						// do query
 						AggrResult_t & tRes = m_dResults[iQuery];
-						if ( !tServed.m_pIndex->QueryEx ( &tQuery, &tRes, pSorter ) )
+						if ( !tServed.m_pIndex->QueryEx ( tServed.m_pTokenizer, tServed.m_pDict, &tQuery, &tRes, pSorter ) )
 							m_dFailuresSet[iQuery].SubmitEx ( dLocal[iLocal].cstr(), "%s", tServed.m_pIndex->GetLastError().cstr() );
 						else
 							tRes.m_iSuccesses++;
@@ -3967,8 +3456,6 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 						// throw away the sorter
 						if ( !pLocalSorter )
 							SafeDelete ( pSorter );
-
-						tQuery.m_dFilters.Resize ( iNumFilters );
 					}
 				}
 			}
@@ -4002,7 +3489,7 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 					const CSphQueryResult & tRemoteResult = tAgent.m_dResults[iRes-iStart];
 
 					// copy errors or warnings
-					m_dFailuresSet[iRes].SetPrefix ( "agent %s: ", tAgent.GetName().cstr() );
+					m_dFailuresSet[iRes].SetPrefix ( "agent %s:%d: ", tAgent.m_sHost.cstr(), tAgent.m_iPort );
 					if ( !tRemoteResult.m_sError.IsEmpty() )
 						m_dFailuresSet[iRes].Submit ( "remote query error: %s", tRemoteResult.m_sError.cstr() );
 					if ( !tRemoteResult.m_sWarning.IsEmpty() )
@@ -4085,7 +3572,7 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 		{
 			const Agent_t & tAgent = pDist->m_dAgents[i];
 			if ( !tAgent.m_bSuccess && !tAgent.m_sFailure.IsEmpty() )
-				m_dFailuresSet.Submit  ( "agent %s: %s", tAgent.GetName().cstr(), tAgent.m_sFailure.cstr() );
+				m_dFailuresSet.Submit  ( "agent %s:%d: %s", tAgent.m_sHost.cstr(), tAgent.m_iPort, tAgent.m_sFailure.cstr() );
 		}
 	}
 
@@ -4128,7 +3615,7 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 		if ( tRes.m_dSchemas.GetLength() )
 			tRes.m_tSchema = tRes.m_dSchemas[0];
 
-		if ( tRes.m_iSuccesses>1 || tQuery.m_dItems.GetLength() )
+		if ( tRes.m_iSuccesses>1 )
 			if ( !MinimizeAggrResult ( tRes, tQuery ) )
 				return;
 
@@ -4289,8 +3776,8 @@ void HandleCommandExcerpt ( int iSock, int iVer, InputBuffer_c & tReq )
 		tReq.SendErrorReply ( "unknown local index '%s' in search request", sIndex.cstr() );
 		return;
 	}
-	CSphDict * pDict = pIndex->m_pIndex->GetDictionary ();
-	ISphTokenizer * pTokenizer = pIndex->m_pIndex->GetTokenizer ();
+	CSphDict * pDict = pIndex->m_pDict;
+	ISphTokenizer * pTokenizer = pIndex->m_pTokenizer;
 
 	q.m_sWords = tReq.GetString ();
 	q.m_sBeforeMatch = tReq.GetString ();
@@ -4322,14 +3809,13 @@ void HandleCommandExcerpt ( int iSock, int iVer, InputBuffer_c & tReq )
 			return;
 		}
 
-		const CSphIndexSettings & tSettings = pIndex->m_pIndex->GetSettings ();
-		if ( tSettings.m_bHtmlStrip )
+		if ( pIndex->m_bHtmlStrip )
 		{
 			CSphString sError;
 			CSphHTMLStripper tStripper;
 			if (
-				!tStripper.SetIndexedAttrs ( tSettings.m_sHtmlIndexAttrs.cstr (), sError ) ||
-				!tStripper.SetRemovedElements ( tSettings.m_sHtmlRemoveElements.cstr (), sError ) )
+				!tStripper.SetIndexedAttrs ( pIndex->m_sHtmlIndexAttrs.cstr(), sError ) ||
+				!tStripper.SetRemovedElements ( pIndex->m_sHtmlRemoveElements.cstr(), sError ) )
 			{
 				tReq.SendErrorReply ( "HTML stripper config error: %s", sError.cstr() );
 				return;
@@ -4384,7 +3870,7 @@ void HandleCommandKeywords ( int iSock, int iVer, InputBuffer_c & tReq )
 	CSphVector < CSphKeywordInfo > dKeywords;
 	dKeywords.Reserve ( SPH_MAX_QUERY_WORDS );
 
-	if ( !pIndex->m_pIndex->GetKeywords ( dKeywords, sQuery.cstr (), bGetStats ) )
+	if ( !pIndex->m_pIndex->GetKeywords ( dKeywords, pIndex->m_pTokenizer, pIndex->m_pDict, sQuery.cstr (), bGetStats ) )
 	{
 		tReq.SendErrorReply ( "error generating keywords: %s", pIndex->m_pIndex->GetLastError ().cstr () );
 		return;
@@ -4426,11 +3912,11 @@ void HandleCommandKeywords ( int iSock, int iVer, InputBuffer_c & tReq )
 
 struct UpdateRequestBuilder_t : public IRequestBuilder_t
 {
-	UpdateRequestBuilder_t ( const CSphAttrUpdate & pUpd ) : m_tUpd ( pUpd ) {}
+	UpdateRequestBuilder_t ( const CSphAttrUpdate_t & pUpd ) : m_tUpd ( pUpd ) {}
 	virtual void BuildRequest ( const char * sIndexes, NetOutputBuffer_c & tOut ) const;
 
 protected:
-	const CSphAttrUpdate & m_tUpd;
+	const CSphAttrUpdate_t & m_tUpd;
 };
 
 
@@ -4456,9 +3942,9 @@ void UpdateRequestBuilder_t::BuildRequest ( const char * sIndexes, NetOutputBuff
 	int iReqSize = 4+strlen(sIndexes); // indexes string
 	iReqSize += 4; // attrs array len, data
 	ARRAY_FOREACH ( i, m_tUpd.m_dAttrs )
-		iReqSize += 8+strlen(m_tUpd.m_dAttrs[i].m_sName.cstr());
-	iReqSize += 4; // number of updates
-	iReqSize += 8*m_tUpd.m_dDocids.GetLength() + 4*m_tUpd.m_dPool.GetLength(); // 64bit ids, 32bit values
+		iReqSize += 4+strlen(m_tUpd.m_dAttrs[i].m_sName.cstr());
+	iReqSize += 4; // values array len, data
+	iReqSize += 4*( DOCINFO_IDSIZE+m_tUpd.m_dAttrs.GetLength() )*m_tUpd.m_iUpdates;
 
 	// header
 	tOut.SendDword ( SPHINX_SEARCHD_PROTO );
@@ -4469,30 +3955,26 @@ void UpdateRequestBuilder_t::BuildRequest ( const char * sIndexes, NetOutputBuff
 	tOut.SendString ( sIndexes );
 	tOut.SendInt ( m_tUpd.m_dAttrs.GetLength() );
 	ARRAY_FOREACH ( i, m_tUpd.m_dAttrs )
-	{
 		tOut.SendString ( m_tUpd.m_dAttrs[i].m_sName.cstr() );
-		tOut.SendInt ( ( m_tUpd.m_dAttrs[i].m_eAttrType & SPH_ATTR_MULTI ) ? 1 : 0 );
-	}
-	tOut.SendInt ( m_tUpd.m_dDocids.GetLength() );
+	tOut.SendInt ( m_tUpd.m_iUpdates );
 
-	ARRAY_FOREACH ( i, m_tUpd.m_dDocids )
+	DWORD * pUpd = m_tUpd.m_pUpdates;
+	DWORD * pUpdMax = pUpd + ( DOCINFO_IDSIZE+m_tUpd.m_dAttrs.GetLength() )*m_tUpd.m_iUpdates;
+	for ( ; pUpd<pUpdMax; )
 	{
-		int iHead = m_tUpd.m_dRowOffset[i];
-		int iTail = ( (i+1)<m_tUpd.m_dDocids.GetLength() ) ? m_tUpd.m_dRowOffset[i+1] : m_tUpd.m_dPool.GetLength ();
+		#if USE_64BIT
+		tOut.SendUint64 ( DOCINFO2ID(pUpd) );
+		#else
+		tOut.SendDword ( 0 ); // padding high dword
+		tOut.SendDword ( *pUpd );
+		#endif
+		pUpd += DOCINFO_IDSIZE;
 
-		tOut.SendUint64 ( m_tUpd.m_dDocids[i] );
-		for ( int j=iHead; j<iTail; j++ )
-			tOut.SendDword ( m_tUpd.m_dPool[j] );
+		for ( int j=0; j<m_tUpd.m_dAttrs.GetLength(); j++ )
+			tOut.SendDword ( *pUpd++ );
 	}
+	assert ( pUpd==pUpdMax );
 }
-
-
-template < typename T, typename U >
-struct CSphPair
-{
-	T m_tFirst;
-	U m_tSecond;
-};
 
 
 void HandleCommandUpdate ( int iSock, int iVer, InputBuffer_c & tReq, int iPipeFD )
@@ -4500,48 +3982,35 @@ void HandleCommandUpdate ( int iSock, int iVer, InputBuffer_c & tReq, int iPipeF
 	if ( !CheckCommandVersion ( iVer, VER_COMMAND_UPDATE, tReq ) )
 		return;
 
-	// parse request
+	// get index name
 	CSphString sIndexes = tReq.GetString ();
-	CSphAttrUpdate tUpd;
 
+	// get update data
+	CSphAttrUpdate_t tUpd;
 	tUpd.m_dAttrs.Resize ( tReq.GetDword() ); // FIXME! check this
 	ARRAY_FOREACH ( i, tUpd.m_dAttrs )
 	{
 		tUpd.m_dAttrs[i].m_sName = tReq.GetString ();
 		tUpd.m_dAttrs[i].m_sName.ToLower ();
-
-		tUpd.m_dAttrs[i].m_eAttrType = SPH_ATTR_INTEGER;
-		if ( iVer>=0x102 )
-			if ( tReq.GetDword() )
-				tUpd.m_dAttrs[i].m_eAttrType |= SPH_ATTR_MULTI;
 	}
 
-	int iNumUpdates = tReq.GetInt (); // FIXME! check this
-	tUpd.m_dDocids.Reserve ( iNumUpdates );
-	tUpd.m_dRowOffset.Reserve ( iNumUpdates );
+	int iStride = DOCINFO_IDSIZE + tUpd.m_dAttrs.GetLength();
 
-	for ( int i=0; i<iNumUpdates; i++ )
+	tUpd.m_iUpdates = tReq.GetInt (); // FIXME! check this
+	tUpd.m_pUpdates = new DWORD [ tUpd.m_iUpdates*iStride ];
+
+	int iPos = 0;
+	for ( int i=0; i<tUpd.m_iUpdates; i++ )
 	{
 		// v.1.0 always sends 32-bit ids; v.1.1+ always send 64-bit ones
-		uint64_t uDocid = ( iVer>=0x101 ) ? tReq.GetUint64 () : tReq.GetDword ();
+		uint64_t uValue = ( iVer>=0x101 ) ? tReq.GetUint64 () : tReq.GetDword ();
 
-		tUpd.m_dDocids.Add ( (SphDocID_t)uDocid ); // FIXME! check this
-		tUpd.m_dRowOffset.Add ( tUpd.m_dPool.GetLength() );
+		DOCINFO2ID(tUpd.m_pUpdates+iPos) = (SphDocID_t)uValue; // FIXME! maybe warn on truncation?
+		iPos += DOCINFO_IDSIZE;
 
-		ARRAY_FOREACH ( iAttr, tUpd.m_dAttrs )
-		{
-			DWORD uCount = 1;
-			if ( tUpd.m_dAttrs[iAttr].m_eAttrType & SPH_ATTR_MULTI )
-			{
-				uCount = tReq.GetDword ();
-				tUpd.m_dPool.Add ( uCount );
-			}
-
-			for ( DWORD j=0; j<uCount; j++ )
-				tUpd.m_dPool.Add ( tReq.GetDword() );
-		}
+		ARRAY_FOREACH ( j, tUpd.m_dAttrs )
+			tUpd.m_pUpdates[iPos++] = tReq.GetDword();
 	}
-
 	if ( tReq.GetError() )
 	{
 		tReq.SendErrorReply ( "invalid or truncated request" );
@@ -4574,7 +4043,7 @@ void HandleCommandUpdate ( int iSock, int iVer, InputBuffer_c & tReq, int iPipeF
 
 	int iSuccesses = 0;
 	int iUpdated = 0;
-	CSphVector < CSphPair < CSphString, DWORD > > dUpdated;
+	CSphVector<CSphString> dUpdated;
 
 	ARRAY_FOREACH ( iIdx, dIndexNames )
 	{
@@ -4609,10 +4078,7 @@ void HandleCommandUpdate ( int iSock, int iVer, InputBuffer_c & tReq, int iPipeF
 				continue;
 			}
 
-			DWORD uStatusDelta = pServed->m_pIndex->m_uAttrsStatus;
 			int iUpd = pServed->m_pIndex->UpdateAttributes ( tUpd );
-			uStatusDelta = pServed->m_pIndex->m_uAttrsStatus & ~uStatusDelta;
-
 			if ( iUpd<0 )
 			{
 				dFailuresSet.Submit ( "%s", pServed->m_pIndex->GetLastError().cstr() );
@@ -4620,12 +4086,8 @@ void HandleCommandUpdate ( int iSock, int iVer, InputBuffer_c & tReq, int iPipeF
 			} else
 			{
 				iUpdated += iUpd;
+				dUpdated.Add ( sIndex );
 				iSuccesses++;
-
-				CSphPair<CSphString,DWORD> tAdd;
-				tAdd.m_tFirst = sIndex;
-				tAdd.m_tSecond = uStatusDelta;
-				dUpdated.Add ( tAdd );
 			}
 		}
 
@@ -4660,11 +4122,9 @@ void HandleCommandUpdate ( int iSock, int iVer, InputBuffer_c & tReq, int iPipeF
 
 		ARRAY_FOREACH ( i, dUpdated )
 		{
-			uTmp = strlen ( dUpdated[i].m_tFirst.cstr() );
+			uTmp = strlen ( dUpdated[i].cstr() );
 			::write ( iPipeFD, &uTmp, sizeof(DWORD) );
-			::write ( iPipeFD, dUpdated[i].m_tFirst.cstr(), uTmp );
-			uTmp = dUpdated[i].m_tSecond;
-			::write ( iPipeFD, &uTmp, sizeof(DWORD) );
+			::write ( iPipeFD, dUpdated[i].cstr(), uTmp );
 		}
 	}
 
@@ -4709,8 +4169,6 @@ void SafeClose ( int & iFD )
 
 void HandleClient ( int iSock, const char * sClientIP, int iPipeFD )
 {
-	bool bPersist = false;
-	int iTimeout = g_iReadTimeout;
 	NetInputBuffer_c tBuf ( iSock );
 
 	// send my version
@@ -4722,73 +4180,53 @@ void HandleClient ( int iSock, const char * sClientIP, int iPipeFD )
 	}
 
 	// get client version and request
-	tBuf.ReadFrom ( 4 ); // FIXME! magic
+	tBuf.ReadFrom ( 12 ); // FIXME! magic
 	tBuf.GetInt (); // client version is for now unused
-	do
+	int iCommand = tBuf.GetWord ();
+	int iCommandVer = tBuf.GetWord ();
+	int iLength = tBuf.GetInt ();
+	if ( tBuf.GetError() )
 	{
-		g_pCrashLog_LastQuery = NULL;
-		
-		tBuf.ReadFrom ( 8, iTimeout );
-		int iCommand = tBuf.GetWord ();
-		int iCommandVer = tBuf.GetWord ();
-		int iLength = tBuf.GetInt ();
-		if ( tBuf.GetError() )
+		// under high load, there can be pretty frequent accept() vs connect() timeouts
+		// lets avoid agent log flood
+		//
+		// sphWarning ( "failed to receive client version and request (client=%s, error=%s)", sClientIP, sphSockError() );
+		return;
+	}
+
+	// check request
+	if ( iCommand<0 || iCommand>=SEARCHD_COMMAND_TOTAL
+		|| iLength<=0 || iLength>MAX_PACKET_SIZE )
+	{
+		// unknown command, default response header
+		tBuf.SendErrorReply ( "unknown command (code=%d)", iCommand );
+
+		// if request length is insane, low level comm is broken, so we bail out
+		if ( iLength<=0 || iLength>MAX_PACKET_SIZE )
 		{
-			// under high load, there can be pretty frequent accept() vs connect() timeouts
-			// lets avoid agent log flood
-			//
-			// sphWarning ( "failed to receive client version and request (client=%s, error=%s)", sClientIP, sphSockError() );
+			sphWarning ( "ill-formed client request (length=%d out of bounds)", iLength );
 			return;
 		}
+	}
 
-		if ( g_bCrashLog_Enabled )
-			memcpy ( g_dCrashLog_LastHello + 4, tBuf.GetBufferPtr(), sizeof(g_dCrashLog_LastHello) - 4 );
-		
-		// check request
-		if ( iCommand<0 || iCommand>=SEARCHD_COMMAND_TOTAL
-			 || iLength<=0 || iLength>g_iMaxPacketSize )
-		{
-			// unknown command, default response header
-			tBuf.SendErrorReply ( "unknown command (code=%d)", iCommand );
+	// get request body
+	assert ( iLength>0 && iLength<=MAX_PACKET_SIZE );
+	if ( !tBuf.ReadFrom ( iLength ) )
+	{
+		sphWarning ( "failed to receive client request body (client=%s)", sClientIP );
+		return;
+	}
 
-			// if request length is insane, low level comm is broken, so we bail out
-			if ( iLength<=0 || iLength>g_iMaxPacketSize )
-			{
-				sphWarning ( "ill-formed client request (length=%d out of bounds)", iLength );
-				return;
-			}
-		}
-		
-		// get request body
-		assert ( iLength>0 && iLength<=g_iMaxPacketSize );
-		if ( !tBuf.ReadFrom ( iLength ) )
-		{
-			sphWarning ( "failed to receive client request body (client=%s)", sClientIP );
-			return;
-		}
-
-		if ( g_bCrashLog_Enabled )
-		{
-			g_pCrashLog_LastQuery = tBuf.GetBufferPtr();
-			g_iCrashLog_LastQuerySize = iLength;
-		}
-
-		// handle known commands
-		assert ( iCommand>=0 && iCommand<SEARCHD_COMMAND_TOTAL );
-		switch ( iCommand )
-		{
-			case SEARCHD_COMMAND_SEARCH:	HandleCommandSearch ( iSock, iCommandVer, tBuf ); break;
-			case SEARCHD_COMMAND_EXCERPT:	HandleCommandExcerpt ( iSock, iCommandVer, tBuf ); break;
-			case SEARCHD_COMMAND_KEYWORDS:	HandleCommandKeywords ( iSock, iCommandVer, tBuf ); break;
-			case SEARCHD_COMMAND_UPDATE:	HandleCommandUpdate ( iSock, iCommandVer, tBuf, iPipeFD ); break;
-			case SEARCHD_COMMAND_PERSIST:
-				bPersist = tBuf.GetInt() != 0;
-				iTimeout = g_iClientTimeout;
-				break;
-			default:						assert ( 0 && "INTERNAL ERROR: unhandled command" ); break;
-		}
-	} while ( bPersist );
-	SafeClose ( iPipeFD ); 
+	// handle known commands
+	assert ( iCommand>=0 && iCommand<SEARCHD_COMMAND_TOTAL );
+	switch ( iCommand )
+	{
+		case SEARCHD_COMMAND_SEARCH:	SafeClose ( iPipeFD ); HandleCommandSearch ( iSock, iCommandVer, tBuf ); break;
+		case SEARCHD_COMMAND_EXCERPT:	SafeClose ( iPipeFD ); HandleCommandExcerpt ( iSock, iCommandVer, tBuf ); break;
+		case SEARCHD_COMMAND_KEYWORDS:	SafeClose ( iPipeFD ); HandleCommandKeywords ( iSock, iCommandVer, tBuf ); break;
+		case SEARCHD_COMMAND_UPDATE:	HandleCommandUpdate ( iSock, iCommandVer, tBuf, iPipeFD ); SafeClose ( iPipeFD ); break;
+		default:						assert ( 0 && "INTERNAL ERROR: unhandled command" ); break;
+	}
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -4825,155 +4263,95 @@ bool TryRename ( const char * sIndex, const char * sPrefix, const char * sFromPo
 }
 
 
-bool HasFiles ( const ServedIndex_t & tIndex, const char ** dExts )
+void RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 {
 	char sFile [ SPH_MAX_FILENAME_LEN ];
 	const char * sPath = tIndex.m_sIndexPath.cstr();
 
-	for ( int i=0; i<EXT_COUNT; i++ )
-	{
-		snprintf ( sFile, sizeof(sFile), "%s%s", sPath, dExts [i] );
-		if ( !sphIsReadable ( sFile ) )
-			return false;
-	}
-
-	return true;
-}
-
-/// returns true if any version of the index (old or new one) has been preread
-bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
-{
-	char sFile [ SPH_MAX_FILENAME_LEN ];
-	const char * sPath = tIndex.m_sIndexPath.cstr();
+	// check files
+	const int EXT_COUNT = 6;
+	const char * dNew[EXT_COUNT] = { ".new.sph", ".new.spa", ".new.spi", ".new.spd", ".new.spp", ".new.spm" };
+	const char * dOld[EXT_COUNT] = { ".old.sph", ".old.spa", ".old.spi", ".old.spd", ".old.spp", ".old.spm" };
+	const char * dCur[EXT_COUNT] = { ".sph", ".spa", ".spi", ".spd", ".spp", ".spm" };
 
 	for ( int i=0; i<EXT_COUNT; i++ )
 	{
-		snprintf ( sFile, sizeof(sFile), "%s%s", sPath, g_dNewExts[i] );
+		snprintf ( sFile, sizeof(sFile), "%s%s", sPath, dNew[i] );
 		if ( !sphIsReadable ( sFile ) )
 		{
 			if ( i>0 )
-			{
-				if ( tIndex.m_bOnlyNew )
-					sphWarning ( "rotating index '%s': '%s' unreadable: %s; NOT SERVING", sIndex, sFile, strerror(errno) );
-				else
-					sphWarning ( "rotating index '%s': '%s' unreadable: %s; using old index", sIndex, sFile, strerror(errno) );
-			}
-			return false;
+				sphWarning ( "rotating index '%s': '%s' unreadable: %s; using old index", sIndex, sFile, strerror(errno) );
+			return;
 		}
 	}
 
-	if ( !tIndex.m_bOnlyNew )
+	// rename current to old
+	for ( int i=0; i<EXT_COUNT; i++ )
 	{
-		// rename current to old
-		for ( int i=0; i<EXT_COUNT; i++ )
-		{
-			if ( TryRename ( sIndex, sPath, g_dCurExts[i], g_dOldExts[i], false ) )
-				continue;
+		if ( TryRename ( sIndex, sPath, dCur[i], dOld[i], false ) )
+			continue;
 
-			// rollback
-			for ( int j=0; j<i; j++ )
-				TryRename ( sIndex, sPath, g_dOldExts[j], g_dCurExts[j], true );
+		// rollback
+		for ( int j=0; j<i; j++ )
+			TryRename ( sIndex, sPath, dOld[j], dCur[j], true );
 
-			sphWarning ( "rotating index '%s': rename to .old failed; using old index", sIndex );
-			return false;
-		}
+		sphWarning ( "rotating index '%s': rename to .old failed; using old index", sIndex );
+		return;
 	}
 
 	// rename new to current
 	for ( int i=0; i<EXT_COUNT; i++ )
 	{
-		if ( TryRename ( sIndex, sPath, g_dNewExts[i], g_dCurExts[i], false ) )
+		if ( TryRename ( sIndex, sPath, dNew[i], dCur[i], false ) )
 			continue;
 
 		// rollback new ones we already renamed
 		for ( int j=0; j<i; j++ )
-			TryRename ( sIndex, sPath, g_dCurExts[j], g_dNewExts[j], true );
+			TryRename ( sIndex, sPath, dCur[j], dNew[j], true );
 
 		// rollback old ones
 		for ( int j=0; j<EXT_COUNT; j++ )
-			TryRename ( sIndex, sPath, g_dOldExts[j], g_dCurExts[j], true );
-
-		return false;
+			TryRename ( sIndex, sPath, dOld[j], dCur[j], true );
 	}
-
-	bool bPreread = false;
 
 	// try to use new index
 	CSphString sWarning;
-	ISphTokenizer * pTokenizer = tIndex.m_pIndex->LeakTokenizer ();
-	CSphDict * pDictionary = tIndex.m_pIndex->LeakDictionary ();
-
-	const CSphSchema * pNewSchema = tIndex.m_pIndex->Prealloc ( tIndex.m_bMlock, sWarning );
+	const CSphSchema * pNewSchema = tIndex.m_pIndex->Prealloc ( tIndex.m_bMlock, &sWarning );
 	if ( !pNewSchema || !tIndex.m_pIndex->Preread() )
 	{
-		if ( tIndex.m_bOnlyNew )
+		sphWarning ( "rotating index '%s': .new preload failed: %s", sIndex, tIndex.m_pIndex->GetLastError().cstr() );
+
+		// try to recover
+		for ( int j=0; j<EXT_COUNT; j++ )
 		{
-			sphWarning ( "rotating index '%s': .new preload failed: %s; NOT SERVING", sIndex, tIndex.m_pIndex->GetLastError().cstr() );
-			return false;
+			TryRename ( sIndex, sPath, dCur[j], dNew[j], true );
+			TryRename ( sIndex, sPath, dOld[j], dCur[j], true );
 		}
-		else
+
+		pNewSchema = tIndex.m_pIndex->Prealloc ( tIndex.m_bMlock, &sWarning );
+		if ( !pNewSchema || !tIndex.m_pIndex->Preread() )
 		{
-			sphWarning ( "rotating index '%s': .new preload failed: %s", sIndex, tIndex.m_pIndex->GetLastError().cstr() );
-
-			// try to recover
-			for ( int j=0; j<EXT_COUNT; j++ )
-			{
-				TryRename ( sIndex, sPath, g_dCurExts[j], g_dNewExts[j], true );
-				TryRename ( sIndex, sPath, g_dOldExts[j], g_dCurExts[j], true );
-			}
-
-			pNewSchema = tIndex.m_pIndex->Prealloc ( tIndex.m_bMlock, sWarning );
-			if ( !pNewSchema || !tIndex.m_pIndex->Preread() )
-			{
-				sphWarning ( "rotating index '%s': .new preload failed; ROLLBACK FAILED; INDEX UNUSABLE", sIndex );
-				tIndex.m_bEnabled = false;
-			}
-			else
-			{
-				tIndex.m_bEnabled = true;
-				bPreread = true;
-
-				sphWarning ( "rotating index '%s': .new preload failed; using old index", sIndex );
-				if ( !sWarning.IsEmpty() )
-					sphWarning ( "rotating index '%s': %s", sIndex, sWarning.cstr() );
-			}
-
-			if ( !tIndex.m_pIndex->GetTokenizer () )
-				tIndex.m_pIndex->SetTokenizer ( pTokenizer );
-			else
-				SafeDelete ( pTokenizer );
-
-			if ( !tIndex.m_pIndex->GetDictionary () )
-				tIndex.m_pIndex->SetDictionary ( pDictionary );
-			else
-				SafeDelete ( pDictionary );
+			sphWarning ( "rotating index '%s': .new preload failed; ROLLBACK FAILED; INDEX UNUSABLE", sIndex );
+			tIndex.m_bEnabled = false;
+		} else
+		{
+			sphWarning ( "rotating index '%s': .new preload failed; using old index", sIndex );
+			if ( !sWarning.IsEmpty() )
+				sphWarning ( "rotating index '%s': %s", sIndex, sWarning.cstr() );
 		}
-	
-		return bPreread;
-	}
-	else
+		return;
+
+	} else
 	{
-		bPreread = true;
-
 		if ( !sWarning.IsEmpty() )
 			sphWarning ( "rotating index '%s': %s", sIndex, sWarning.cstr() );
 	}
 
-	if ( !tIndex.m_pIndex->GetTokenizer () )
-		tIndex.m_pIndex->SetTokenizer ( pTokenizer );
-	else
-		SafeDelete ( pTokenizer );
-
-	if ( !tIndex.m_pIndex->GetDictionary () )
-		tIndex.m_pIndex->SetDictionary ( pDictionary );
-	else
-		SafeDelete ( pDictionary );
-
 	// unlink .old
-	if ( g_bUnlinkOld && !tIndex.m_bOnlyNew )
+	if ( g_bUnlinkOld )
 		for ( int i=0; i<EXT_COUNT; i++ )
 		{
-			snprintf ( sFile, sizeof(sFile), "%s%s", sPath, g_dOldExts[i] );
+			snprintf ( sFile, sizeof(sFile), "%s%s", sPath, dOld[i] );
 			if ( ::unlink ( sFile ) )
 				sphWarning ( "rotating index '%s': unable to unlink '%s': %s", sIndex, sFile, strerror(errno) );
 		}
@@ -4981,9 +4359,7 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 	// uff. all done
 	tIndex.m_pSchema = pNewSchema;
 	tIndex.m_bEnabled = true;
-	tIndex.m_bOnlyNew = false;
 	sphInfo ( "rotating index '%s': success", sIndex );
-	return bPreread;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -4992,14 +4368,14 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 
 #if USE_WINDOWS
 
-int CreatePipe ( bool, int )	{ return -1; }
-int PipeAndFork ( bool, int )	{ return -1; }
+int CreatePipe ( bool, bool )	{ return -1; }
+int PipeAndFork ( bool, bool )	{ return -1; }
 
 #else
 
 // open new pipe to be able to receive notifications from children
 // adds read-end fd to g_dPipes; returns write-end fd for child
-int CreatePipe ( bool bFatal, int iHandler )
+int CreatePipe ( bool bFatal, bool bPrereader )
 {
 	assert ( g_bHeadDaemon );
 	int dPipe[2] = { -1, -1 };
@@ -5025,7 +4401,7 @@ int CreatePipe ( bool bFatal, int iHandler )
 
 		PipeInfo_t tAdd;
 		tAdd.m_iFD = dPipe[0];
-		tAdd.m_iHandler = iHandler;
+		tAdd.m_bPrereader = bPrereader;
 		g_dPipes.Add ( tAdd );
 		break;
 	}
@@ -5039,9 +4415,9 @@ int CreatePipe ( bool bFatal, int iHandler )
 //
 /// in child, returns write-end pipe fd (might be -1!) and sets g_bHeadDaemon to false
 /// in parent, returns -1 and leaves g_bHeadDaemon unaffected
-int PipeAndFork ( bool bFatal, int iHandler )
+int PipeAndFork ( bool bFatal, bool bPrereader )
 {
-	int iChildPipe = CreatePipe ( bFatal, iHandler );
+	int iChildPipe = CreatePipe ( bFatal, bPrereader );
 	switch ( fork() )
 	{
 		// fork() failed
@@ -5058,7 +4434,6 @@ int PipeAndFork ( bool bFatal, int iHandler )
 
 		// parent process, continue accept()ing
 		default:
-			g_iChildren++;
 			SafeClose ( iChildPipe );
 			break;
 	}
@@ -5087,25 +4462,6 @@ void CheckLeaks ()
 }
 
 
-bool CheckIndex ( const CSphIndex * pIndex, CSphString & sError )
-{
-	const CSphIndexSettings & tSettings = pIndex->GetSettings ();
-
-	if ( ( tSettings.m_iMinPrefixLen>0 || tSettings.m_iMinInfixLen>0 ) && !pIndex->GetStar () )
-	{
-		CSphDict * pDict = pIndex->GetDictionary ();
-		assert ( pDict );
-		if ( pDict->GetSettings ().HasMorphology () )
-		{
-			sError = "infixes and morphology are enabled, enable_star=0";
-			return false;
-		}
-	}
-
-	return true;
-}
-
-
 void SeamlessTryToForkPrereader ()
 {
 	// next in line
@@ -5123,7 +4479,6 @@ void SeamlessTryToForkPrereader ()
 
 	g_pPrereading->SetStar ( tServed.m_bStar );
 	g_pPrereading->SetPreopen ( tServed.m_bPreopen || g_bPreopenIndexes ); 
-	g_pPrereading->SetWordlistPreload ( !tServed.m_bOnDiskDict && !g_bOnDiskDicts );
 
 	// rebase buffer index
 	char sNewPath [ SPH_MAX_FILENAME_LEN ];
@@ -5131,8 +4486,8 @@ void SeamlessTryToForkPrereader ()
 	g_pPrereading->SetBase ( sNewPath );
 
 	// prealloc enough RAM and lock new index
-	CSphString sWarn, sError;
-	if ( !g_pPrereading->Prealloc ( tServed.m_bMlock, sWarn ) )
+	CSphString sWarn;
+	if ( !g_pPrereading->Prealloc ( tServed.m_bMlock, &sWarn ) )
 	{
 		sphWarning ( "rotating index '%s': prealloc: %s; using old index", sPrereading, g_pPrereading->GetLastError().cstr() );
 		return;
@@ -5144,22 +4499,9 @@ void SeamlessTryToForkPrereader ()
 		return;
 	}
 
-	if ( tServed.m_bOnlyNew && g_pCfg && g_pCfg->m_tConf.Exists ( "index" ) && g_pCfg->m_tConf["index"].Exists ( sPrereading ) )
-		if ( !sphFixupIndexSettings ( g_pPrereading, g_pCfg->m_tConf["index"][sPrereading], sError ) )
-		{
-			sphWarning ( "rotating index '%s': fixup: %s; using old index", sPrereading, sError.cstr() );
-			return;
-		}
-
-	if ( !CheckIndex ( g_pPrereading, sError ) )
-	{
-		sphWarning ( "rotating index '%s': check: %s; using old index", sPrereading, sError.cstr() );
-		return;
-	}
-
 	// fork async reader
 	g_sPrereading = sPrereading;
-	int iPipeFD = PipeAndFork ( true, SPH_PIPE_PREREAD );
+	int iPipeFD = PipeAndFork ( true, true );
 
 	// in parent, wait for prereader process to finish
 	if ( g_bHeadDaemon )
@@ -5292,165 +4634,6 @@ protected:
 };
 
 
-/// handle pipe notifications from attribute updating
-void HandlePipeUpdate ( PipeReader_t & tPipe, bool bFailure )
-{
-	if ( bFailure )
-		return; // silently ignore errors
-
-	++g_iUpdateTag;
-
-	int iUpdIndexes = tPipe.GetInt ();
-	for ( int i=0; i<iUpdIndexes; i++ )
-	{
-		// index name and status must follow
-		CSphString sIndex = tPipe.GetString ();
-		DWORD uStatus = tPipe.GetInt ();
-		if ( tPipe.IsError() )
-			break;
-
-		ServedIndex_t * pServed = g_hIndexes(sIndex);
-		if ( pServed )
-		{
-			pServed->m_iUpdateTag = g_iUpdateTag;
-			pServed->m_pIndex->m_uAttrsStatus |= uStatus;
-		} else
-			sphWarning ( "INTERNAL ERROR: unknown index '%s' in HandlePipeUpdate()", sIndex.cstr() );
-	}
-}
-
-
-/// handle pipe notifications from prereading
-void HandlePipePreread ( PipeReader_t & tPipe, bool bFailure )
-{
-	if ( bFailure )
-	{
-		// clean up previous one and launch next one
-		g_sPrereading = NULL;
-
-		// in any case, buffer index should now be deallocated
-		g_pPrereading->Dealloc ();
-		g_pPrereading->Unlock ();
-
-		// work next one
-		SeamlessForkPrereader ();
-		return;
-	}
-
-	assert ( g_bDoRotate && g_bSeamlessRotate && g_sPrereading );
-
-	// whatever the outcome, we will be done with this one
-	const char * sPrereading = g_sPrereading;
-	g_sPrereading = NULL;
-
-	// notice that this will block!
-	int iRes = tPipe.GetInt();
-	if ( !tPipe.IsError() && iRes )
-	{
-		// if preread was succesful, exchange served index and prereader buffer index
-		ServedIndex_t & tServed = g_hIndexes[sPrereading];
-		CSphIndex * pOld = tServed.m_pIndex;
-		CSphIndex * pNew = g_pPrereading;
-
-		char sOld [ SPH_MAX_FILENAME_LEN ];
-		snprintf ( sOld, sizeof(sOld), "%s.old", tServed.m_sIndexPath.cstr() );
-
-		if ( !tServed.m_bOnlyNew && !pOld->Rename ( sOld ) )
-		{
-			// FIXME! rollback inside Rename() call potentially fail
-			sphWarning ( "rotating index '%s': cur to old rename failed: %s", sPrereading, pOld->GetLastError().cstr() );
-
-		} else
-		{
-			// FIXME! at this point there's no cur lock file; ie. potential race
-			if ( !pNew->Rename ( tServed.m_sIndexPath.cstr() ) )
-			{
-				sphWarning ( "rotating index '%s': new to cur rename failed: %s", sPrereading, pNew->GetLastError().cstr() );
-				if ( !tServed.m_bOnlyNew && !pOld->Rename ( tServed.m_sIndexPath.cstr() ) )
-				{
-					sphWarning ( "rotating index '%s': old to cur rename failed: %s; INDEX UNUSABLE", sPrereading, pOld->GetLastError().cstr() );
-					tServed.m_bEnabled = false;
-				}
-			} else
-			{
-				// all went fine; swap them
-				if ( !g_pPrereading->GetTokenizer () )
-					g_pPrereading->SetTokenizer ( tServed.m_pIndex->LeakTokenizer () );
-
-				if ( !g_pPrereading->GetDictionary () )
-					g_pPrereading->SetDictionary ( tServed.m_pIndex->LeakDictionary () );
-
-				Swap ( tServed.m_pIndex, g_pPrereading );
-				tServed.m_pSchema = tServed.m_pIndex->GetSchema ();
-				tServed.m_bEnabled = true;
-
-				// unlink .old
-				if ( g_bUnlinkOld && !tServed.m_bOnlyNew )
-				{
-					char sFile [ SPH_MAX_FILENAME_LEN ];
-
-					for ( int i=0; i<EXT_COUNT; i++ )
-					{
-						snprintf ( sFile, sizeof(sFile), "%s%s", sOld, g_dCurExts[i] );
-						if ( ::unlink ( sFile ) )
-							sphWarning ( "rotating index '%s': unable to unlink '%s': %s", sPrereading, sFile, strerror(errno) );
-					}
-				}
-
-				tServed.m_bOnlyNew = false;
-				sphInfo ( "rotating index '%s': success", sPrereading );
-			}
-		}
-
-	} else
-	{
-		if ( tPipe.IsError() )
-			sphWarning ( "rotating index '%s': pipe read failed" );
-		else
-			sphWarning ( "rotating index '%s': preread failure reported" );
-	}
-
-	// in any case, buffer index should now be deallocated
-	g_pPrereading->Dealloc ();
-	g_pPrereading->Unlock ();
-
-	// work next one
-	SeamlessForkPrereader ();
-}
-
-
-/// handle pipe notifications from attribute saving
-void HandlePipeSave ( PipeReader_t & tPipe, bool bFailure )
-{
-	// in any case, we're no more flushing
-	g_bFlushing = false;
-
-	// silently ignore errors
-	if ( bFailure )
-		return;
-
-	// handle response
-	int iSavedIndexes = tPipe.GetInt ();
-	for ( int i=0; i<iSavedIndexes; i++ )
-	{
-		// index name must follow
-		CSphString sIndex = tPipe.GetString ();
-		if ( tPipe.IsError() )
-			break;
-
-		ServedIndex_t * pServed = g_hIndexes(sIndex);
-		if ( pServed )
-		{
-			if ( pServed->m_iUpdateTag<=g_iFlushTag )
-				pServed->m_pIndex->m_uAttrsStatus = 0;
-		} else
-		{
-			sphWarning ( "INTERNAL ERROR: unknown index '%s' in HandlePipeSave()", sIndex.cstr() );
-		}
-	}
-}
-
-
 /// check if there are any notifications from the children and handle them
 void CheckPipes ()
 {
@@ -5466,432 +4649,131 @@ void CheckPipes ()
 
 		// either if there's eof, or error, or valid data - this pipe is over
 		PipeReader_t tPipe ( g_dPipes[i].m_iFD );
-		int iHandler = g_dPipes[i].m_iHandler;
+		bool bPrereader = g_dPipes[i].m_bPrereader;
 		g_dPipes.Remove ( i-- );
 
 		// check for eof/error
-		bool bFailure = false;
 		if ( iRes!=sizeof(DWORD) )
 		{
-			bFailure = true;
+			// report problems
+			if ( iRes!=0 || bPrereader )
+				sphWarning ( "pipe status read failed (prereader=%d)", bPrereader );
 
-			if ( iHandler<0 )
-				continue; // no handler; we're not expecting anything
-
-			if ( iRes!=0 || iHandler>=0 )
-				sphWarning ( "pipe status read failed (handler=%d)", iHandler );
-		}
-
-		// check for handler/status mismatch
-		if ( !bFailure && ( iHandler>=0 && (int)uStatus!=iHandler ) )
-		{
-			bFailure = true;
-			sphWarning ( "INTERNAL ERROR: pipe status mismatch (handler=%d, status=%d)", iHandler, uStatus );
-		}
-
-		// check for handler promotion (ie: we did not expect anything particular, but something happened anyway)
-		if ( !bFailure && iHandler<0 )
-			iHandler = (int)uStatus;
-
-		// run the proper handler
-		switch ( iHandler )
-		{
-			case SPH_PIPE_UPDATED_ATTRS:	HandlePipeUpdate ( tPipe, bFailure ); break;
-			case SPH_PIPE_SAVED_ATTRS:		HandlePipeSave ( tPipe, bFailure ); break;
-			case SPH_PIPE_PREREAD:			HandlePipePreread ( tPipe, bFailure ); break;
-			default:						if ( !bFailure ) sphWarning ( "INTERNAL ERROR: unknown pipe handler (handler=%d, status=%d)", iHandler, uStatus ); break;
-		}
-	}
-}
-
-
-void ConfigureIndex ( ServedIndex_t & tIdx, const CSphConfigSection & hIndex )
-{
-	tIdx.m_bMlock =			( hIndex.GetInt ( "mlock", 0 )!=0 ) && !g_bOptConsole;
-	tIdx.m_bStar =			hIndex.GetInt ( "enable_star", 0 )	!= 0;
-	tIdx.m_bPreopen =		hIndex.GetInt ( "preopen", 0 )		!= 0;
-	tIdx.m_bOnDiskDict =	hIndex.GetInt ( "ondisk_dict", 0 )	!= 0;
-}
-
-
-bool PrereadNewIndex ( ServedIndex_t & tIdx, const CSphConfigSection & hIndex, const char * szIndexName )
-{
-	CSphString sWarning;
-
-	tIdx.m_pSchema = tIdx.m_pIndex->Prealloc ( tIdx.m_bMlock, sWarning );
-	if ( !tIdx.m_pSchema || !tIdx.m_pIndex->Preread() )
-	{
-		sphWarning ( "index '%s': preload: %s; NOT SERVING", szIndexName, tIdx.m_pIndex->GetLastError().cstr() );
-		return false;
-	}
-
-	if ( !sWarning.IsEmpty() )
-		sphWarning ( "index '%s': %s", szIndexName, sWarning.cstr() );
-
-	CSphString sError;
-	if ( !sphFixupIndexSettings ( tIdx.m_pIndex, hIndex, sError ) )
-	{
-		sphWarning ( "index '%s': %s - NOT SERVING", szIndexName, sError.cstr() );
-		return false;
-	}
-
-	// try to lock it
-	if ( !g_bOptConsole && !tIdx.m_pIndex->Lock() )
-	{
-		sphWarning ( "index '%s': lock: %s; NOT SERVING", szIndexName, tIdx.m_pIndex->GetLastError().cstr() );
-		return false;
-	}
-
-	return true;
-}
-
-
-bool ConfigureAgent ( Agent_t & tAgent, const CSphVariant * pAgent, const char * szIndexName, bool bBlackhole )
-{
-	// extract host name or path
-	const char * p = pAgent->cstr();
-	while ( sphIsAlpha(*p) || *p=='.' || *p=='-' || *p=='/' ) p++;
-	if ( p==pAgent->cstr() )
-	{
-		sphWarning ( "index '%s': agent '%s': host name or path expected - SKIPPING AGENT",
-			szIndexName, pAgent->cstr() );
-		return false;
-	}
-	if ( *p++!=':' )
-	{
-		sphWarning ( "index '%s': agent '%s': colon expected near '%s' - SKIPPING AGENT",
-			szIndexName, pAgent->cstr(), p );
-		return false;
-	}
-
-	CSphString sSub = pAgent->SubString ( 0, p-1-pAgent->cstr() );
-	if ( sSub.cstr()[0] == '/' )
-	{
-#if USE_WINDOWS
-		sphWarning ( "index '%s': agent '%s': UNIX sockets are not supported on Windows - SKIPPING AGENT",
-			szIndexName, pAgent->cstr() );
-		return false;
-#else
-		if ( strlen ( sSub.cstr() ) + 1 > sizeof(((struct sockaddr_un *)0)->sun_path) )
-		{
-			sphWarning ( "index '%s': agent '%s': UNIX socket path is too long - SKIPPING AGENT",
-				szIndexName, pAgent->cstr() );
-			return false;
-		}
-
-		tAgent.m_iFamily = AF_UNIX;
-		tAgent.m_sPath = sSub;
-		p--;
-#endif
-
-	}
-	else
-	{
-		tAgent.m_iFamily = AF_INET;
-		tAgent.m_sHost = sSub;
-
-		// extract port
-		if ( !isdigit(*p) )
-		{
-			sphWarning ( "index '%s': agent '%s': port number expected near '%s' - SKIPPING AGENT",
-				szIndexName, pAgent->cstr(), p );
-			return false;
-		}
-		tAgent.m_iPort = atoi(p);
-
-		if ( !IsPortInRange(tAgent.m_iPort) )
-		{
-			sphWarning ( "index '%s': agent '%s': invalid port number near '%s' - SKIPPING AGENT",
-				szIndexName, pAgent->cstr(), p );
-			return false;
-		}
-
-		while ( isdigit(*p) ) p++;
-	}
-
-	// extract index list
-	if ( *p++!=':' )
-	{
-		sphWarning ( "index '%s': agent '%s': colon expected near '%s' - SKIPPING AGENT",
-			szIndexName, pAgent->cstr(), p );
-		return false;
-	}
-	while ( isspace(*p) )
-		p++;
-	const char * sIndexList = p;
-	while ( sphIsAlpha(*p) || isspace(*p) || *p==',' )
-		p++;
-	if ( *p )
-	{
-		sphWarning ( "index '%s': agent '%s': index list expected near '%s' - SKIPPING AGENT",
-			szIndexName, pAgent->cstr(), p );
-		return false;
-	}
-	tAgent.m_sIndexes = sIndexList;
-
-	// lookup address (if needed)
-	if ( tAgent.m_iFamily == AF_INET )
-	{
-		tAgent.m_uAddr = sphGetAddress ( tAgent.m_sHost.cstr() );
-		if ( tAgent.m_uAddr == 0 )
-		{
-			sphWarning ( "index '%s': agent '%s': failed to lookup host name '%s' (error=%s) - SKIPPING AGENT",
-				szIndexName, pAgent->cstr(), tAgent.m_sHost.cstr(), sphSockError() );
-			return false;
-		}
-	}
-
-	tAgent.m_bBlackhole = bBlackhole;
-
-	return true;
-}
-
-
-ESphAddIndex AddIndex ( const char * szIndexName, const CSphConfigSection & hIndex )
-{
-	if ( hIndex("type") && hIndex["type"]=="distributed" )
-	{
-		///////////////////////////////
-		// configure distributed index
-		///////////////////////////////
-
-		DistributedIndex_t tIdx;
-
-		// add local agents
-		for ( CSphVariant * pLocal = hIndex("local"); pLocal; pLocal = pLocal->m_pNext )
-		{
-			if ( !g_hIndexes ( pLocal->cstr() ) )
+			// if that was prereader who failed, clean up previous one and launch next one
+			if ( bPrereader )
 			{
-				sphWarning ( "index '%s': no such local index '%s' - SKIPPING LOCAL INDEX",
-					szIndexName, pLocal->cstr() );
-				continue;
+				g_sPrereading = NULL;
+
+				// in any case, buffer index should now be deallocated
+				g_pPrereading->Dealloc ();
+				g_pPrereading->Unlock ();
+
+				// work next one
+				SeamlessForkPrereader ();
 			}
-			tIdx.m_dLocal.Add ( pLocal->cstr() );
+			continue;
 		}
 
-		// add remote agents
-		for ( CSphVariant * pAgent = hIndex("agent"); pAgent; pAgent = pAgent->m_pNext )
+		// handle
+		if ( uStatus==SPH_PIPE_UPDATED_ATTRS )
 		{
-			Agent_t tAgent;
-			if ( ConfigureAgent ( tAgent, pAgent, szIndexName, false ) )
-				tIdx.m_dAgents.Add ( tAgent );
-		}
-
-		for ( CSphVariant * pAgent = hIndex("agent_blackhole"); pAgent; pAgent = pAgent->m_pNext )
-		{
-			Agent_t tAgent;
-			if ( ConfigureAgent ( tAgent, pAgent, szIndexName, true ) )
-				tIdx.m_dAgents.Add ( tAgent );
-		}
-
-		// configure options
-		if ( hIndex("agent_connect_timeout") )
-		{
-			if ( hIndex["agent_connect_timeout"].intval()<=0 )
-				sphWarning ( "index '%s': connect_timeout must be positive, ignored", szIndexName );
-			else
-				tIdx.m_iAgentConnectTimeout = hIndex["agent_connect_timeout"].intval();
-		}
-
-		if ( hIndex("agent_query_timeout") )
-		{
-			if ( hIndex["agent_query_timeout"].intval()<=0 )
-				sphWarning ( "index '%s': query_timeout must be positive, ignored", szIndexName );
-			else
-				tIdx.m_iAgentQueryTimeout = hIndex["agent_query_timeout"].intval();
-		}
-
-		// finally, check and add distributed index to global table
-		if ( tIdx.m_dAgents.GetLength()==0 && tIdx.m_dLocal.GetLength()==0 )
-		{
-			sphWarning ( "index '%s': no valid local/remote indexes in distributed index - NOT SERVING",
-				szIndexName );
-			return ADD_ERROR;
-		}
-		else
-		{
-			if ( !g_hDistIndexes.Add ( tIdx, szIndexName ) )
+			int iUpdIndexes = tPipe.GetInt ();
+			for ( int i=0; i<iUpdIndexes; i++ )
 			{
-				sphWarning ( "index '%s': duplicate name in hash?! INTERNAL ERROR - NOT SERVING", szIndexName );
-				return ADD_ERROR;
+				// index name must follow
+				CSphString sIndex = tPipe.GetString ();
+				if ( tPipe.IsError() )
+					break;
+
+				if ( g_hIndexes(sIndex) )
+					g_hIndexes(sIndex)->m_pIndex->SetAttrsUpdated ( true );
+				else
+					sphWarning ( "INTERNAL ERROR: unknown index '%s' in piped notification (updated)", sIndex.cstr() );
 			}
-		}
 
-		return ADD_DISTR;
-	}
-	else
-	{
-		/////////////////////////
-		// configure local index
-		/////////////////////////
-
-		ServedIndex_t tIdx;
-
-		// check path
-		if ( !hIndex.Exists ( "path" ) )
+		} else if ( uStatus==SPH_PIPE_PREREAD )
 		{
-			sphWarning ( "index '%s': key 'path' not found' - NOT SERVING", szIndexName );
-			return ADD_ERROR;
-		}
+			assert ( g_bDoRotate && g_bSeamlessRotate && g_sPrereading && bPrereader );
 
-		// check name
-		if ( g_hIndexes.Exists ( szIndexName ) )
+			// whatever the outcome, we will be done with this one
+			const char * sPrereading = g_sPrereading;
+			g_sPrereading = NULL;
+
+			// notice that this will block!
+			int iRes = tPipe.GetInt();
+			if ( !tPipe.IsError() && iRes )
+			{
+				// if preread was succesful, exchange served index and prereader buffer index
+				ServedIndex_t & tServed = g_hIndexes[sPrereading];
+				CSphIndex * pOld = tServed.m_pIndex;
+				CSphIndex * pNew = g_pPrereading;
+
+				char sOld [ SPH_MAX_FILENAME_LEN ];
+				snprintf ( sOld, sizeof(sOld), "%s.old", tServed.m_sIndexPath.cstr() );
+
+				if ( !pOld->Rename ( sOld ) )
+				{
+					// FIXME! rollback inside Rename() call potentially fail
+					sphWarning ( "rotating index '%s': cur to old rename failed: %s", sPrereading, pOld->GetLastError().cstr() );
+
+				} else
+				{
+					// FIXME! at this point there's no cur lock file; ie. potential race
+					if ( !pNew->Rename ( tServed.m_sIndexPath.cstr() ) )
+					{
+						sphWarning ( "rotating index '%s': new to cur rename failed: %s", sPrereading, pNew->GetLastError().cstr() );
+						if ( !pOld->Rename ( tServed.m_sIndexPath.cstr() ) )
+						{
+							sphWarning ( "rotating index '%s': old to cur rename failed: %s; INDEX UNUSABLE", sPrereading, pOld->GetLastError().cstr() );
+							tServed.m_bEnabled = false;
+						}
+					} else
+					{
+						// all went fine; swap them
+						Swap ( tServed.m_pIndex, g_pPrereading );
+						tServed.m_pSchema = tServed.m_pIndex->GetSchema ();
+						tServed.m_bEnabled = true;
+
+						// unlink .old
+						if ( g_bUnlinkOld )
+						{
+							const int EXT_COUNT = 6;
+							const char * dExt [EXT_COUNT] = { ".sph", ".spa", ".spi", ".spd", ".spp", ".spm" };
+							char sFile [ SPH_MAX_FILENAME_LEN ];
+
+							for ( int i=0; i<EXT_COUNT; i++ )
+							{
+								snprintf ( sFile, sizeof(sFile), "%s%s", sOld, dExt[i] );
+								if ( ::unlink ( sFile ) )
+									sphWarning ( "rotating index '%s': unable to unlink '%s': %s", sPrereading, sFile, strerror(errno) );
+							}
+						}
+
+						sphInfo ( "rotating index '%s': success", sPrereading );
+					}
+				}
+
+			} else
+			{
+				if ( tPipe.IsError() )
+					sphWarning ( "rotating index '%s': pipe read failed" );
+				else
+					sphWarning ( "rotating index '%s': preread failure reported" );
+			}
+
+			// in any case, buffer index should now be deallocated
+			g_pPrereading->Dealloc ();
+			g_pPrereading->Unlock ();
+
+			// work next one
+			SeamlessForkPrereader ();
+
+		} else
 		{
-			sphWarning ( "index '%s': duplicate name in hash?! INTERNAL ERROR - NOT SERVING", szIndexName );
-			return ADD_ERROR;
-		}
-
-		// configure memlocking, star
-		ConfigureIndex ( tIdx, hIndex );
-
-		// try to create index
-		CSphString sWarning;
-		tIdx.m_pIndex = sphCreateIndexPhrase ( hIndex["path"].cstr() );
-		tIdx.m_pIndex->SetStar ( tIdx.m_bStar );
-		tIdx.m_pIndex->SetPreopen ( tIdx.m_bPreopen || g_bPreopenIndexes );
-		tIdx.m_pIndex->SetWordlistPreload ( !tIdx.m_bOnDiskDict && !g_bOnDiskDicts );
-		tIdx.m_bEnabled = false;
-
-		// done
-		tIdx.m_sIndexPath = hIndex["path"];
-		if ( !g_hIndexes.Add ( tIdx, szIndexName ) )
-		{
-			sphWarning ( "INTERNAL ERROR: index '%s': hash add failed - NOT SERVING", szIndexName );
-			return ADD_ERROR;
-		}
-
-		tIdx.Reset (); // so that the dtor wouln't delete everything
-
-		return ADD_LOCAL;
-	}
-}
-
-
-bool CheckConfigChanges ()
-{
-	struct stat tStat;
-	memset ( &tStat, 0, sizeof ( tStat ) );
-	if ( stat ( g_sConfigFile.cstr (), &tStat ) < 0 )
-		memset ( &tStat, 0, sizeof ( tStat ) );
-
-	DWORD uCRC32 = 0;
-	sphCalcFileCRC32 ( g_sConfigFile.cstr (), uCRC32 );
-
-	if ( g_uCfgCRC32 == uCRC32 && tStat.st_mtime == g_tCfgStat.st_mtime && tStat.st_ctime == g_tCfgStat.st_ctime && tStat.st_size == g_tCfgStat.st_size )
-		return false;
-
-	g_uCfgCRC32 = uCRC32;
-	g_tCfgStat = tStat;
-
-	return true;
-}
-
-
-void ReloadIndexSettings ( CSphConfigParser * pCP )
-{
-	assert ( pCP );
-
-	g_bDoDelete = false;
-
-	g_hIndexes.IterateStart ();
-	while ( g_hIndexes.IterateNext () )
-		g_hIndexes.IterateGet ().m_bToDelete = true;
-
-	g_hDistIndexes.IterateStart ();
-	while ( g_hDistIndexes.IterateNext () )
-		g_hDistIndexes.IterateGet ().m_bToDelete = true;
-	
-	if ( !pCP->Parse ( g_sConfigFile.cstr () ) )
-		sphWarning ( "failed to parse config file '%s'", g_sConfigFile.cstr () );
-
-	SetSignalHandlers ();
-
-	int nTotalIndexes = g_hIndexes.GetLength () + g_hDistIndexes.GetLength ();
-	int nChecked = 0;
-
-	const CSphConfig & hConf = pCP->m_tConf;
-	hConf["index"].IterateStart ();
-	while ( hConf["index"].IterateNext() )
-	{
-		const CSphConfigSection & hIndex = hConf["index"].IterateGet();
-		const char * sIndexName = hConf["index"].IterateGetKey().cstr();
-
-		if ( g_hIndexes.Exists ( sIndexName ) )
-		{
-			ServedIndex_t & tIndex = g_hIndexes[sIndexName];
-			ConfigureIndex ( tIndex, hIndex );
-			tIndex.m_bToDelete = false;
-			nChecked++;
-		}
-		else if ( g_hDistIndexes.Exists ( sIndexName ) )
-		{
-			DistributedIndex_t & tIndex = g_hDistIndexes[sIndexName];
-			tIndex.m_bToDelete = false;
-			nChecked++;
-		}
-		else if ( AddIndex ( sIndexName, hIndex ) == ADD_LOCAL )
-		{
-			ServedIndex_t & tIndex = g_hIndexes[sIndexName];
-			tIndex.m_bOnlyNew = true;
+			// unhandled status code
+			sphWarning ( "INTERNAL ERROR: unknown pipe status=%d", uStatus );
 		}
 	}
-
-	if ( nChecked < nTotalIndexes )
-		g_bDoDelete = true;
-}
-
-
-struct IndexToDelete_t
-{
-	const CSphString *	m_pName;
-	ServedIndex_t *		m_pIndex;
-};
-
-
-void CheckDelete ()
-{
-	if ( !g_bDoDelete )
-		return;
-
-	if ( g_iChildren )
-		return;
-
-	CSphVector<IndexToDelete_t> dToDelete;
-	CSphVector<const CSphString *> dDistToDelete;
-	dToDelete.Reserve ( 8 );
-	dDistToDelete.Reserve ( 8 );
-
-	g_hIndexes.IterateStart ();
-	while ( g_hIndexes.IterateNext () )
-	{
-		ServedIndex_t & tIndex = g_hIndexes.IterateGet ();
-		if ( tIndex.m_bToDelete )
-		{
-			IndexToDelete_t tToDelete;
-			tToDelete.m_pName = &g_hIndexes.IterateGetKey ();
-			tToDelete.m_pIndex = &tIndex;
-			dToDelete.Add ( tToDelete );
-		}
-	}
-
-	g_hDistIndexes.IterateStart ();
-	while ( g_hDistIndexes.IterateNext () )
-	{
-		DistributedIndex_t & tIndex = g_hDistIndexes.IterateGet ();
-		if ( tIndex.m_bToDelete )
-			dDistToDelete.Add ( &g_hDistIndexes.IterateGetKey () );
-	}
-
-	ARRAY_FOREACH ( i, dToDelete )
-	{
-		dToDelete [i].m_pIndex->m_pIndex->Unlock();
-		g_hIndexes.Delete ( *(dToDelete [i].m_pName) );
-	}
-
-	ARRAY_FOREACH ( i, dDistToDelete )
-		g_hDistIndexes.Delete ( *dDistToDelete [i] );
-
-	g_bDoDelete = false;
 }
 
 
@@ -5911,14 +4793,6 @@ void CheckRotate ()
 		if ( g_iChildren )
 			return;
 
-		CSphConfigParser * pCP = NULL;
-
-		if ( CheckConfigChanges () )
-		{
-			pCP = new CSphConfigParser;
-			ReloadIndexSettings ( pCP );
-		}
-
 		g_hIndexes.IterateStart();
 		while ( g_hIndexes.IterateNext() )
 		{
@@ -5926,30 +4800,8 @@ void CheckRotate ()
 			const char * sIndex = g_hIndexes.IterateGetKey().cstr();
 			assert ( tIndex.m_pIndex );
 
-			bool bWasAdded = tIndex.m_bOnlyNew;
 			RotateIndexGreedy ( tIndex, sIndex );
-			if ( bWasAdded && tIndex.m_bEnabled )
-			{
-				const CSphConfigType & hConf = pCP->m_tConf ["index"];
-				if ( hConf.Exists ( sIndex ) )
-				{
-					CSphString sError;
-					if ( !sphFixupIndexSettings ( tIndex.m_pIndex, hConf [sIndex], sError ) )
-					{
-						sphWarning ( "index '%s': %s - NOT SERVING", sIndex, sError.cstr() );
-						tIndex.m_bEnabled = false;
-					}
-
-					if ( tIndex.m_bEnabled && !CheckIndex ( tIndex.m_pIndex, sError ) )
-					{
-						sphWarning ( "index '%s': %s - NOT SERVING", sIndex, sError.cstr() );
-						tIndex.m_bEnabled = false;
-					}
-				}		
-			}
 		}
-
-		SafeDelete ( pCP );
 
 		g_bDoRotate = false;
 		sphInfo ( "rotating finished" );
@@ -5963,13 +4815,6 @@ void CheckRotate ()
 	assert ( g_bDoRotate && g_bSeamlessRotate );
 	if ( g_dRotating.GetLength() || g_sPrereading )
 		return; // rotate in progress already; will be handled in CheckPipes()
-
-	SafeDelete ( g_pCfg );
-	if ( CheckConfigChanges () )
-	{
-		g_pCfg = new CSphConfigParser;
-		ReloadIndexSettings ( g_pCfg );
-	}
 
 	// check what indexes need to be rotated
 	g_hIndexes.IterateStart();
@@ -6031,74 +4876,6 @@ void CheckReopen ()
 	}
 
 	g_bGotSigusr1 = false;
-}
-
-
-void CheckFlush ()
-{
-	if ( g_iAttrFlushPeriod<=0 || g_bFlushing )
-		return;
-
-	static float fLastCheck = -0.001f;
-	float fNow = sphLongTimer ();
-
-	if ( fLastCheck+float(g_iAttrFlushPeriod)>=fNow )
-		return;
-
-	fLastCheck = fNow;
-
-	// check if there are dirty indexes
-	bool bDirty = false;
-	g_hIndexes.IterateStart ();
-	while ( g_hIndexes.IterateNext () )
-	{
-		const ServedIndex_t & tServed = g_hIndexes.IterateGet ();
-		if ( tServed.m_bEnabled && tServed.m_iUpdateTag>g_iFlushTag )
-		{
-			bDirty = true;
-			break;
-		}
-	}
-	if ( !bDirty )
-		return;
-
-	// launch the flush!
-	g_bFlushing = true;
-	int iPipeFD = PipeAndFork ( false, SPH_PIPE_SAVED_ATTRS ); // FIXME! gracefully handle fork() failures, Windows, etc
-	if ( g_bHeadDaemon )
-	{
-		g_iFlushTag = g_iUpdateTag;
-		return;
-	}
-
-	// child process, do the work
-	CSphVector<CSphString> dSaved;
-
-	g_hIndexes.IterateStart ();
-	while ( g_hIndexes.IterateNext () )
-	{
-		const ServedIndex_t & tServed = g_hIndexes.IterateGet ();
-		if ( tServed.m_bEnabled && tServed.m_iUpdateTag>g_iFlushTag )
-			if ( tServed.m_pIndex->SaveAttributes () ) // FIXME? report errors somehow?
-				dSaved.Add ( g_hIndexes.IterateGetKey() );
-	}
-
-	// report and exit
-	DWORD uTmp = SPH_PIPE_SAVED_ATTRS;
-	::write ( iPipeFD, &uTmp, sizeof(DWORD) );
-
-	uTmp = dSaved.GetLength();
-	::write ( iPipeFD, &uTmp, sizeof(DWORD) );
-
-	ARRAY_FOREACH ( i, dSaved )
-	{
-		uTmp = strlen ( dSaved[i].cstr() );
-		::write ( iPipeFD, &uTmp, sizeof(DWORD) );
-		::write ( iPipeFD, dSaved[i].cstr(), uTmp );
-	}
-
-	::close ( iPipeFD );
-	exit ( 0 );
 }
 
 
@@ -6300,12 +5077,7 @@ void ShowHelp ()
 		"Debugging options are:\n"
 		"--console\t\trun in console mode (do not fork, do not log to files)\n"
 		"-p, --port <port>\tlisten on given port (overrides config setting)\n"
-		"-l, --listen <spec>\tlisten on given address, port or path (overrides\n"
-		"\t\t\tconfig settings)\n"
 		"-i, --index <index>\tonly serve one given index\n"
-#if !USE_WINDOWS
-		"--nodetach\t\tdo not detach into background\n"
-#endif
 		"\n"
 		"Examples:\n"
 		"searchd --config /usr/local/sphinx/etc/sphinx.conf\n"
@@ -6324,74 +5096,6 @@ BOOL WINAPI CtrlHandler ( DWORD )
 	return TRUE;
 }
 #endif
-
-
-/// check for incoming signals, and react on them
-void CheckSignals ()
-{
-#if USE_WINDOWS
-	if ( g_bService && g_bServiceStop )
-	{
-		Shutdown ();
-		MySetServiceStatus ( SERVICE_STOPPED, NO_ERROR, 0 );
-		exit ( 0 );
-	}
-#endif
-
-	if ( g_bGotSighup )
-	{
-		sphInfo ( "rotating indices (seamless=%d)", (int)g_bSeamlessRotate ); // this might hang if performed from SIGHUP
-		g_bGotSighup = false;
-	}
-
-	if ( g_bGotSigterm )
-	{
-		assert ( g_bHeadDaemon );
-		sphInfo ( "caught SIGTERM, shutting down" );
-
-		Shutdown ();
-		exit ( 0 );
-	}
-
-#if !USE_WINDOWS
-	if ( g_bGotSigchld )
-	{
-		while ( waitpid ( -1, NULL, WNOHANG ) > 0 )
-			g_iChildren--;
-
-		g_bGotSigchld = false;
-	}
-#endif
-
-#if USE_WINDOWS
-	BYTE dPipeInBuf [ WIN32_PIPE_BUFSIZE ];
-	DWORD nBytesRead = 0;
-	BOOL bSuccess = ReadFile ( g_hPipe, dPipeInBuf, WIN32_PIPE_BUFSIZE, &nBytesRead, NULL );
-	if ( nBytesRead > 0 && bSuccess )
-	{
-		for ( DWORD i = 0; i < nBytesRead; i++ )
-		{
-			switch ( dPipeInBuf [i] )
-			{
-			case 0:
-				g_bDoRotate = true;
-				g_bGotSighup = true;
-				break;
-
-			case 1:
-				g_bGotSigterm = true;
-				if ( g_bService )
-					g_bServiceStop = true;
-				break;
-			}
-
-		}
-
-		DisconnectNamedPipe ( g_hPipe );
-		ConnectNamedPipe ( g_hPipe, NULL ); 
-	}
-#endif
-}
 
 
 int WINAPI ServiceMain ( int argc, char **argv )
@@ -6420,11 +5124,17 @@ int WINAPI ServiceMain ( int argc, char **argv )
 		}
 	}
 
+	const int PIPE_BUFSIZE = 32;
 	char szPipeName [64];
 	sprintf ( szPipeName, "\\\\.\\pipe\\searchd_%d", getpid() );
-	g_hPipe = CreateNamedPipe ( szPipeName, PIPE_ACCESS_INBOUND, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_NOWAIT, PIPE_UNLIMITED_INSTANCES, 0, WIN32_PIPE_BUFSIZE, NMPWAIT_NOWAIT, NULL );
+	g_hPipe = CreateNamedPipe ( szPipeName, PIPE_ACCESS_INBOUND, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_NOWAIT, PIPE_UNLIMITED_INSTANCES, 0, PIPE_BUFSIZE, NMPWAIT_NOWAIT, NULL );
 	ConnectNamedPipe ( g_hPipe, NULL ); 
 #endif
+
+	int rsock;
+	struct sockaddr_in remote_iaddr;
+	socklen_t len;
+	CSphConfig conf;
 
 	if ( !g_bService )
 		fprintf ( stdout, SPHINX_BANNER );
@@ -6433,16 +5143,12 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	// parse command line
 	//////////////////////
 
-	CSphConfig		conf;
+	const char *	sOptConfig		= NULL;
+	bool			bOptConsole		= false;
 	bool			bOptStop		= false;
 	bool			bOptPIDFile		= false;
 	const char *	sOptIndex		= NULL;
-	
 	int				iOptPort		= 0;
-	bool			bOptPort		= false;
-	
-	CSphString		sOptListen;
-	bool			bOptListen		= false;
 
 	#define OPT(_a1,_a2)	else if ( !strcmp(argv[i],_a1) || !strcmp(argv[i],_a2) )
 	#define OPT1(_a1)		else if ( !strcmp(argv[i],_a1) )
@@ -6455,7 +5161,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 
 		// handle no-arg options
 		OPT ( "-h", "--help" )		{ ShowHelp(); return 0; }
-		OPT1 ( "--console" )		{ g_bOptConsole = true; g_bOptNoDetach = true; }
+		OPT1 ( "--console" )		bOptConsole = true;
 		OPT1 ( "--stop" )			bOptStop = true;
 		OPT1 ( "--pidfile" )		bOptPIDFile = true;
 		OPT1 ( "--iostats" )		g_bIOStats = true;
@@ -6463,15 +5169,12 @@ int WINAPI ServiceMain ( int argc, char **argv )
 		OPT1 ( "--install" )		{ if ( !g_bService ) { ServiceInstall ( argc, argv ); return 0; } }
 		OPT1 ( "--delete" )			{ if ( !g_bService ) { ServiceDelete (); return 0; } }
 		OPT1 ( "--ntservice" )		; // it's valid but handled elsewhere
-#else
-		OPT1 ( "--nodetach" )		g_bOptNoDetach = true;
 #endif
 
 		// handle 1-arg options
 		else if ( (i+1)>=argc )		break;
-		OPT ( "-c", "--config" )	g_sConfigFile = argv[++i];
-		OPT ( "-p", "--port" )		{ bOptPort = true; iOptPort = atoi ( argv[++i] ); }
-		OPT ( "-l", "--listen" )	{ bOptListen = true; sOptListen = argv[++i]; }
+		OPT ( "-c", "--config" )	sOptConfig = argv[++i];
+		OPT ( "-p", "--port" )		iOptPort = atoi ( argv[++i] );
 		OPT ( "-i", "--index" )		sOptIndex = argv[++i];
 #if USE_WINDOWS
 		OPT1 ( "--servicename" )	++i; // it's valid but handled elsewhere
@@ -6487,7 +5190,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	if ( !g_bService )
 	{
 		sphWarning ( "forcing --console mode on Windows" );
-		g_bOptConsole = g_bOptNoDetach = true;
+		bOptConsole = true;
 	}
 
 	// init WSA on Windows
@@ -6499,64 +5202,47 @@ int WINAPI ServiceMain ( int argc, char **argv )
 #endif
 
 	if ( !bOptPIDFile )
-		bOptPIDFile = !g_bOptConsole;
-
-	// check port and listen arguments early
-	if ( !g_bOptConsole && ( bOptPort || bOptListen ) )
-	{
-		sphWarning ( "--listen and --port are only allowed in --console debug mode; switch ignored" );
-		bOptPort = bOptListen = false;
-	}
-
-	if ( bOptPort )
-	{
-		if ( bOptListen )
-			sphFatal ( "please specify either --port or --listen, not both" );
-
-		CheckPort ( iOptPort );
-	}
+		bOptPIDFile = !bOptConsole;
 
 	/////////////////////
 	// parse config file
 	/////////////////////
 
 	// fallback to defaults if there was no explicit config specified
-	while ( !g_sConfigFile.cstr() )
+	while ( !sOptConfig )
 	{
 #ifdef SYSCONFDIR
-		g_sConfigFile = SYSCONFDIR "/sphinx.conf";
-		if ( sphIsReadable ( g_sConfigFile.cstr () ) )
+		sOptConfig = SYSCONFDIR "/sphinx.conf";
+		if ( sphIsReadable(sOptConfig) )
 			break;
 #endif
 
-		g_sConfigFile = "./sphinx.conf";
-		if ( sphIsReadable ( g_sConfigFile.cstr () ) )
+		sOptConfig = "./sphinx.conf";
+		if ( sphIsReadable(sOptConfig) )
 			break;
 
-		g_sConfigFile = NULL;
+		sOptConfig = NULL;
 		break;
 	}
 
-	if ( !g_sConfigFile.cstr () )
+	if ( !sOptConfig )
 		sphFatal ( "no readable config file (looked in "
 #ifdef SYSCONFDIR
 			SYSCONFDIR "/sphinx.conf, "
 #endif
 			"./sphinx.conf)." );
 
-	sphInfo ( "using config file '%s'...", g_sConfigFile.cstr () );
-
-	CheckConfigChanges ();
+	sphInfo ( "using config file '%s'...", sOptConfig );
 
 	// do parse
 	CSphConfigParser cp;
-	if ( !cp.Parse ( g_sConfigFile.cstr () ) )
-		sphFatal ( "failed to parse config file '%s'", g_sConfigFile.cstr () );
+	if ( !cp.Parse ( sOptConfig ) )
+		sphFatal ( "failed to parse config file '%s'", sOptConfig );
 
 	const CSphConfig & hConf = cp.m_tConf;
 
 	if ( !hConf.Exists ( "searchd" ) || !hConf["searchd"].Exists ( "searchd" ) )
-		sphFatal ( "'searchd' config section not found in '%s'", g_sConfigFile.cstr () );
+		sphFatal ( "'searchd' config section not found in '%s'", sOptConfig );
 
 	const CSphConfigSection & hSearchd = hConf["searchd"]["searchd"];
 
@@ -6567,7 +5253,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	if ( bOptStop )
 	{
 		if ( !hSearchd("pid_file") )
-			sphFatal ( "stop: option 'pid_file' not found in '%s' section 'searchd'", g_sConfigFile.cstr () );
+			sphFatal ( "stop: option 'pid_file' not found in '%s' section 'searchd'", sOptConfig );
 
 		const char * sPid = hSearchd["pid_file"].cstr(); // shortcut
 		FILE * fp = fopen ( sPid, "r" );
@@ -6647,26 +5333,29 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	/////////////////////
 
 	if ( !hConf.Exists ( "index" ) )
-		sphFatal ( "no indexes found in '%s'", g_sConfigFile.cstr () );
+		sphFatal ( "no indexes found in '%s'", sOptConfig );
 
 	#define CONF_CHECK(_hash,_key,_msg,_add) \
 		if (!( _hash.Exists ( _key ) )) \
 			sphFatal ( "mandatory option '%s' not found " _msg, _key, _add );
 
+	CONF_CHECK ( hSearchd, "port", "in 'searchd' section", "" );
 	if ( bOptPIDFile )
 		CONF_CHECK ( hSearchd, "pid_file", "in 'searchd' section", "" );
 
+	int iPort = hSearchd["port"].intval();
+	if ( !iPort )
+		sphFatal ( "expected valid 'port', got '%s'", hSearchd["port"].cstr() );
+	if ( bOptConsole && iOptPort>0 )
+		iPort = iOptPort;
+
 	if ( hSearchd.Exists ( "read_timeout" ) && hSearchd["read_timeout"].intval()>=0 )
 		g_iReadTimeout = hSearchd["read_timeout"].intval();
-
-	if ( hSearchd.Exists ( "client_timeout" ) && hSearchd["client_timeout"].intval()>=0 )
-		g_iClientTimeout = hSearchd["client_timeout"].intval();
 
 	if ( hSearchd.Exists ( "max_children" ) && hSearchd["max_children"].intval()>=0 )
 		g_iMaxChildren = hSearchd["max_children"].intval();
 
 	g_bPreopenIndexes = hSearchd.GetInt ( "preopen_indexes", (int)g_bPreopenIndexes ) != 0;
-	g_bOnDiskDicts = hSearchd.GetInt ( "ondisk_dict_default", (int)g_bOnDiskDicts ) != 0;
 	g_bUnlinkOld = hSearchd.GetInt ( "unlink_old", (int)g_bUnlinkOld ) != 0;
 
 	if ( hSearchd("max_matches") )
@@ -6689,25 +5378,8 @@ int WINAPI ServiceMain ( int argc, char **argv )
 
 #if USE_WINDOWS
 	if ( g_bSeamlessRotate )
-	{
-		sphWarning ( "seamless_rotate is not yet supported in windows; forcing seamless_rotate=0" );
-		g_bSeamlessRotate = false;
-	}
+		sphFatal ( "seamless_rotate is not supported in windows; set seamless_rotate=0" );
 #endif
-
-	g_iAttrFlushPeriod = hSearchd.GetInt ( "attr_flush_period", g_iAttrFlushPeriod );
-	g_iMaxPacketSize = hSearchd.GetSize ( "max_packet_size", g_iMaxPacketSize );
-	g_iMaxFilters = hSearchd.GetInt ( "max_filters", g_iMaxFilters );
-	g_iMaxFilterValues = hSearchd.GetInt ( "max_filter_values", g_iMaxFilterValues );
-
-	if ( g_iMaxPacketSize<128*1024 || g_iMaxPacketSize>128*1024*1024 )
-		sphFatal ( "max_packet_size out of bounds (128K..128M)" );
-
-	if ( g_iMaxFilters<1 || g_iMaxFilters>10240 )
-		sphFatal ( "max_filters out of bounds (1..10240)" );
-
-	if ( g_iMaxFilterValues<1 || g_iMaxFilterValues>1048576 )
-		sphFatal ( "max_filter_values out of bounds (1..1048576)" );
 
 	// create and lock pid
 	if ( bOptPIDFile )
@@ -6722,54 +5394,26 @@ int WINAPI ServiceMain ( int argc, char **argv )
 			sphFatal ( "failed to lock pid file '%s': %s (searchd already running?)", g_sPidFile, strerror(errno) );
 	}
 
-	if ( hSearchd("crash_log_path") )
-	{
-		g_sCrashLog_Path = hSearchd["crash_log_path"].cstr();
-		g_bCrashLog_Enabled = true;
-
-		char sPath[1024];
-		snprintf ( sPath, sizeof(sPath), "%s.test", g_sCrashLog_Path );
-		int iFd = open ( sPath, O_CREAT | O_WRONLY, 0644 );
-		if ( iFd == -1 )
-			sphWarning ( "unable to create files in crash_log_path: %s", strerror(errno) );
-		else
-		{
-			close ( iFd );
-			unlink ( sPath );
-		}
-	}
-
 	////////////////////
 	// network startup
 	////////////////////
 
-	// command line arguments override config (but only in --console)
-	if ( bOptListen )
-		g_dSockets.Add ( sphParseAndBind ( sOptListen ) );
-	else if ( bOptPort )
-		g_dSockets.Add ( sphCreateInetSocket ( htonl(INADDR_ANY), iOptPort ) );
-	else 
+	// create and bind socket
+	DWORD uAddr = htonl(INADDR_ANY);
+	if ( hSearchd("address") )
 	{
-		// listen directives in configuration file
-		for ( CSphVariant *v = hSearchd("listen"); v; v = v->m_pNext )
-			g_dSockets.Add ( sphParseAndBind(*v) );
-		
-		// handle deprecated directives
-		if ( hSearchd("port") )
+		struct hostent * pHost = gethostbyname ( hSearchd["address"].cstr() );
+		if ( !pHost || pHost->h_addrtype!=AF_INET )
 		{
-			DWORD uAddr = hSearchd.Exists("address") ?
-				sphGetAddress ( hSearchd["address"].cstr(), GETADDR_STRICT ) : htonl(INADDR_ANY);
-
-			int iPort = hSearchd["port"].intval();
-			CheckPort(iPort);
-			
-			g_dSockets.Add ( sphCreateInetSocket ( uAddr, iPort ) );
+			sphWarning ( "no AF_INET address associated with %s, listening on INADDR_ANY", hSearchd["address"].cstr() );
+		} else
+		{
+			assert ( sizeof(DWORD)==pHost->h_length );
+			memcpy ( &uAddr, pHost->h_addr, sizeof(uAddr) );
 		}
-		
-		// still nothing? listen on INADDR_ANY, default port
-		if ( g_dSockets.GetLength() == 0 )
-			g_dSockets.Add ( sphCreateInetSocket ( htonl(INADDR_ANY), SEARCHD_DEFAULT_PORT ) );
 	}
+	g_iSocket = sphCreateServerSocket ( uAddr, iPort );
+	listen ( g_iSocket, 5 );
 
 #if !USE_WINDOWS
 	// reserve an fd for clients
@@ -6789,45 +5433,231 @@ int WINAPI ServiceMain ( int argc, char **argv )
 		const CSphConfigSection & hIndex = hConf["index"].IterateGet();
 		const char * sIndexName = hConf["index"].IterateGetKey().cstr();
 
-		if ( g_bOptConsole && sOptIndex && strcasecmp ( sIndexName, sOptIndex )!=0 )
+		if ( bOptConsole && sOptIndex && strcasecmp ( sIndexName, sOptIndex )!=0 )
 			continue;
 
-		AddIndex ( sIndexName, hIndex );
-		if ( g_hIndexes.Exists ( sIndexName ) )
+		if ( hIndex("type") && hIndex["type"]=="distributed" )
 		{
-			ServedIndex_t & tIndex = g_hIndexes [sIndexName];
+			///////////////////////////////
+			// configure distributed index
+			///////////////////////////////
 
-			if ( HasFiles ( tIndex, g_dNewExts ) )
+			DistributedIndex_t tIdx;
+
+			// add local agents
+			for ( CSphVariant * pLocal = hIndex("local"); pLocal; pLocal = pLocal->m_pNext )
 			{
-				tIndex.m_bOnlyNew = !HasFiles ( tIndex, g_dCurExts );
-				if ( RotateIndexGreedy ( tIndex, sIndexName ) )
+				if ( !g_hIndexes ( pLocal->cstr() ) )
 				{
-					CSphString sError;
-					if ( !sphFixupIndexSettings ( tIndex.m_pIndex, hIndex, sError ) )
-					{
-						sphWarning ( "index '%s': %s - NOT SERVING", sIndexName, sError.cstr() );
-						tIndex.m_bEnabled = false;
-						continue;
-					}
+					sphWarning ( "index '%s': no such local index '%s' - SKIPPING LOCAL INDEX",
+						sIndexName, pLocal->cstr() );
+					continue;
 				}
+				tIdx.m_dLocal.Add ( pLocal->cstr() );
+			}
+
+			// add remote agents
+			for ( CSphVariant * pAgent = hIndex("agent"); pAgent; pAgent = pAgent->m_pNext )
+			{
+				Agent_t tAgent;
+
+				// extract host name
+				const char * p = pAgent->cstr();
+				while ( sphIsAlpha(*p) || *p=='.' || *p=='-' ) p++;
+				if ( p==pAgent->cstr() )
+				{
+					sphWarning ( "index '%s': agent '%s': host name expected - SKIPPING AGENT",
+						sIndexName, pAgent->cstr() );
+					continue;
+				}
+				if ( *p++!=':' )
+				{
+					sphWarning ( "index '%s': agent '%s': colon expected near '%s' - SKIPPING AGENT",
+						sIndexName, pAgent->cstr(), p );
+					continue;
+				}
+				tAgent.m_sHost = pAgent->SubString ( 0, p-1-pAgent->cstr() );
+
+				// extract port
+				if ( !isdigit(*p) )
+				{
+					sphWarning ( "index '%s': agent '%s': port number expected near '%s' - SKIPPING AGENT",
+						sIndexName, pAgent->cstr(), p );
+					continue;
+				}
+				tAgent.m_iPort = atoi(p);
+				if ( tAgent.m_iPort<=0 || tAgent.m_iPort>=65536 )
+				{
+					sphWarning ( "index '%s': agent '%s': invalid port number near '%s' - SKIPPING AGENT",
+						sIndexName, pAgent->cstr(), p );
+					continue;
+				}
+
+				// extract index list
+				while ( isdigit(*p) ) p++;
+				if ( *p++!=':' )
+				{
+					sphWarning ( "index '%s': agent '%s': colon expected near '%s' - SKIPPING AGENT",
+						sIndexName, pAgent->cstr(), p );
+					continue;
+				}
+				while ( isspace(*p) )
+					p++;
+				const char * sIndexList = p;
+				while ( sphIsAlpha(*p) || isspace(*p) || *p==',' )
+					p++;
+				if ( *p )
+				{
+					sphWarning ( "index '%s': agent '%s': index list expected near '%s' - SKIPPING AGENT",
+						sIndexName, pAgent->cstr(), p );
+					continue;
+				}
+				tAgent.m_sIndexes = sIndexList;
+
+				// lookup address
+				struct hostent * hp = gethostbyname ( tAgent.m_sHost.cstr() );
+				if ( !hp )
+				{
+					sphWarning ( "index '%s': agent '%s': failed to lookup host name '%s' (error=%s) - SKIPPING AGENT",
+						sIndexName, pAgent->cstr(), tAgent.m_sHost.cstr(), sphSockError() );
+					continue;
+				}
+				tAgent.SetAddr ( hp->h_addrtype, hp->h_length, hp->h_addr_list[0] );
+
+				// done
+				tIdx.m_dAgents.Add ( tAgent );
+			}
+
+			// configure options
+			if ( hIndex("agent_connect_timeout") )
+			{
+				if ( hIndex["agent_connect_timeout"].intval()<=0 )
+					sphWarning ( "index '%s': connect_timeout must be positive, ignored", sIndexName );
 				else
-				{
-					if ( PrereadNewIndex ( tIndex, hIndex, sIndexName ) )
-						tIndex.m_bEnabled = true;
-				}
-			}
-			else
-			{
-				tIndex.m_bOnlyNew = false;
-				if ( PrereadNewIndex ( tIndex, hIndex, sIndexName ) )
-					tIndex.m_bEnabled = true;
+					tIdx.m_iAgentConnectTimeout = hIndex["agent_connect_timeout"].intval();
 			}
 
+			if ( hIndex("agent_query_timeout") )
+			{
+				if ( hIndex["agent_query_timeout"].intval()<=0 )
+					sphWarning ( "index '%s': query_timeout must be positive, ignored", sIndexName );
+				else
+					tIdx.m_iAgentQueryTimeout = hIndex["agent_query_timeout"].intval();
+			}
+
+			// finally, check and add distributed index to global table
+			if ( tIdx.m_dAgents.GetLength()==0 && tIdx.m_dLocal.GetLength()==0 )
+			{
+				sphWarning ( "index '%s': no valid local/remote indexes in distributed index - NOT SERVING",
+					sIndexName );
+				continue;
+
+			} else
+			{
+				if ( !g_hDistIndexes.Add ( tIdx, sIndexName ) )
+				{
+					sphWarning ( "index '%s': duplicate name in hash?! INTERNAL ERROR - NOT SERVING", sIndexName );
+					continue;
+				}
+			}
+
+		} else
+		{
+			/////////////////////////
+			// configure local index
+			/////////////////////////
+
+			ServedIndex_t tIdx;
+
+			// check path
+			if ( !hIndex.Exists ( "path" ) )
+			{
+				sphWarning ( "index '%s': key 'path' not found' - NOT SERVING", sIndexName );
+				continue;
+			}
+
+			// check name
+			if ( g_hIndexes.Exists ( sIndexName ) )
+			{
+				sphWarning ( "index '%s': duplicate name in hash?! INTERNAL ERROR - NOT SERVING", sIndexName );
+				continue;
+			}
+			// configure tokenizer
 			CSphString sError;
-			if ( tIndex.m_bEnabled && !CheckIndex ( tIndex.m_pIndex, sError ) )
+			tIdx.m_pTokenizer = sphConfTokenizer ( hIndex, sError );
+			if ( !tIdx.m_pTokenizer )
 			{
 				sphWarning ( "index '%s': %s - NOT SERVING", sIndexName, sError.cstr() );
-				tIndex.m_bEnabled = false;
+				continue;
+			}
+
+			// conifgure dict
+			tIdx.m_pDict = sphCreateDictionaryCRC ( hIndex ("morphology"), hIndex.Exists ( "stopwords" ) ? hIndex["stopwords"].cstr () : NULL,
+								hIndex.Exists ( "wordforms" ) ? hIndex ["wordforms"].cstr () : NULL, tIdx.m_pTokenizer, sError );
+			if ( !tIdx.m_pDict )
+			{
+				sphWarning ( "index '%s': failed to create dictionary - NOT SERVING", sIndexName );
+				continue;
+			}
+
+			if ( !sError.IsEmpty () )
+				sphWarning ( "index '%s': %s", sIndexName, sError.cstr() );	
+
+			// configure memlocking, star
+			if ( hIndex("mlock") && hIndex["mlock"].intval() )
+				tIdx.m_bMlock = true;
+			if ( hIndex("enable_star") && hIndex["enable_star"].intval() )
+				tIdx.m_bStar = true;
+
+			// configure html stripping
+			tIdx.m_bHtmlStrip = false;
+			if ( hIndex.GetInt ( "html_strip" ) )
+			{
+				tIdx.m_bHtmlStrip = true;
+				tIdx.m_sHtmlIndexAttrs = hIndex.GetStr ( "html_index_attrs" );
+				tIdx.m_sHtmlRemoveElements = hIndex.GetStr ( "html_remove_elements" );
+			}
+
+			// try to create index
+			CSphString sWarning;
+			tIdx.m_bPreopen = hIndex.GetInt ( "preopen", (int)tIdx.m_bPreopen ) != 0;
+			tIdx.m_pIndex = sphCreateIndexPhrase ( hIndex["path"].cstr() );
+			tIdx.m_pIndex->SetStar ( tIdx.m_bStar );
+			tIdx.m_pIndex->SetPreopen ( tIdx.m_bPreopen || g_bPreopenIndexes );
+			tIdx.m_pSchema = tIdx.m_pIndex->Prealloc ( tIdx.m_bMlock, &sWarning );
+			if ( !tIdx.m_pSchema || !tIdx.m_pIndex->Preread() )
+			{
+				sphWarning ( "index '%s': preload: %s; NOT SERVING", sIndexName, tIdx.m_pIndex->GetLastError().cstr() );
+				continue;
+			}
+			if ( !sWarning.IsEmpty() )
+				sphWarning ( "index '%s': %s", sIndexName, sWarning.cstr() );
+
+			// try to lock it
+			if ( !bOptConsole && !tIdx.m_pIndex->Lock() )
+			{
+				sphWarning ( "index '%s': lock: %s; NOT SERVING", sIndexName, tIdx.m_pIndex->GetLastError().cstr() );
+				continue;
+			}
+
+			// done
+			tIdx.m_sIndexPath = hIndex["path"];
+			if ( !g_hIndexes.Add ( tIdx, sIndexName ) )
+			{
+				sphWarning ( "INTERNAL ERROR: index '%s': hash add failed - NOT SERVING", sIndexName );
+				continue;
+			}
+
+			tIdx.Reset (); // so that the dtor wouln't delete everything
+		}
+
+		if ( ( hIndex.GetInt ( "min_prefix_len", 0 ) > 0 || hIndex.GetInt ( "min_infix_len", 0 ) > 0 ) 
+			&& hIndex.GetInt ( "enable_star" ) == 0 )
+		{
+			const char * szMorph = hIndex.GetStr ( "morphology", "" );
+			if ( szMorph && *szMorph && strcmp ( szMorph, "none" ) )
+			{
+				sphWarning ( "index '%s': infixes and morphology are enabled, enable_star=0; NOT SERVING", sIndexName );
 				continue;
 			}
 		}
@@ -6842,13 +5672,29 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	///////////
 
 	// handle my signals
-	SetSignalHandlers ();
+	#if !USE_WINDOWS
+	struct sigaction sa;
+	sigfillset ( &sa.sa_mask );
+	sa.sa_flags = SA_NOCLDSTOP;
 
-	// setup mva updates arena
-	sphArenaInit ( hSearchd.GetSize ( "mva_updates_pool", 1048576 ) );
+	bool bSignalsSet = false;
+	for ( ;; )
+	{
+		sa.sa_handler = sigterm;	if ( sigaction ( SIGTERM, &sa, NULL )!=0 ) break;
+		sa.sa_handler = sigterm;	if ( sigaction ( SIGINT, &sa, NULL )!=0 ) break;
+		sa.sa_handler = sighup;		if ( sigaction ( SIGHUP, &sa, NULL )!=0 ) break;
+		sa.sa_handler = sigusr1;	if ( sigaction ( SIGUSR1, &sa, NULL )!=0 ) break;
+		sa.sa_handler = sigchld;	if ( sigaction ( SIGCHLD, &sa, NULL )!=0 ) break;
+		sa.sa_handler = SIG_IGN;	if ( sigaction ( SIGPIPE, &sa, NULL )!=0 ) break;
+		bSignalsSet = true;
+		break;
+	}
+	if ( !bSignalsSet )
+		sphFatal ( "sigaction(): %s", strerror(errno) );
+	#endif // !USE_WINDOWS
 
-	// create logs
-	if ( !g_bOptConsole )
+	// daemonize
+	if ( !bOptConsole )
 	{
 		// create log
 		const char * sLog = "searchd.log";
@@ -6874,11 +5720,8 @@ int WINAPI ServiceMain ( int argc, char **argv )
 				sphFatal ( "failed to open query log file '%s': %s", hSearchd["query_log"].cstr(), strerror(errno) );
 			g_sQueryLogFile = hSearchd["query_log"].cstr();
 		}
-	}
 
-	// prepare to detach
-	if ( !g_bOptNoDetach )
-	{
+		// do daemonize
 #if !USE_WINDOWS
 		close ( STDIN_FILENO );
 		close ( STDOUT_FILENO );
@@ -6905,8 +5748,8 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	if ( bOptPIDFile )
 		sphLockUn ( g_iPidFD );
 
-#if !USE_WINDOWS
-	if ( !g_bOptNoDetach )
+	#if !USE_WINDOWS
+	if ( !bOptConsole )
 	{
 		switch ( fork() )
 		{
@@ -6926,7 +5769,8 @@ int WINAPI ServiceMain ( int argc, char **argv )
 				exit ( 0 );
 		}
 	}
-#endif
+	#endif
+
 
 	if ( bOptPIDFile )
 	{
@@ -6950,7 +5794,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	SetConsoleCtrlHandler ( CtrlHandler, TRUE );
 #endif
 
-	if ( !g_bOptNoDetach )
+	if ( !bOptConsole )
 	{
 		// re-lock indexes
 		g_hIndexes.IterateStart ();
@@ -6977,11 +5821,11 @@ int WINAPI ServiceMain ( int argc, char **argv )
 			}
 		}
 
-	}
-
-	// if we're running in console mode, dump queries to tty as well
-	if ( g_bOptConsole )
+	} else
+	{
+		// if we're running in console mode, dump queries to tty as well
 		g_iQueryLogFile = g_iLogFile;
+	}
 
 	/////////////////
 	// serve clients
@@ -6997,145 +5841,166 @@ int WINAPI ServiceMain ( int argc, char **argv )
 
 	sphSetInternalErrorCallback ( LogInternalError );
 
-	fd_set fdsAccept;
-	FD_ZERO ( &fdsAccept );
-
-	int iNfds = 0;
-	ARRAY_FOREACH ( i, g_dSockets )
-		iNfds = Max ( iNfds, g_dSockets[i] );
-	iNfds++;
-
 	for ( ;; )
 	{
-		CheckSignals ();
+#if USE_WINDOWS
+		if ( g_bService && g_bServiceStop )
+		{
+			Shutdown ();
+			MySetServiceStatus ( SERVICE_STOPPED, NO_ERROR, 0 );
+			exit ( 0 );
+		}
+#endif
+
+		if ( g_bGotSighup )
+		{
+			sphInfo ( "rotating indices (seamless=%d)", (int)g_bSeamlessRotate ); // this might hang if performed from SIGHUP
+			g_bGotSighup = false;
+		}
+
+		if ( g_bGotSigterm )
+		{
+			assert ( g_bHeadDaemon );
+			sphInfo ( "caught SIGTERM, shutting down" );
+
+			Shutdown ();
+			exit ( 0 );
+		}
+
+#if !USE_WINDOWS
+		if ( g_bGotSigchld )
+		{
+			while ( waitpid ( -1, NULL, WNOHANG ) > 0 )
+				g_iChildren--;
+			g_bGotSigchld = false;
+		}
+#endif
+
+#if USE_WINDOWS
+		BYTE dPipeInBuf [PIPE_BUFSIZE];
+		DWORD nBytesRead = 0;
+		BOOL bSuccess = ReadFile ( g_hPipe, dPipeInBuf, PIPE_BUFSIZE, &nBytesRead, NULL );
+		if ( nBytesRead > 0 && bSuccess )
+		{
+			for ( DWORD i = 0; i < nBytesRead; i++ )
+			{
+				switch ( dPipeInBuf [i] )
+				{
+				case 0:
+					g_bDoRotate = true;
+					g_bGotSighup = true;
+					break;
+
+				case 1:
+					g_bGotSigterm = true;
+					if ( g_bService )
+						g_bServiceStop = true;
+					break;
+				}
+
+			}
+
+			DisconnectNamedPipe ( g_hPipe );
+			ConnectNamedPipe ( g_hPipe, NULL ); 
+		}
+#endif
+
+
 		CheckLeaks ();
 		CheckPipes ();
-		CheckDelete ();
 		CheckRotate ();
 		CheckReopen ();
-		CheckFlush ();
-		sphLog ( LOG_INFO, NULL, NULL ); // flush dupes
-
-		ARRAY_FOREACH ( i, g_dSockets )
-			sphFDSet ( g_dSockets[i], &fdsAccept );
+	
+		// we can't simply accept, because of the need to react to HUPs
+		fd_set fdsAccept;
+		FD_ZERO ( &fdsAccept );
+		sphFDSet ( g_iSocket, &fdsAccept );
 
 		struct timeval tvTimeout;
-		tvTimeout.tv_sec = USE_WINDOWS ? 0 : 1;
-		tvTimeout.tv_usec = USE_WINDOWS ? 50000 : 0;
+#if USE_WINDOWS
+		tvTimeout.tv_sec = 0;
+		tvTimeout.tv_usec = 50000;
+#else
+		tvTimeout.tv_sec = 1;
+		tvTimeout.tv_usec = 0;
+#endif
 
-		int iRes = select ( iNfds, &fdsAccept, NULL, NULL, &tvTimeout );
-		if ( iRes == 0 )
+		if ( select ( 1+g_iSocket, &fdsAccept, NULL, &fdsAccept, &tvTimeout )<=0 )
 			continue;
-		if ( iRes == -1 )
+
+		// select says something interesting happened, so let's accept
+		len = sizeof ( remote_iaddr );
+		rsock = accept ( g_iSocket, (struct sockaddr*)&remote_iaddr, &len );
+
+		int iErr = sphSockGetErrno();
+		if ( rsock<0 && ( iErr==EINTR || iErr==EAGAIN || iErr==EWOULDBLOCK ) )
+			continue;
+		if ( rsock<0 )
+			sphFatal ( "accept() failed (reason: %s)", sphSockError(iErr) );
+
+		if ( ( g_iMaxChildren && g_iChildren>=g_iMaxChildren )
+			|| ( g_bDoRotate && !g_bSeamlessRotate ) )
 		{
-			int iErrno = sphSockGetErrno();
-			if ( iErrno == EINTR || iErrno == EAGAIN || iErrno == EWOULDBLOCK )
-				continue;
-			
-			static int iLastErrno = -1;
-			if ( iLastErrno != iErrno )
-				sphWarning ( "select() failed: %s", sphSockError(iErrno) );
-			iLastErrno = iErrno;
+			const char * sMessage = "server maxed out, retry in a second";
+			int iRespLen = 4 + strlen(sMessage);
+
+			NetOutputBuffer_c tOut ( rsock );
+			tOut.SendInt ( SPHINX_SEARCHD_PROTO );
+			tOut.SendWord ( SEARCHD_RETRY );
+			tOut.SendWord ( 0 ); // version doesn't matter
+			tOut.SendInt ( iRespLen );
+			tOut.SendString ( sMessage );
+			tOut.Flush ();
+
+			sphWarning ( "maxed out, dismissing client" );
+			sphSockClose ( rsock );
 			continue;
 		}
 
-		ARRAY_FOREACH ( i, g_dSockets )
+		char sClientIP [ 256 ];
+		DWORD uClientIP = ntohl ( remote_iaddr.sin_addr.s_addr );
+		snprintf ( sClientIP, sizeof(sClientIP), "%d.%d.%d.%d:%d", 
+			(uClientIP>>24) & 0xff, (uClientIP>>16) & 0xff, (uClientIP>>8) & 0xff, uClientIP & 0xff,
+			(int)ntohs(remote_iaddr.sin_port) );
+
+		if ( bOptConsole || g_bService )
 		{
-			if ( !FD_ISSET ( g_dSockets[i], &fdsAccept ) )
-				continue;
-
-			struct sockaddr_storage saStorage;
-			socklen_t uLength = sizeof(saStorage);
-			int iClientSock = accept ( g_dSockets[i], (struct sockaddr *)&saStorage, &uLength );
-
-			if ( iClientSock == -1 )
-			{
-				const int iErrno = sphSockGetErrno();
-				if ( iErrno==EINTR || iErrno==ECONNABORTED || iErrno==EAGAIN || iErrno==EWOULDBLOCK )
-					continue;
-
-				sphFatal ( "accept() failed: %s", sphSockError(iErrno) );
-			}
-			
-			if ( ( g_iMaxChildren && g_iChildren>=g_iMaxChildren )
-				 || ( g_bDoRotate && !g_bSeamlessRotate ) )
-			{
-				const char * sMessage = "server maxed out, retry in a second";
-				int iRespLen = 4 + strlen(sMessage);
-				
-				NetOutputBuffer_c tOut ( iClientSock );
-				tOut.SendInt ( SPHINX_SEARCHD_PROTO );
-				tOut.SendWord ( SEARCHD_RETRY );
-				tOut.SendWord ( 0 ); // version doesn't matter
-				tOut.SendInt ( iRespLen );
-				tOut.SendString ( sMessage );
-				tOut.Flush ();
-				
-				sphWarning ( "maxed out, dismissing client" );
-				sphSockClose ( iClientSock );
-				break;
-			}
-
-			char sClientName[SPH_ADDRESS_SIZE];
-			switch ( saStorage.ss_family )
-			{
-			case AF_INET:
-				sphFormatIP ( sClientName, sizeof(sClientName), ((struct sockaddr_in *)&saStorage)->sin_addr.s_addr );
-				break;
-
-			case AF_UNIX:
-				strncpy ( sClientName, "(local)", sizeof(sClientName) );
-				break;
-
-			default:
-				sClientName[0] = '\0';
-				break;
-			}
-
-			// handle the client
-			if ( g_bOptConsole || g_bService )
-			{
-				#if !USE_WINDOWS
-				if ( SPH_FDSET_OVERFLOW(iClientSock) )
-					iClientSock = dup2 ( iClientSock, iClientFD );
-				#endif
-				HandleClient ( iClientSock, sClientName, -1 );
-				sphSockClose ( iClientSock );
-				continue;
-			}
-
 			#if !USE_WINDOWS
-			int iChildPipe = PipeAndFork ( false, -1 );
-			if ( !g_bHeadDaemon )
-			{
-				// child process, handle client
-				if ( SPH_FDSET_OVERFLOW(iClientSock) )
-					iClientSock = dup2 ( iClientSock, iClientFD );
-				HandleClient ( iClientSock, sClientName, iChildPipe );
-				sphSockClose ( iClientSock );
-				exit ( 0 );
-			} else
-			{
-				// parent process, continue accept()ing
-				sphSockClose ( iClientSock );
-			}
-			#endif // !USE_WINDOWS
+			if ( SPH_FDSET_OVERFLOW(rsock) )
+				rsock = dup2 ( rsock, iClientFD );
+			#endif
+			HandleClient ( rsock, sClientIP, -1 );
+			sphSockClose ( rsock );
+			continue;
 		}
+
+		// handle that client
+		#if !USE_WINDOWS
+		g_iChildren++;
+		int iChildPipe = PipeAndFork ( false, false );
+
+		if ( !g_bHeadDaemon )
+		{
+			// child process, handle client
+			#if !USE_WINDOWS
+			if ( SPH_FDSET_OVERFLOW(rsock) )
+				rsock = dup2 ( rsock, iClientFD );
+			#endif
+			HandleClient ( rsock, sClientIP, iChildPipe );
+			sphSockClose ( rsock );
+			exit ( 0 );
+		} else
+		{
+			// parent process, continue accept()ing
+			sphSockClose ( rsock );
+		}
+		#endif // !USE_WINDOWS
 	}
-}
-
-
-bool DieCallback ( const char * sMessage )
-{
-	sphLogFatal ( "%s", sMessage );
-	return false; // caller should not log
 }
 
 
 int main ( int argc, char **argv )
 {
-	sphSetDieCallback ( DieCallback );
-
 #if USE_WINDOWS
 	int iNameIndex = -1;
 	for ( int i=1; i<argc; i++ )

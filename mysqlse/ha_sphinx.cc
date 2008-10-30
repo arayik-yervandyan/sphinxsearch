@@ -117,7 +117,7 @@ void sphUnalignedWrite ( void * pPtr, const T & tVal )
 #define SPHINXSE_MAX_KEYWORDSTATS	4096
 
 // FIXME! all the following is cut-n-paste from sphinx.h and searchd.cpp
-#define SPHINX_VERSION		"0.9.9"
+#define SPHINX_VERSION		"0.9.8"
 
 enum
 {
@@ -148,7 +148,7 @@ enum ESphMatchMode
 	SPH_MATCH_BOOLEAN,			///< match this boolean query
 	SPH_MATCH_EXTENDED,			///< match this extended query
 	SPH_MATCH_FULLSCAN,			///< match all document IDs w/o fulltext query, apply filters
-	SPH_MATCH_EXTENDED2,		///< extended engine V2
+	SPH_MATCH_EXTENDED2,		///< extended engine V2 (TEMPORARY, WILL BE REMOVED IN 0.9.8-RELEASE)
 
 	SPH_MATCH_TOTAL
 };
@@ -576,8 +576,6 @@ handlerton sphinx_hton =
 	NULL,	// close_cursor_read_view
 	HTON_CAN_RECREATE
 };
-#else
-static handlerton * sphinx_hton_ptr = NULL;
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1087,7 +1085,6 @@ static int free_share ( CSphSEShare * pShare )
 #if MYSQL_VERSION_ID>50100
 static handler * sphinx_create_handler ( handlerton * hton, TABLE_SHARE * table, MEM_ROOT * mem_root )
 {
-	sphinx_hton_ptr = hton;
 	return new ( mem_root ) ha_sphinx ( hton, table );
 }
 #endif
@@ -2761,148 +2758,11 @@ int ha_sphinx::create ( const char * name, TABLE * table, HA_CREATE_INFO * )
 	SPH_RET(0);
 }
 
-//// show functions
-
-#if MYSQL_VERSION_ID<50100	
-#define SHOW_VAR_FUNC_BUFF_SIZE 1024
-#endif
-
-CSphSEStats * sphinx_get_stats ( THD * thd, SHOW_VAR * out )
-{
-#if MYSQL_VERSION_ID>50100	
-	if ( sphinx_hton_ptr )
-	{
-		CSphSEThreadData *pTls = (CSphSEThreadData *) *thd_ha_data ( thd, sphinx_hton_ptr );
-
-		if ( pTls && pTls->m_bStats )
-			return &pTls->m_tStats;
-	}
-#else
-	CSphSEThreadData *pTls = (CSphSEThreadData *) thd->ha_data[sphinx_hton.slot];
-	if ( pTls && pTls->m_bStats )
-		return &pTls->m_tStats;
-#endif
-	
-	out->type = SHOW_CHAR;
-	out->value = "";
-	return 0;
-}
-
-int sphinx_showfunc_total ( THD * thd, SHOW_VAR * out, char * buf )
-{
-	CSphSEStats * pStats = sphinx_get_stats ( thd, out );
-	if ( pStats )
-	{
-		out->type = SHOW_LONG;
-		out->value = (char *) &pStats->m_iMatchesTotal;
-	}
-	return 0;
-}
-
-int sphinx_showfunc_total_found ( THD * thd, SHOW_VAR * out, char * buf )
-{
-	CSphSEStats * pStats = sphinx_get_stats ( thd, out );
-	if ( pStats )
-	{
-		out->type = SHOW_LONG;
-		out->value = (char *) &pStats->m_iMatchesFound;
-	}
-	return 0;
-}
-
-int sphinx_showfunc_time ( THD * thd, SHOW_VAR * out, char * buf )
-{
-	CSphSEStats * pStats = sphinx_get_stats ( thd, out );
-	if ( pStats )
-	{
-		out->type = SHOW_LONG;
-		out->value = (char *) &pStats->m_iQueryMsec;
-	}
-	return 0;
-}
-
-int sphinx_showfunc_word_count ( THD * thd, SHOW_VAR * out, char * buf )
-{
-	CSphSEStats * pStats = sphinx_get_stats ( thd, out );
-	if ( pStats )
-	{
-		out->type = SHOW_LONG;
-		out->value = (char *) &pStats->m_iWords;
-	}
-	return 0;
-}
-
-int sphinx_showfunc_words ( THD * thd, SHOW_VAR * out, char * sBuffer )
-{
-#if MYSQL_VERSION_ID>50100	
-	if ( sphinx_hton_ptr )
-	{
-		CSphSEThreadData * pTls = (CSphSEThreadData *) *thd_ha_data ( thd, sphinx_hton_ptr );
-#else
-	{
-		CSphSEThreadData * pTls = (CSphSEThreadData *) thd->ha_data[sphinx_hton.slot];
-#endif		
-		if ( pTls && pTls->m_bStats )
-		{
-			CSphSEStats * pStats = &pTls->m_tStats;
-			if ( pStats && pStats->m_iWords )
-			{
-				uint uBuffLen = 0;
-			
-				out->type = SHOW_CHAR;
-				out->value = sBuffer;
-				
-				// the following is partially based on code in sphinx_show_status()
-				sBuffer[0] = 0;
-				for ( int i=0; i<pStats->m_iWords; i++ )
-				{
-					CSphSEWordStats & tWord = pStats->m_dWords[i];
-					uBuffLen = my_snprintf ( sBuffer, SHOW_VAR_FUNC_BUFF_SIZE, "%s%s:%d:%d ", sBuffer,
-						tWord.m_sWord, tWord.m_iDocs, tWord.m_iHits );
-				}
-
-				if ( uBuffLen > 0 )
-				{
-					// trim last space
-					sBuffer [ --uBuffLen ] = 0;
-				
-					if ( pTls->m_pQueryCharset )
-					{
-						// String::c_ptr() will nul-terminate the buffer.
-						//
-						// NOTE: It's not entirely clear whether this conversion is necessary at all.
-						
-						String sConvert;
-						uint iErrors;
-						sConvert.copy ( sBuffer, uBuffLen, pTls->m_pQueryCharset, system_charset_info, &iErrors );
-						memcpy ( sBuffer, sConvert.c_ptr(), sConvert.length() + 1 );
-					}
-				}
-
-				return 0;
-			}
-		}
-	}
-
-	out->type = SHOW_CHAR;
-	out->value = "";
-	return 0;
-}
 
 #if MYSQL_VERSION_ID>50100
 struct st_mysql_storage_engine sphinx_storage_engine =
 {
 	MYSQL_HANDLERTON_INTERFACE_VERSION
-};
-
-struct st_mysql_show_var sphinx_status_vars[] =
-{
-	{"sphinx_total",		(char *)sphinx_showfunc_total,			SHOW_FUNC},
-	{"sphinx_total_found",	(char *)sphinx_showfunc_total_found,	SHOW_FUNC},
-	{"sphinx_time",			(char *)sphinx_showfunc_time,			SHOW_FUNC},
-	{"sphinx_word_count",	(char *)sphinx_showfunc_word_count,		SHOW_FUNC},
-	{"sphinx_words",		(char *)sphinx_showfunc_words,			SHOW_FUNC},
-	{0, 0, (enum_mysql_show_type)0}
 };
 
 
@@ -2917,9 +2777,7 @@ mysql_declare_plugin(sphinx)
 	sphinx_init_func, // Plugin Init
 	sphinx_done_func, // Plugin Deinit
 	0x0001, // 0.1
-	sphinx_status_vars,
-	NULL,
-	NULL
+	NULL, NULL, NULL
 }
 mysql_declare_plugin_end;
 
