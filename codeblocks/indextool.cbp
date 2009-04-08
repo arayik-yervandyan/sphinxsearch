@@ -15,6 +15,10 @@
 					<Add option="-Wall" />
 					<Add option="-g" />
 					<Add option="-O0" />
+					<Add option="-D_DEBUG" />
+					<Add option="-D_CONSOLE" />
+					<Add option="-D_FILE_OFFSET_BITS=64" />
+					<Add option="-DHAVE_LOGF" />
 				</Compiler>
 				<Linker>
 					<Add library="bin/Debug/libsphinx.a" />
@@ -28,9 +32,11 @@
 				<Option type="1" />
 				<Option compiler="gcc" />
 				<Compiler>
-					<Add option="-O3" />
 					<Add option="-Wall" />
 					<Add option="-DNDEBUG" />
+					<Add option="-D_CONSOLE" />
+					<Add option="-D_FILE_OFFSET_BITS=64" />
+					<Add option="-DHAVE_LOGF" />
 				</Compiler>
 				<Linker>
 					<Add option="-s" />
@@ -40,10 +46,6 @@
 				</Linker>
 			</Target>
 		</Build>
-		<Compiler>
-			<Add option="-D_FILE_OFFSET_BITS=64" />
-			<Add option="-DHAVE_LOGF" />
-		</Compiler>
 		<Linker>
 			<Add library="pthread" />
 		</Linker>
