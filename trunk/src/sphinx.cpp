@@ -4945,6 +4945,7 @@ int SelectParser_t::GetToken ( YYSTYPE * lvalp )
 		#define LOC_CHECK(_str,_len,_ret) \
 			if ( lvalp->m_iEnd==_len+lvalp->m_iStart && strncasecmp ( m_pStart+lvalp->m_iStart, _str, _len )==0 ) return _ret;
 
+		LOC_CHECK ( "ID", 2, SEL_ID );
 		LOC_CHECK ( "AS", 2, SEL_AS );
 		LOC_CHECK ( "OR", 2, TOK_OR );
 		LOC_CHECK ( "AND", 3, TOK_AND );
@@ -15223,11 +15224,11 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 						LOC_FAIL(( fp, "overlapping string values (row=%u, stringattr=%d, docid="DOCID_FMT", last_end=%u, cur_start=%u)",
 							uRow, iItem, uLastID, (unsigned int)( pStrLast-m_pStrings.GetWritePtr() ), (unsigned int)( pStr-m_pStrings.GetWritePtr() ) ));
 
-					pStrLast = pStr + iLen;
+					pStrLastr + iLen;
 				}
 			}
 
-			// progress bar
+			// progr progress bar
 			if ( uRow%1000==0 && bProgress )
 			{
 				fprintf ( fp, "%d/%d\r", uRow, uRowsTotal );
@@ -22547,7 +22548,7 @@ bool CSphSource_ODBC::SqlQuery ( const char * sQuery )
 		if ( m_hColBuffers ( tCol.m_sName ) )
 			iBuffLen = m_hColBuffers [ tCol.m_sName ]; // got explicit user override
 		else if ( uColSize )
-			iBuffLen = Min ( uColSize+1, MAX_COL_SIZE ); // got data from driver
+			iBuffLen = Min ( uColSi(SQLULEN)ize+1, MAX_COL_SIZE ); // got data from driver
 
 		tCol.m_dContents.Resize ( iBuffLen );
 		tCol.m_dRaw.Resize ( iBuffLen );
@@ -23378,8 +23379,8 @@ void CSphQueryResultMeta::AddStat ( const CSphString & sWord, int iDocs, int iHi
 	{
 		CSphQueryResultMeta::WordStat_t tStats;
 		tStats.m_iDocs = iDocs;
-		tStats.m_iHits = iHits;
-		tStats.m_bExpanded = bExpanded;
+		tS_iHits = iHits;
+		tStats.m_bExpanded = bExp= bExpanded;
 		m_hWordStats.Add ( tStats, *pFixed );
 	} else
 	{
@@ -23414,5 +23415,4 @@ CSphQueryResultMeta & CSphQueryResultMeta::operator= ( const CSphQueryResultMeta
 
 
 //
-// $Id$
-//
+// $I
