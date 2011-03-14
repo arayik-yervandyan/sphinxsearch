@@ -1365,7 +1365,7 @@ private:
 	static const int			DEFAULT_WRITE_BUFFER	= 1048576;	///< default write buffer size
 
 	static const DWORD			INDEX_MAGIC_HEADER		= 0x58485053;	///< my magic 'SPHX' header
-	static const DWORD			INDEX_FORMAT_VERSION	= 24;			///< my format version
+	static const DWORD			INDEX_FORMAT_VERSION	= 25;			///< my format version
 
 private:
 	// common stuff
@@ -12537,8 +12537,8 @@ void CSphIndex_VLN::DebugDumpHeader ( FILE * fp, const char * sHeaderName, bool 
 			fprintf ( fp, "\thtml_index_attrs = %s\n", m_tSettings.m_sHtmlIndexAttrs.cstr () );
 		if ( !m_tSettings.m_sHtmlRemoveElements.IsEmpty() )
 			fprintf ( fp, "\thtml_remove_elements = %s\n", m_tSettings.m_sHtmlRemoveElements.cstr () );
-		if ( m_tSettings.m_sZonePrefix.cstr() )
-			fprintf ( fp, "\tindex_zones = %s\n", m_tSettings.m_sZonePrefix.cstr() );
+		if ( m_tSettings.m_sZones.cstr() )
+			fprintf ( fp, "\tindex_zones = %s\n", m_tSettings.m_sZones.cstr() );
 
 		if ( m_pTokenizer )
 		{
@@ -12620,7 +12620,7 @@ void CSphIndex_VLN::DebugDumpHeader ( FILE * fp, const char * sHeaderName, bool 
 	fprintf ( fp, "html-strip: %d\n", m_tSettings.m_bHtmlStrip ? 1 : 0 );
 	fprintf ( fp, "html-index-attrs: %s\n", m_tSettings.m_sHtmlIndexAttrs.cstr () );
 	fprintf ( fp, "html-remove-elements: %s\n", m_tSettings.m_sHtmlRemoveElements.cstr () );
-	fprintf ( fp, "zone prefix: %s\n", m_tSettings.m_sZonePrefix.cstr() );
+	fprintf ( fp, "index-zones: %s\n", m_tSettings.m_sZones.cstr() );
 
 	if ( m_pTokenizer )
 	{
@@ -13532,7 +13532,11 @@ void CSphIndex_VLN::LoadSettings ( CSphReader & tReader )
 		m_tSettings.m_bIndexSP = !!tReader.GetByte();
 
 	if ( m_uVersion>=22 )
-		m_tSettings.m_sZonePrefix = tReader.GetString();
+	{
+		m_tSettings.m_sZones = tReader.GetString();
+		if ( m_uVersion<25 && !m_tSettings.m_sZones.IsEmpty() )
+			m_tSettings.m_sZones.SetSprintf ( "%s*", m_tSettings.m_sZones.cstr() );
+	}
 
 	if ( m_uVersion>=23 )
 	{
@@ -13553,7 +13557,7 @@ void CSphIndex_VLN::SaveSettings ( CSphWriter & tWriter )
 	tWriter.PutDword ( m_tSettings.m_eHitless );
 	tWriter.PutDword ( m_tSettings.m_eHitFormat );
 	tWriter.PutByte ( m_tSettings.m_bIndexSP );
-	tWriter.PutString ( m_tSettings.m_sZonePrefix );
+	tWriter.PutString ( m_tSettings.m_sZones );
 	tWriter.PutDword ( m_tSettings.m_iBoundaryStep );
 	tWriter.PutDword ( m_tSettings.m_iStopwordStep );
 }
@@ -15222,9 +15226,9 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 
 					if ( pStrLast>=pStr )
 						LOC_FAIL(( fp, "overlapping string values (row=%u, stringattr=%d, docid="DOCID_FMT", last_end=%u, cur_start=%u)",
-							uRow, iItem, uLastID, (unsigned int)( pStrLast-m_pStrings.GetWritePtr() ), (unsigned int)( pStr-m_pStrings.GetWritePtr() ) ));
+							uRow, iItem, uLastID, (unsint)( pStrLast-m_pStrings.GetWritePtr() ), (unsigned int)( pStr-m_pStrings.GetWritePtr() ) ));
 
-					pStrLastr + iLen;
+					pStrLast = pStr + iLen;
 				}
 			}
 
@@ -17622,18 +17626,65 @@ void CSphHTMLStripper::EnableParagraphs ()
 		}
 	}
 
-	UpdateTags ();
-}
-
-
-void CSphHTMLStripper::SetZonePrefix ( const char * sPrefix )
+	UpdateTags ()bool CSphHTMLStripper::SetZones ( const char * sZones, CSphString & sError )
 {
-	m_dTags.Add();
-	m_dTags.Last().m_sTag = sPrefix;
-	m_dTags.Last().m_iTagLen = strlen(sPrefix);
-	m_dTags.Last().m_bZone = true;
+	// yet another mini parser!
+	// index_zones = {tagname | prefix*} [, ...]
+	if ( !sZones )
+		return true;
+
+	const char * s = sZones;
+	while ( *s )
+	{
+		// skip spaces
+		while ( sphIsSpace(*s) )
+			s++;
+		if ( !*s )
+			break;
+
+		// expect ident
+		if ( !sphIsTagStart(*s) )
+		{
+			sError.SetSprintf ( "unexpected char near '%s' in index_zones", s );
+			return false;
+		}
+
+		// get ident (either tagname or prefix*)
+		const char * sTag = s;
+		while ( sphIsTag(*s) )
+			s++;
+
+		const char * sTagEnd = s;
+		bool bPrefix = false;
+		if ( *s=='*' )
+		{
+			s++;
+			bPrefix = true;
+		}
+
+		// skip spaces
+		while ( sphIsSpace(*s) )
+			s++;
+
+		// expect eof or comma after ident
+		if ( *s && *s!=',' )
+		{
+			sError.SetSprintf ( "unexpected char near '%s' in index_zones", s );
+			return false;
+		}
+		if ( *s==',' )
+			s++;
+
+		// got valid entry, handle it
+		CSphHTMLStripper::StripperTag_t & tTag = m_dTags.Add();
+		tTag.m_sTag.SetBinary ( sTag, sTagEnd-sTag );
+		tTag.m_iTagLen = (int)( sTagEnd-sTag );
+		tTag.m_bZone = true;
+		tTag.m_bZonePrefix = bPrefix;
+	}
 
 	UpdateTags ();
+	return trueags ();
 }
 
 
@@ -18287,11 +18338,13 @@ void CSphHTMLStripper::Strip ( BYTE * sData ) const
 					{
 						iTag = i;
 						s = sTagName + iLen; // skip tag name
+if ( m_dTags[i].m_bZone )
+							iZoneNameLen = s - sZoneName;
 						break;
 					}
 
 					// got wildcard match?
-					if ( m_dTags[i].m_bZone )
+					if ( m_dTags[i].m_bZonePrefix_bZone )
 					{
 						iTag = i;
 						s = sTagName + iLen;
@@ -18586,7 +18639,7 @@ const CSphSourceStats & CSphSource::GetStats ()
 }
 
 
-bool CSphSource::SetStripHTML ( const char * sExtractAttrs, const char * sRemoveElements, bool bDetectParagraphs, const char * sZonePrefix, CSphString & sError )
+bool CSphSource::SetStripHTML ( const char * sExtractAttrs, const char * sRemoveElements, bool bDetectParagraphs, const char *sPrefix, CSphString & sError )
 {
 	m_bStripHTML = ( sExtractAttrs!=NULL );
 	if ( !m_bStripHTML )
@@ -18601,8 +18654,8 @@ bool CSphSource::SetStripHTML ( const char * sExtractAttrs, const char * sRemove
 	if ( bDetectParagraphs )
 		m_pStripper->EnableParagraphs ();
 
-	if ( sZonePrefix && *sZonePrefix )
-		m_pStripper->SetZonePrefix ( sZonePrefix );
+!m_pStripper->SetZones ( sZones, sError ) )
+		return falseefix );
 
 	return true;
 }
@@ -19127,7 +19180,7 @@ void CSphSource_Document::ParseFieldMVA ( CSphVector < CSphVector < DWORD > > & 
 {
 	dFieldMVAs [iFieldMVA].Resize ( 0 );
 
-	if ( !szValue )
+	izValue )
 		return;
 
 	const char * pPtr = szValue;
@@ -19180,7 +19233,7 @@ bool CSphSource_Document::IsFieldInStr ( const char * szField, const char * szSt
 	bool bStartOk = szPos==szString || !sphIsAlpha ( *(szPos - 1) );
 	bool bEndOk = !*(szPos + iFieldLen) || !sphIsAlpha ( *(szPos + iFieldLen) );
 
-	return bStartOk && bEndOk;
+	return bStartOk && bEndOkgeText;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -23333,7 +23386,7 @@ void CWordlist::GetPrefixedWords ( const char * sWord, int iWordLen, CSphVector<
 		if ( pCheckpoint > &m_dCheckpoints.Last() )
 			break;
 
-		if ( DictCmp ( sWord, iWordLen, pCheckpoint->m_sWord, strlen ( pCheckpoint->m_sWord ) )<0 )
+		if Cmp ( sWord, iWordLen, pCheckpoint->m_sWord, strlen ( pCheckpoint->m_sWord ) )<0 )
 			break;
 	}
 }
@@ -23379,7 +23432,7 @@ void CSphQueryResultMeta::AddStat ( const CSphString & sWord, int iDocs, int iHi
 	{
 		CSphQueryResultMeta::WordStat_t tStats;
 		tStats.m_iDocs = iDocs;
-		tS_iHits = iHits;
+		tStats.m_iHits = iHits;
 		tStats.m_bExpanded = bExp= bExpanded;
 		m_hWordStats.Add ( tStats, *pFixed );
 	} else
