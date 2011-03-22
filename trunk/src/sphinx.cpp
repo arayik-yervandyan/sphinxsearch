@@ -1338,6 +1338,10 @@ public:
 	virtual void				Unlock ();
 	virtual void				PostSetup() {}
 
+	virtual int					AttrLock ( int iQuantity=1 ) const;
+	virtual bool				AttrLocked() const;
+	virtual void				AttrRelease() const;
+
 	virtual bool				MultiQuery ( const CSphQuery * pQuery, CSphQueryResult * pResult, int iSorters, ISphMatchSorter ** ppSorters, const CSphVector<CSphFilterSettings> * pExtraFilters, int iTag ) const;
 	virtual bool				MultiQueryEx ( int iQueries, const CSphQuery * pQueries, CSphQueryResult ** ppResults, ISphMatchSorter ** ppSorters, const CSphVector<CSphFilterSettings> * pExtraFilters, int iTag ) const;
 	virtual bool				GetKeywords ( CSphVector <CSphKeywordInfo> & dKeywords, const char * szQuery, bool bGetStats, CSphString & sError ) const;
@@ -1439,6 +1443,8 @@ private:
 	bool						m_bIsEmpty;				///< do we have actually indexed documents (m_iTotalDocuments is just fetched documents, not indexed!)
 
 	CSphVector<LocatorPair_t>	m_dDynamize;			///< string attributes that my parent RT index wants dynamized
+	mutable CSphMutex			m_tAttrLock;
+	mutable volatile int		m_iAttrRefCount;
 
 private:
 	CSphString					GetIndexFileName ( const char * sExt ) const;
@@ -7133,11 +7139,14 @@ CSphIndex_VLN::CSphIndex_VLN ( const char* sIndexName, const char * sFilename )
 	m_bIsEmpty = true;
 	m_bMerging = false;
 	m_tLastHit.m_sKeyword[0] = '\0';
+	m_tAttrLock.Init();
+	m_iAttrRefCount = 1;
 }
 
 
 CSphIndex_VLN::~CSphIndex_VLN ()
 {
+	m_tAttrLock.Done();
 	SafeDeleteArray ( m_pWriteBuffer );
 
 #if USE_WINDOWS
@@ -12272,6 +12281,32 @@ void CSphIndex_VLN::Unlock()
 }
 
 
+int	CSphIndex_VLN::AttrLock ( int iQuantity ) const
+{
+	m_tAttrLock.Lock();
+	int iRes = m_iAttrRefCount += iQuantity;
+	m_tAttrLock.Unlock();
+	return iRes;
+}
+bool CSphIndex_VLN::AttrLocked() const
+{
+	m_tAttrLock.Lock();
+	bool bRes = m_iAttrRefCount>1;
+	m_tAttrLock.Unlock();
+	return bRes;
+}
+void CSphIndex_VLN::AttrRelease() const
+{
+	bool bDestroy = false;
+	m_tAttrLock.Lock();
+	if ( m_iAttrRefCount )
+		bDestroy = --m_iAttrRefCount==0;
+	m_tAttrLock.Unlock();
+	if ( bDestroy )
+		delete this;
+}
+
+
 bool CSphIndex_VLN::Mlock ()
 {
 	bool bRes = true;
@@ -15222,7 +15257,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 						break;
 
 					// orphan only ON no errors && ( not matched ids || ids matched multiply times )
-					if ( bIsMvaCorrect && ( uMvaID!=uLastID || ( uMvaID==uLastID && bLastIDChecked ) ) )
+					if ( bIsMvaCorrect && ( uMvaID!=uLastID || ( uMvaID==u && bLastIDChecked ) ) )
 						iOrphan++;
 
 					bLastIDChecked |= uLastID==uMvaID;
@@ -15246,7 +15281,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 
 				// check normalized
 				if ( uExp==0 && uMantissa!=0 )
-					LOC_FAIL(( fp, "float attribute value is unnormalized (row=%u, attr=%d, id="DOCID_FMT", rx, value=%f)",
+					LOC_FAIL(( fp, "float attribute value is unnormalized (row=%u, attr=%d, id="DOCID_FMT", raw=0x%x, value=%f)",
 						uRow, iItem, uLastID, uValue, sphDW2F ( uValue ) ));
 
 				// check +-inf
@@ -19154,7 +19189,7 @@ void CSphSource_Document::BuildRegularHits ( SphDocID_t uDocid, bool bPayload, b
 
 		if ( *sWord==MAGIC_CODE_SENTENCE || *sWord==MAGIC_CODE_PARAGRAPH || *sWord==MAGIC_CODE_ZONE )
 		{
-			m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( (BYTE*)MAGIC_WORD_SENTENCE ), m_tState.m_iHitPos );
+			m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( (BYTE*)MAGI_SENTENCE ), m_tState.m_iHitPos );
 
 			if ( *sWord==MAGIC_CODE_PARAGRAPH || *sWord==MAGIC_CODE_ZONE )
 				m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( (BYTE*)MAGIC_WORD_PARAGRAPH ), m_tState.m_iHitPos );
@@ -19179,7 +19214,7 @@ void CSphSource_Document::BuildRegularHits ( SphDocID_t uDocid, bool bPayload, b
 			int iBytes = strlen ( (const char*)sWord );
 			memcpy ( sBuf + 1, sWord, iBytes );
 			sBuf[0] = MAGIC_WORD_HEAD;
-			sBuf[iByte '\0';
+			sBuf[iBytes+1] = '\0';
 			m_tHits.AddHit ( uDocid, m_pDict->GetWordIDWithMarkers ( sBuf ), m_tState.m_iHitPos );
 		}
 
@@ -22841,7 +22876,7 @@ bool CSphSource_ODBC::SqlFetchRow ()
 						// out of buffer; warn about that (once)
 						tCol.m_bTruncated = true;
 						sphWarn ( "'%s' column truncated (buffer=%d, got=%d); consider revising sql_column_buffers",
-							tCol.m_sName.cstr(), tCol.m_iBufferSize-1, tCol.m_iInd );
+							tCol.m_sName.cstr(), tCol.m_iBufferSi(int)ize-1, tCol.m_iInd );
 					}
 				}
 			break;
@@ -23350,7 +23385,7 @@ const BYTE * CWordlist::GetWord ( const BYTE * pBuf, const char * pStr, int iLen
 		}
 
 		assert ( iMatch+iDelta<(int)sizeof(tCtx.m_sWord)-1 );
-		assert ( iMatch<=(int)strlen ( (char *)tCtx.m_sWord ) );
+		assert ( iMatch<=(int)strlen ( (char *)tCtx.m_) );
 
 		memcpy ( tCtx.m_sWord + iMatch, pBuf, iDelta );
 		pBuf += iDelta;
@@ -23375,7 +23410,7 @@ const BYTE * CWordlist::GetWord ( const BYTE * pBuf, const char * pStr, int iLen
 		{
 			tWord.m_sWord = (char*)tCtx.m_sWord;
 			tWord.m_uOff = uOff;
-			tWord.m = iDocs;
+			tWord.m_iDocs = iDocs;
 			tWord.m_iHits = iHits;
 			tWord.m_iDoclistHint = DoclistHintUnpack ( iDocs, uHint );
 			return pBuf;
