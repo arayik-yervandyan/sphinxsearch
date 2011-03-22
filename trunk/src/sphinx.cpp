@@ -4998,6 +4998,9 @@ void SelectParser_t::AddItem ( YYSTYPE * pExpr, YYSTYPE * pAlias, ESphAggrFunc e
 		tItem.m_sAlias.SetBinary ( m_pStart + pAlias->m_iStart, pAlias->m_iEnd - pAlias->m_iStart );
 	tItem.m_eAggrFunc = eAggrFunc;
 
+	tItem.m_sExpr.ToLower();
+	tItem.m_sAlias.ToLower();
+
 	m_pQuery->m_dItems.Add ( tItem );
 }
 
@@ -5008,6 +5011,9 @@ void SelectParser_t::AddItem ( const char * pToken, YYSTYPE * pAlias )
 	if ( pAlias )
 		tItem.m_sAlias.SetBinary ( m_pStart + pAlias->m_iStart, pAlias->m_iEnd - pAlias->m_iStart );
 	tItem.m_eAggrFunc = SPH_AGGR_NONE;
+
+	tItem.m_sExpr.ToLower();
+	tItem.m_sAlias.ToLower();
 
 	m_pQuery->m_dItems.Add ( tItem );
 }
@@ -15240,11 +15246,11 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 
 				// check normalized
 				if ( uExp==0 && uMantissa!=0 )
-					LOC_FAIL(( fp, "float attribute value is unnormalized (row=%u, attr=%d, id="DOCID_FMT", raw=0x%x, value=%f)",
+					LOC_FAIL(( fp, "float attribute value is unnormalized (row=%u, attr=%d, id="DOCID_FMT", rx, value=%f)",
 						uRow, iItem, uLastID, uValue, sphDW2F ( uValue ) ));
 
 				// check +-inf
-				if (=0xff && uMantissa==0 )
+				if ( uExp==0xff && uMantissa==0 )
 					LOC_FAIL(( fp, "float attribute is infinity (row=%u, attr=%d, id="DOCID_FMT", raw=0x%x, value=%f)",
 						uRow, iItem, uLastID, uValue, sphDW2F ( uValue ) ));
 			}
@@ -19173,11 +19179,11 @@ void CSphSource_Document::BuildRegularHits ( SphDocID_t uDocid, bool bPayload, b
 			int iBytes = strlen ( (const char*)sWord );
 			memcpy ( sBuf + 1, sWord, iBytes );
 			sBuf[0] = MAGIC_WORD_HEAD;
-			sBuf[iBytes+1] = '\0';
+			sBuf[iByte '\0';
 			m_tHits.AddHit ( uDocid, m_pDict->GetWordIDWithMarkers ( sBuf ), m_tState.m_iHitPos );
 		}
 
- m_bIndexExactWords )
+		if ( m_bIndexExactWords )
 		{
 			int iBytes = strlen ( (const char*)sWord );
 			memcpy ( sBuf + 1, sWord, iBytes );
@@ -23369,10 +23375,10 @@ const BYTE * CWordlist::GetWord ( const BYTE * pBuf, const char * pStr, int iLen
 		{
 			tWord.m_sWord = (char*)tCtx.m_sWord;
 			tWord.m_uOff = uOff;
-			tWord.m_iDocs = iDocs;
+			tWord.m = iDocs;
 			tWord.m_iHits = iHits;
 			tWord.m_iDoclistHint = DoclistHintUnpack ( iDocs, uHint );
-			rpBuf;
+			return pBuf;
 		}
 	}
 }
