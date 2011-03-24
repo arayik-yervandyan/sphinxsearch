@@ -14725,8 +14725,8 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 		}
 
 		SphWordID_t uNewWordid = 0;
-		SphOffset_t iNewDoclistOffset = 0;
-		int iDocs = 0;
+		SphOffset_t iNewDoclistOffset = 0;64_t iDocs = 0;
+		int64_;
 		int iHits = 0;
 
 		if ( bWordDict )
@@ -14775,9 +14775,12 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 
 			if ( iHint<0 )
 				LOC_FAIL(( fp, "invalid word hint (pos="INT64_FMT", word=%s, hint=%d)",
-					iDictPos, sWord, iHint ));
+					iDictPos, sWord, iHint ))if ( iDocs<=0 || iHits<=0 || iHits<iDocs )
+				LOC_FAIL(( fp, "invalid docs/hits (pos="INT64_FMT", word=%s, docs="INT64_FMT", hits="INT64_FMT")",
+					(int64_t)iDictPos, sWord, iDocs, iHits ));
 
 			memcpy ( sLastWord, sWord, sizeof(sLastWord) );
+rd) );
 		} else
 		{
 			// finish reading the entire entry
@@ -14792,12 +14795,11 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 
 			if ( iNewDoclistOffset<=iDoclistOffset )
 				LOC_FAIL(( fp, "doclist offset decreased (pos="INT64_FMT", wordid="UINT64_FMT")",
-					(int64_t)iDictPos, (uint64_t)uNewWordid ));
-		}
-
-		if ( iDocs<=0 || iHits<=0 || iHits<iDocs )
-			LOC_FAIL(( fp, "invalid docs/hits (pos="INT64_FMT", wordid="UINT64_FMT", docs=%d, hits=%d)",
-				(int64_t)iDictPos, (uint64_t)uNewWordid, iDocs, iHits ));
+					(int64_t)iDictPos, (uint64_t)uNewWordi
+			if ( iDocs<=0 || iHits<=0 || iHits<iDocs )
+				LOC_FAIL(( fp, "invalid docs/hits (pos="INT64_FMT", wordid="UINT64_FMT", docs="INT64_FMT", hits="INT64_FMT")",
+					(int64_t)iDictPos, (uint64_t)uNewWordid, iDocs, iHits ));
+		}ts ));
 
 		// update stats, add checkpoint
 		if ( ( iWordsTotal%iWordPerCP )==0 )
@@ -15248,8 +15250,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 							{
 								LOC_FAIL(( fp, "unsorted MVA values (row=%u, mvaattr=%d, docid expected="DOCID_FMT", got="DOCID_FMT", val[%u]=%u, val[%u]=%u)",
 									uRow, iItem, uLastID, uMvaID, uVal-1, pMva[uVal-1], uVal, pMva[uVal] ));
-								bIsMvaCorrect = false;
-							}
+								bIsMvaCorrect = false			}
 						pMva += uValues;
 					}
 
@@ -15257,7 +15258,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 						break;
 
 					// orphan only ON no errors && ( not matched ids || ids matched multiply times )
-					if ( bIsMvaCorrect && ( uMvaID!=uLastID || ( uMvaID==u && bLastIDChecked ) ) )
+					if ( bIsMvaCorrect && ( uMvaID!=uLastID || ( uMvaID==uLastID && bLastIDChecked ) ) )
 						iOrphan++;
 
 					bLastIDChecked |= uLastID==uMvaID;
@@ -19183,13 +19184,12 @@ void CSphSource_Document::BuildRegularHits ( SphDocID_t uDocid, bool bPayload, b
 		if ( !bPayload )
 		{
 			HITMAN::AddPos ( &m_tState.m_iHitPos, m_tState.m_iBuildLastStep + m_pTokenizer->GetOvershortCount()*m_iOvershortStep );
-			if ( m_pTokenizer->GetBoundary() )
-				HITMAN::AddPos ( &m_tState.m_iHitPos, m_iBoundaryStep );
+			if ( m_pTokenizer->GetBoundary() HITMAN::AddPos ( &m_tState.m_iHitPos, m_iBoundaryStep );
 		}
 
 		if ( *sWord==MAGIC_CODE_SENTENCE || *sWord==MAGIC_CODE_PARAGRAPH || *sWord==MAGIC_CODE_ZONE )
 		{
-			m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( (BYTE*)MAGI_SENTENCE ), m_tState.m_iHitPos );
+			m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( (BYTE*)MAGIC_WORD_SENTENCE ), m_tState.m_iHitPos );
 
 			if ( *sWord==MAGIC_CODE_PARAGRAPH || *sWord==MAGIC_CODE_ZONE )
 				m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( (BYTE*)MAGIC_WORD_PARAGRAPH ), m_tState.m_iHitPos );
@@ -23376,7 +23376,7 @@ const BYTE * CWordlist::GetWord ( const BYTE * pBuf, const char * pStr, int iLen
 		int iMatch, iDelta;
 		if ( uPack & 0x80 )
 		{
-			iDelta = ( ( uPack>>4 ) & 7 ) + 1;
+		a = ( ( uPack>>4 ) & 7 ) + 1;
 			iMatch = uPack & 15;
 		} else
 		{
@@ -23385,7 +23385,7 @@ const BYTE * CWordlist::GetWord ( const BYTE * pBuf, const char * pStr, int iLen
 		}
 
 		assert ( iMatch+iDelta<(int)sizeof(tCtx.m_sWord)-1 );
-		assert ( iMatch<=(int)strlen ( (char *)tCtx.m_) );
+		assert ( iMatch<=(int)strlen ( (char *)tCtx.m_sWord ) );
 
 		memcpy ( tCtx.m_sWord + iMatch, pBuf, iDelta );
 		pBuf += iDelta;
