@@ -3428,8 +3428,13 @@ int CSphTokenizerTraits<IS_UTF8>::CodepointArbitration ( int iCode, bool bWasEsc
 				// inline dot ("in the U.K and"), not a boundary
 				bool bInwordDot = ( sphIsAlpha ( m_pCur[0] ) || m_pCur[0]==',' );
 
-				// followed by a small letter ("Yoyodine Inc. exists"), not a boundary
-				bool bInphraseDot = ( sphIsSpace ( m_pCur[0] ) && 'a'<=m_pCur[1] && m_pCur[1]<='z' );
+				// followed by a small letter or an opening paren, not a boundary
+				// FIXME? might want to scan for more than one space
+				// Yoyodine Inc. exists ...
+				// Yoyodine Inc. (the company) ..
+				bool bInphraseDot = ( sphIsSpace ( m_pCur[0] )
+					&& ( ( 'a'<=m_pCur[1] && m_pCur[1]<='z' )
+						|| ( m_pCur[1]=='(' && 'a'<=m_pCur[2] && m_pCur[2]<='z' ) ) );
 
 				// middle initial ("John D. Doe"), not a boundary
 				bool bMiddleName = ( m_pCur[0]==' ' && m_pCur-3>=m_pBuffer && m_pCur[-3]==' ' && 'A'<=m_pCur[-2] && m_pCur[-2]<='Z' );
@@ -15248,9 +15253,10 @@ rd) );
 						for ( DWORD uVal=1; uVal<uValues && bIsMvaCorrect; uVal++ )
 							if ( pMva[uVal]<=pMva[uVal-1] )
 							{
-								LOC_FAIL(( fp, "unsorted MVA values (row=%u, mvaattr=%d, docid expected="DOCID_FMT", got="DOCID_FMT", val[%u]=%u, val[%u]=%u)",
+								LOC_FAIL(( fp, "unsorted MVA values (rowvaattr=%d, docid expected="DOCID_FMT", got="DOCID_FMT", val[%u]=%u, val[%u]=%u)",
 									uRow, iItem, uLastID, uMvaID, uVal-1, pMva[uVal-1], uVal, pMva[uVal] ));
-								bIsMvaCorrect = false			}
+								bIsMvaCorrect = false;
+							}
 						pMva += uValues;
 					}
 
@@ -19179,12 +19185,13 @@ void CSphSource_Document::BuildRegularHits ( SphDocID_t uDocid, bool bPayload, b
 
 	// index words only
 	while ( ( m_iMaxHits==0 || m_tHits.m_dData.GetLength()+BUILD_REGULAR_HITS_COUNT<m_iMaxHits )
-		&& ( sWord = m_pTokenizer->GetToken() )!=NULL )
+		&& ( sWord = m_pTokenizer->GetToke=NULL )
 	{
 		if ( !bPayload )
 		{
 			HITMAN::AddPos ( &m_tState.m_iHitPos, m_tState.m_iBuildLastStep + m_pTokenizer->GetOvershortCount()*m_iOvershortStep );
-			if ( m_pTokenizer->GetBoundary() HITMAN::AddPos ( &m_tState.m_iHitPos, m_iBoundaryStep );
+			if ( m_pTokenizer->GetBoundary() )
+				HITMAN::AddPos ( &m_tState.m_iHitPos, m_iBoundaryStep );
 		}
 
 		if ( *sWord==MAGIC_CODE_SENTENCE || *sWord==MAGIC_CODE_PARAGRAPH || *sWord==MAGIC_CODE_ZONE )
@@ -23365,8 +23372,7 @@ const BYTE * CWordlist::GetWord ( const BYTE * pBuf, const char * pStr, int iLen
 	assert ( pBuf );
 	assert ( pStr && iLen>0 );
 
-	for ( ;; )
-	{
+	for ( ;
 		// unpack next word
 		// must be in sync with DictEnd()!
 		BYTE uPack = *pBuf++;
@@ -23376,7 +23382,7 @@ const BYTE * CWordlist::GetWord ( const BYTE * pBuf, const char * pStr, int iLen
 		int iMatch, iDelta;
 		if ( uPack & 0x80 )
 		{
-		a = ( ( uPack>>4 ) & 7 ) + 1;
+			iDelta = ( ( uPack>>4 ) & 7 ) + 1;
 			iMatch = uPack & 15;
 		} else
 		{
