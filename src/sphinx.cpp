@@ -2094,10 +2094,12 @@ public:
 	virtual BYTE *					GetToken ();
 	virtual int						GetCodepointLength ( int iCode ) const		{ return m_pTokenizer->GetCodepointLength ( iCode ); }
 	virtual void					EnableQueryParserMode ( bool bEnable )		{ m_pTokenizer->EnableQueryParserMode ( bEnable ); }
+	virtual void					EnableTokenizedMultiformTracking ()			{ m_bBuildMultiform = true; }
 	virtual int						GetLastTokenLen () const					{ return m_pLastToken->m_iTokenLen; }
 	virtual bool					GetBoundary ()								{ return m_pLastToken->m_bBoundary; }
 	virtual bool					WasTokenSpecial ()							{ return m_pLastToken->m_bSpecial; }
 	virtual int						GetOvershortCount ()						{ return m_pLastToken->m_iOvershortCount; }
+	virtual BYTE *					GetTokenizedMultiform ()					{ return m_sTokenizedMultiform[0] ? m_sTokenizedMultiform : NULL; }
 
 public:
 	virtual ISphTokenizer *			Clone ( bool bEscaped ) const;
@@ -2113,6 +2115,9 @@ private:
 	const CSphMultiformContainer *	m_pMultiWordforms;
 	int								m_iStoredStart;
 	int								m_iStoredLen;
+
+	bool				m_bBuildMultiform;
+	BYTE				m_sTokenizedMultiform [ 3*SPH_MAX_WORD_LEN+4 ];
 
 	struct StoredToken_t
 	{
@@ -4612,10 +4617,12 @@ CSphTokenizer_Filter::CSphTokenizer_Filter ( ISphTokenizer * pTokenizer, const C
 	, m_pMultiWordforms ( pContainer )
 	, m_iStoredStart	( 0 )
 	, m_iStoredLen		( 0 )
+	, m_bBuildMultiform	( false )
 	, m_pLastToken		( NULL )
 {
 	assert ( pTokenizer && pContainer );
 	m_dStoredTokens.Resize ( pContainer->m_iMaxTokens + 1 );
+	m_sTokenizedMultiform[0] = '\0';
 }
 
 
@@ -4639,6 +4646,8 @@ void CSphTokenizer_Filter::FillTokenInfo ( StoredToken_t * pToken )
 
 BYTE * CSphTokenizer_Filter::GetToken ()
 {
+	m_sTokenizedMultiform[0] = '\0';
+
 	BYTE * pToken = ( m_iStoredLen>0 )
 		? m_dStoredTokens [m_iStoredStart].m_sToken
 		: m_pTokenizer->GetToken ();
@@ -4741,6 +4750,24 @@ BYTE * CSphTokenizer_Filter::GetToken ()
 
 			m_iStoredStart = ( m_iStoredStart+iTokensPerForm ) % iSize;
 			m_iStoredLen -= iTokensPerForm;
+
+			if ( m_bBuildMultiform )
+			{
+				BYTE * pOut = m_sTokenizedMultiform;
+				BYTE * pMax = pOut + sizeof(m_sTokenizedMultiform);
+				for ( int i=0; i<iTokensPerForm && pOut<pMax; i++ )
+				{
+					const BYTE * sTok = m_dStoredTokens [ ( m_iStoredStart+i ) % iSize ].m_sToken;
+					if ( i && pOut<pMax )
+						*pOut++ = ' ';
+					while ( *sTok && pOut<pMax )
+						*pOut++ = *sTok++;
+				}
+				if ( pOut<pMax )
+					*pOut++ = '\0';
+				else
+					pMax[-1] = '\0';
+			}
 
 			assert ( m_iStoredLen>=0 );
 			return (BYTE*)pCurForm->m_sNormalForm.cstr ();
@@ -13631,6 +13658,7 @@ bool CSphIndex_VLN::DoGetKeywords ( CSphVector <CSphKeywordInfo> & dKeywords, co
 	CSphScopedPtr <CSphAutofile> pHitlist ( NULL );
 
 	CSphScopedPtr<ISphTokenizer> pTokenizer ( m_pTokenizer->Clone ( false ) ); // avoid race
+	pTokenizer->EnableTokenizedMultiformTracking ();
 
 	CSphScopedPtr<CSphDict> tDictCloned ( NULL );
 	CSphDict * pDictBase = m_pDict;
@@ -13670,7 +13698,11 @@ bool CSphIndex_VLN::DoGetKeywords ( CSphVector <CSphKeywordInfo> & dKeywords, co
 
 	while ( ( sWord = pTokenizer->GetToken() )!=NULL )
 	{
-		sTokenized = (const char*)sWord;
+		BYTE * sMultiform = pTokenizer->GetTokenizedMultiform();
+		if ( sMultiform )
+			sTokenized = (const char*)sMultiform;
+		else
+			sTokenized = (const char*)sWord;
 
 		SphWordID_t iWord = pDict->GetWordID ( sWord );
 		if ( iWord )
@@ -15224,7 +15256,7 @@ rd) );
 						if ( uMvaID==uLastID && uSpaOffset && bIsSpaValid && pMva!=pMvaBase+uSpaOffset )
 						{
 							LOC_FAIL(( fp, "unexpected MVA docid (row=%u, mvaattr=%d, docid expected="DOCID_FMT", got="DOCID_FMT", expected=%u, got=%u)",
-								uRow, iItem, uLastID, uMvaID, (DWORD)(pMva-pMvaBase), uSpaOffset ));
+								uRow, iItem, uLastID, uMvaID, (DWORD)(pMva-pMvaBase), uSpaOff;
 							// it's unexpected but it's our best guess
 							// but do fix up only once, to prevent infinite loop
 							if ( !bLastIDChecked )
@@ -15236,12 +15268,12 @@ rd) );
 							LOC_FAIL(( fp, "MVA index out of bounds (row=%u, mvaattr=%d, docid expected="DOCID_FMT", got="DOCID_FMT", index=%u)",
 								uRow, iItem, uLastID, uMvaID, (DWORD)(pMva-pMvaBase) ));
 							bIsMvaCorrect = false;
-							continue;
+							continue	break;
 						}
 
 						// check values
 						const DWORD uValues = *pMva++;
-						if ( pMva+uValues-1>=pMvaMax )
+					pMva+uValues-1>=pMvaMax )
 						{
 							LOC_FAIL(( fp, "MVA count out of bounds (row=%u, mvaattr=%d, docid expected="DOCID_FMT", got="DOCID_FMT", count=%u)",
 								uRow, iItem, uLastID, uMvaID, uValues ));
@@ -15253,7 +15285,7 @@ rd) );
 						for ( DWORD uVal=1; uVal<uValues && bIsMvaCorrect; uVal++ )
 							if ( pMva[uVal]<=pMva[uVal-1] )
 							{
-								LOC_FAIL(( fp, "unsorted MVA values (rowvaattr=%d, docid expected="DOCID_FMT", got="DOCID_FMT", val[%u]=%u, val[%u]=%u)",
+								LOC_FAIL(( fp, "unsorted MVA values (row=%u, mvaattr=%d, docid expected="DOCID_FMT", got="DOCID_FMT", val[%u]=%u, val[%u]=%u)",
 									uRow, iItem, uLastID, uMvaID, uVal-1, pMva[uVal-1], uVal, pMva[uVal] ));
 								bIsMvaCorrect = false;
 							}
@@ -19149,7 +19181,7 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 				if ( bInfixMode && i==iLen-iStart )
 					m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( sInfix, sInfixEnd-sInfix+1, false ), m_tState.m_iHitPos );
 
-				sInfixEnd += m_pTokenizer->GetCodepointLength ( *sInfixEnd );
+				sInfixEnd += m_pTokenizer->GetCodepointLength ( *sId );
 			}
 
 			sInfix += m_pTokenizer->GetCodepointLength ( *sInfix );
@@ -19185,7 +19217,7 @@ void CSphSource_Document::BuildRegularHits ( SphDocID_t uDocid, bool bPayload, b
 
 	// index words only
 	while ( ( m_iMaxHits==0 || m_tHits.m_dData.GetLength()+BUILD_REGULAR_HITS_COUNT<m_iMaxHits )
-		&& ( sWord = m_pTokenizer->GetToke=NULL )
+		&& ( sWord = m_pTokenizer->GetToken() )!=NULL )
 	{
 		if ( !bPayload )
 		{
@@ -23334,7 +23366,7 @@ const CSphWordlistCheckpoint * CWordlist::FindCheckpoint ( const char * sWord, i
 	const CSphWordlistCheckpoint * pStart = m_dCheckpoints.Begin();
 	const CSphWordlistCheckpoint * pEnd = &m_dCheckpoints.Last();
 
-	if ( bStarMode && pStart->Cmp ( sWord, iWordLen, iWordID, m_bWordDict )<0 )
+	if ( bStarMode && pStart->Cmp ( sWoordLen, iWordID, m_bWordDict )<0 )
 		return NULL;
 	if ( !bStarMode && pStart->CmpStrictly ( sWord, iWordLen, iWordID, m_bWordDict )<0 )
 		return NULL;
@@ -23372,7 +23404,8 @@ const BYTE * CWordlist::GetWord ( const BYTE * pBuf, const char * pStr, int iLen
 	assert ( pBuf );
 	assert ( pStr && iLen>0 );
 
-	for ( ;
+	for ( ;; )
+	{
 		// unpack next word
 		// must be in sync with DictEnd()!
 		BYTE uPack = *pBuf++;
