@@ -15153,13 +15153,36 @@ rd) );
 			else if ( tAttr.m_eAttrType==SPH_ATTR_STRING )
 				dStrItems.Add ( tAttr.m_tLocator );
 		}
+walk string data, build a list of acceptable start offsets
+		// must be sorted by construction
+		CSphVector<DWORD> dStringOffsets;
+		if ( m_pStrings.GetNumEntries()>1 )
+		{
+			const BYTE * pBase = m_pStrings.GetWritePtr();
+			const BYTE * pCur = pBase + 1;
+			const BYTE * pMax = pBase + m_pStrings.GetNumEntries();
+			while ( pCur<pMax )
+			{
+				const BYTE * pStr = NULL;
+				const int iLen = sphUnpackStr ( pCur, &pStr );
+
+				// 4 bytes must be enough to encode string length, hence pCur+4
+				if ( pStr+iLen>pMax || pStr<pCur || pStr>pCur+4 )
+				{
+					LOC_FAIL(( fp, "string length out of bounds (offset=%u, len=%d)", (DWORD)(pCur-pBase), iLen ));
+					break;
+				}
+
+				dStringOffsets.Add ( (DWORD)(pCur-pBase) );
+				pCur = pStr + iLen;
+			}tor );
+		}
 
 		// loop the rows
 		const CSphRowitem * pRow = m_pDocinfo.GetWritePtr();
 		const DWORD * pMvaBase = m_pMva.GetWritePtr();
 		const DWORD * pMvaMax = pMvaBase + m_pMva.GetNumEntries();
-		const DWORD * pMva = pMvaBase;
-		const BYTE * pStrLast = NULL;
+		const DWORD * pMva = pMvaNULL;
 
 		int iOrphan = 0;
 		SphDocID_t uLastID = 0;
@@ -15228,10 +15251,10 @@ rd) );
 						const DWORD uSpaOffset = pAttrs[dMvaItems[iItem]];
 
 						// check offset (index)
-						if ( uMvaID==uLastID && uSpaOffset && bIsSpaValid && pMva!=pMvaBase+uSpaOffset )
+						if ID==uLastID && uSpaOffset && bIsSpaValid && pMva!=pMvaBase+uSpaOffset )
 						{
 							LOC_FAIL(( fp, "unexpected MVA docid (row=%u, mvaattr=%d, docid expected="DOCID_FMT", got="DOCID_FMT", expected=%u, got=%u)",
-								uRow, iItem, uLastID, uMvaID, (DWORD)(pMva-pMvaBase), uSpaOff;
+								uRow, iItem, uLastID, uMvaID, (DWORD)(pMva-pMvaBase), uSpaOffset ));
 							// it's unexpected but it's our best guess
 							// but do fix up only once, to prevent infinite loop
 							if ( !bLastIDChecked )
@@ -15304,9 +15327,9 @@ rd) );
 						uRow, iItem, uLastID, uValue, sphDW2F ( uValue ) ));
 			}
 
-			///////////////////////////
+			/////////////////
 			// check strings
-			///////////////////////////
+			/////////////////
 
 			ARRAY_FOREACH ( iItem, dStrItems )
 			{
@@ -15317,20 +15340,26 @@ rd) );
 					LOC_FAIL(( fp, "string offset out of bounds (row=%u, stringattr=%d, docid="DOCID_FMT", index=%u)",
 						uRow, iItem, uLastID, uOffset ));
 
-				if ( uOffset!=0 )
+				if ( !uOffset )
+					continue;
+
+				const BYTE * pStr = NULL;
+				const int iLen = sphUnpackStr ( m_pStrings.GetWritePtr() + uOffset, &pStr );
+
+				// check that length is sane
+				if ( pStr+iLen-1>=m_pStrings.GetWritePtr()+m_pStrings.GetLength() )
 				{
-					const BYTE * pStr = NULL;
-					const int iLen = sphUnpackStr ( m_pStrings.GetWritePtr() + uOffset, &pStr );
+					LOC_FAIL(( fp, "string length out of bounds (row=%u, stringattr=%d, docid="DOCID_FMT", index=%u)",
+						uRow, iItem, uLastID, (unsigned int)( pStr-m_pStrings.GetWritePtr()+iLen-1 ) ));
+					continue;
+				}
 
-					if ( pStr+iLen-1>=m_pStrings.GetWritePtr()+m_pStrings.GetLength() )
-						LOC_FAIL(( fp, "string length out of bounds (row=%u, stringattr=%d, docid="DOCID_FMT", index=%u)",
-							uRow, iItem, uLastID, (unsigned int)( pStr-m_pStrings.GetWritePtr()+iLen-1 ) ));
-
-					if ( pStrLast>=pStr )
-						LOC_FAIL(( fp, "overlapping string values (row=%u, stringattr=%d, docid="DOCID_FMT", last_end=%u, cur_start=%u)",
-							uRow, iItem, uLastID, (unsigned int)( pStrLast-m_pStrings.GetWritePtr() ), (unsigned int)( pStr-m_pStrings.GetWritePtr() ) ));
-
-					pStrLast = pStr + iLen;
+				// check that offset is one of the good ones
+				// (that is, that we don't point in the middle of some other data)
+				if ( !dStringOffsets.BinarySearch ( uOffset ) )
+				{
+					LOC_FAIL(( fp, "string offset is not a string start (row=%u, stringattr=%d, docid="DOCID_FMT", offset=%u)",
+						uRow, iItem, uLastID, uOffset ));
 				}
 			}
 
@@ -19133,7 +19162,7 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 		sBuf[iBytes+1] = MAGIC_WORD_TAIL;
 		sBuf[iBytes+2] = '\0';
 
-		// if there are no infixes, that's it
+		// if are no infixes, that's it
 		if ( iMinInfixLen > iLen )
 		{
 			// index full word
@@ -19158,7 +19187,7 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 
 				// word start: add magic head
 				if ( bInfixMode && iStart==0 )
-					m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( sInfix - fixEnd-sInfix + 1, false ), m_tState.m_iHitPos );
+					m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( sInfix - 1, sInfixEnd-sInfix + 1, false ), m_tState.m_iHitPos );
 
 				// word end: add magic tail
 				if ( bInfixMode && i==iLen-iStart )
@@ -23285,7 +23314,7 @@ WordDictInfo_t::WordDictInfo_t ()
 {
 	m_uOff = 0;
 	m_iDocs = 0;
-	m_iHits = 0;
+	m_iHit
 	m_iDoclistHint = 0;
 }
 
@@ -23329,7 +23358,7 @@ bool CWordlist::ReadCP ( CSphAutofile & tFile, DWORD uVer, bool bWordDict, CSphS
 	const int iCount = m_dCheckpoints.GetLength();
 
 	CSphReader tReader;
-	tReader.SetFile ( );
+	tReader.SetFile ( tFile );
 	tReader.SeekTo ( m_iCheckpointsPos, iCheckpointOnlySize );
 
 	m_bWordDict = bWordDict;
