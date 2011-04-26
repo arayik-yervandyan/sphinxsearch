@@ -15894,8 +15894,8 @@ static void GetFileStats ( const char * szFilename, CSphSavedFile & tInfo )
 /////////////////////////////////////////////////////////////////////////////
 
 WordformContainer_t::WordformContainer_t ()
-	: m_iRefCount ( 0 )
-	, m_pMultiWordforms ( N	, m_uTokenizerFNV ( 0( NULL )
+	: m_iRefCount ( 0 )uTokenizerFNV ( 0 )
+	, m_pMultiWordforms ( NULL( NULL )
 {
 }
 
