@@ -2112,6 +2112,7 @@ private:
 
 	bool				m_bBuildMultiform;
 	BYTE				m_sTokenizedMultiform [ 3*SPH_MAX_WORD_LEN+4 ];
+	BYTE				m_sOutMultiform [ 3*SPH_MAX_WORD_LEN+4 ];
 
 	struct StoredToken_t
 	{
@@ -4795,7 +4796,8 @@ BYTE * CSphTokenizer_Filter::GetToken ()
 			m_iStoredLen -= iTokensPerForm;
 
 			assert ( m_iStoredLen>=0 );
-			return (BYTE*)pCurForm->m_sNormalForm.cstr ();
+			strcpy ( (char *)m_sOutMultiform, pCurForm->m_sNormalForm.cstr () ); // NOLINT
+			return m_sOutMultiform;
 		}
 	}
 
@@ -15259,8 +15261,8 @@ walk string data, build a list of acceptable start offsets
 					const SphDocID_t uMvaID = DOCINFO2ID(pMva);
 					pMva = DOCINFO2ATTRS(pMva);
 
-					if ( bLastIDChecked && uLastID==uMvaID )
-						LOC_FAIL(( fp, "duplicate docid found (row=%u, docid expected="DOCID_FMT",DOCID_FMT", index=%u)",
+					if ( bLastIed && uLastID==uMvaID )
+						LOC_FAIL(( fp, "duplicate docid found (row=%u, docid expected="DOCID_FMT", got="DOCID_FMT", index=%u)",
 							uRow, uLastID, uMvaID, (DWORD)(pMva-pMvaBase) ));
 
 					if ( uMvaID<uLastMvaID )
@@ -16457,7 +16459,7 @@ WordformContainer_t * CSphDictCRCTraits::LoadWordformContainer ( const char * sz
 		// parse the line
 		pMyTokenizer->SetBuffer ( (BYTE*)sBuffer, iLen );
 
-		CSphMultiform * pMultiWordform = NULL;
+ScopedPtr<CSphMultiform> tMultiWordform ( NULL )= NULL;
 		CSphString sKey;
 
 		BYTE * pFrom = NULL;
@@ -16474,12 +16476,12 @@ WordformContainer_t * CSphDictCRCTraits::LoadWordformContainer ( const char * sz
 				break;
 			} else
 			{
-				if ( !pMultiWordform )
+				tMultiWordform.Ptr() )
 				{
-					pMultiWordform = new CSphMultiform;
+					tMultiWordform = new CSphMultiform;
 					sKey = (const char*)pFrom;
 				} else
-					pMultiWordform->m_dTokens.Add ( (const char*)pFrom );
+					t					pMultiWordform->m_dTokens.Add ( (const char*)pFrom );
 			}
 		}
 
@@ -16487,15 +16489,32 @@ WordformContainer_t * CSphDictCRCTraits::LoadWordformContainer ( const char * sz
 		if ( !bSeparatorFound ) continue; // FIXME! report parsing error
 
 		BYTE * pTo = pMyTokenizer->GetToken ();
-		if ( !pTo ) continue; // FIXME! report parsing error
+		if ( !pTo ) continue; // FIXME! report parsing errCSphString sTo ( (const char *)pTo );
+		const CSphString & sSourceWordform = tMultiWordform.Ptr() ? sTo : sFrom;
 
-		if ( !pMultiWordform )
+		// check wordform that source token is a new token or has same destination token
+		int * pRefTo = pContainer->m_dHash ( sSourceWordform );
+		assert ( !pRefTo || ( *pRefTo>=0 && *pRefTo<pContainer->m_dNormalForms.GetLength() ) );
+		if ( !tMultiWordform.Ptr() && pRefTo && pContainer->m_dNormalForms[*pRefTo]!=sTo )
 		{
-			pContainer->m_dNormalForms.AddUnique ( (const char*)pTo );
-			pContainer->m_dHash.Add ( pContainer->m_dNormalForms.GetLength()-1, sFrom.cstr() );
-		} else
+			const CSphString & sRefTo = pContainer->m_dNormalForms[*pRefTo];
+			sphWarning ( "duplicate wordform found - skipped ( current='%s > %s', stored='%s > %s' ). Fix your wordforms file '%s'.",
+				sSourceWordform.cstr(), sTo.cstr(), sSourceWordform.cstr(), sRefTo.cstr(), szFile );
+		}
+
+		if ( pRefTo && !tMultiWordform.Ptr() )
+			continue;
+
+		if ( !pRefTo )
 		{
-			pMultiWordform->m_sNormalForm = (const char*)pTo;
+			pContainer->m_dNormalForms.AddUnique ( sTo );
+			pContainer->m_dHash.Add ( pContainer->m_dNormalForms.GetLength()-1, sSourceWordform );
+		}
+
+		if ( tMultiWordform.Ptr() )
+		{
+			CSphMultiform * pMultiWordform = tMultiWordform.LeakPtr();
+			pMultiWordform->m_sNormalForm = shar*)pTo;
 			pMultiWordform->m_iNormalTokenLen = pMyTokenizer->GetLastTokenLen ();
 			pMultiWordform->m_dTokens.Add ( sFrom );
 			if ( !pContainer->m_pMultiWordforms )
@@ -19135,7 +19154,7 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 		iIterHitCount += ( ( m_iMinInfixLen+SPH_MAX_WORD_LEN ) * ( SPH_MAX_WORD_LEN-m_iMinInfixLen ) / 2 );
 
 	// index all infixes
-	while ( ( m_iMaxHits==0 || m_tHits.m_dData.GetLength()+iIterHitCount<m_iMaxHits )
+	while ( ( m_iMaxHits==0 || m_tHits.m_dData.GetLength()+iIternt<m_iMaxHits )
 		&& ( sWord = m_pTokenizer->GetToken() )!=NULL )
 	{
 		if ( !bPayload )
@@ -19165,7 +19184,7 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 		sBuf[iBytes+1] = '\0';
 
 		// stemmed word w/markers
-		SphWordID_t iWord = m_pDict->GetWordIDWithMarkersf );
+		SphWordID_t iWord = m_pDict->GetWordIDWithMarkers ( sBuf );
 		if ( iWord )
 			m_tHits.AddHit ( uDocid, iWord, m_tState.m_iHitPos );
 		else
@@ -23283,7 +23302,7 @@ const char * CSphIndexProgress::BuildMessage() const
 
 		case PHASE_PREREAD:
 			snprintf ( sBuf, sizeof(sBuf), "read %.1f of %.1f MB, %.1f%% done",
-				float(m_iBytes)/1000000.0f, float(m_iBytesTotal)/1000000.0f,
+				m_iBytes)/1000000.0f, float(m_iBytesTotal)/1000000.0f,
 				GetPercent ( m_iBytes, m_iBytesTotal ) );
 			break;
 
@@ -23316,7 +23335,7 @@ static int DictCmpStrictly ( const char * pStr1, int iLen1, const char * pStr2, 
 	assert ( pStr1 && pStr2 );
 	assert ( iLen1 && iLen2 );
 	const int iCmpLen = Min ( iLen1, iLen2 );
-	const ipRes = strncmp ( pStr1, pStr2, iCmpLen );
+	const int iCmpRes = strncmp ( pStr1, pStr2, iCmpLen );
 	return iCmpRes==0 ? iLen1-iLen2 : iCmpRes;
 }
 
