@@ -3401,9 +3401,15 @@ BYTE * CSphTokenizerTraits<IS_UTF8>::GetBlendedVariant ()
 }
 
 
-static bool IsModifier ( int iSymbol )
+static inline bool IsModifier ( int iSymbol )
 {
 	return iSymbol=='^' || iSymbol=='$' || iSymbol=='=' || iSymbol=='*';
+}
+
+
+static inline bool IsCapital ( int iCh )
+{
+	return iCh>='A' && iCh<='Z';
 }
 
 
@@ -3441,8 +3447,27 @@ int CSphTokenizerTraits<IS_UTF8>::CodepointArbitration ( int iCode, bool bWasEsc
 					&& ( ( 'a'<=m_pCur[1] && m_pCur[1]<='z' )
 						|| ( m_pCur[1]=='(' && 'a'<=m_pCur[2] && m_pCur[2]<='z' ) ) );
 
-				// middle initial ("John D. Doe"), not a boundary
-				bool bMiddleName = ( m_pCur[0]==' ' && m_pCur-3>=m_pBuffer && m_pCur[-3]==' ' && 'A'<=m_pCur[-2] && m_pCur[-2]<='Z' );
+				// preceded by any 1-char or 2-char token that starts with a capital letter, not a boundary
+				// handles middle initials and sentence-starting initials nicely
+				//
+				// J. R. R. Tolkien, who wrote Hobbit ...
+				// John D. Doe ...
+				// Known as Mr. Doe ...
+				bool bMiddleName =
+					( m_iAccum==1 && IsCapital ( m_pCur[-2] ) ) ||
+					( m_iAccum==2 && IsCapital ( m_pCur[-3] ) );
+
+				// preceded by a known 3-byte token
+				// Survived by Mrs. Doe ...
+				if ( m_iAccum==3 )
+				{
+#define LOC_CHECK(_str) \
+	if ( m_sAccum[0]==_str[0] && m_sAccum[1]==_str[1] && m_sAccum[2]==_str[2] ) \
+		bMiddleName = true;
+					LOC_CHECK("mrs");
+					LOC_CHECK("drs");
+#undef LOC_CHECK
+				}
 
 				if ( !bInwordDot && !bInphraseDot && !bMiddleName )
 				{
@@ -15235,7 +15260,7 @@ walk string data, build a list of acceptable start offsets
 					pMva = DOCINFO2ATTRS(pMva);
 
 					if ( bLastIDChecked && uLastID==uMvaID )
-						LOC_FAIL(( fp, "duplicate docid found (row=%u, docid expected="DOCID_FMT", got="DOCID_FMT", index=%u)",
+						LOC_FAIL(( fp, "duplicate docid found (row=%u, docid expected="DOCID_FMT",DOCID_FMT", index=%u)",
 							uRow, uLastID, uMvaID, (DWORD)(pMva-pMvaBase) ));
 
 					if ( uMvaID<uLastMvaID )
@@ -15251,7 +15276,7 @@ walk string data, build a list of acceptable start offsets
 						const DWORD uSpaOffset = pAttrs[dMvaItems[iItem]];
 
 						// check offset (index)
-						if ID==uLastID && uSpaOffset && bIsSpaValid && pMva!=pMvaBase+uSpaOffset )
+						if ( uMvaID==uLastID && uSpaOffset && bIsSpaValid && pMva!=pMvaBase+uSpaOffset )
 						{
 							LOC_FAIL(( fp, "unexpected MVA docid (row=%u, mvaattr=%d, docid expected="DOCID_FMT", got="DOCID_FMT", expected=%u, got=%u)",
 								uRow, iItem, uLastID, uMvaID, (DWORD)(pMva-pMvaBase), uSpaOffset ));
@@ -19140,7 +19165,7 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 		sBuf[iBytes+1] = '\0';
 
 		// stemmed word w/markers
-		SphWordID_t iWord = m_pDict->GetWordIDWithMarkers ( sBuf );
+		SphWordID_t iWord = m_pDict->GetWordIDWithMarkersf );
 		if ( iWord )
 			m_tHits.AddHit ( uDocid, iWord, m_tState.m_iHitPos );
 		else
@@ -19162,7 +19187,7 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 		sBuf[iBytes+1] = MAGIC_WORD_TAIL;
 		sBuf[iBytes+2] = '\0';
 
-		// if are no infixes, that's it
+		// if there are no infixes, that's it
 		if ( iMinInfixLen > iLen )
 		{
 			// index full word
@@ -23291,7 +23316,7 @@ static int DictCmpStrictly ( const char * pStr1, int iLen1, const char * pStr2, 
 	assert ( pStr1 && pStr2 );
 	assert ( iLen1 && iLen2 );
 	const int iCmpLen = Min ( iLen1, iLen2 );
-	const int iCmpRes = strncmp ( pStr1, pStr2, iCmpLen );
+	const ipRes = strncmp ( pStr1, pStr2, iCmpLen );
 	return iCmpRes==0 ? iLen1-iLen2 : iCmpRes;
 }
 
@@ -23309,7 +23334,9 @@ int CSphWordlistCheckpoint::Cmp ( const char * sWord, int iLen, SphWordID_t iWor
 int CSphWordlistCheckpoint::CmpStrictly ( const char * sWord, int iLen, SphWordID_t iWordID, bool bWordDict ) const
 {
 	if ( bWordDict )
-		return DictCmpStrictly ( sWord, iLen, m_sWord, strlen ( m_sWord )int iRes = 0;
+		return DictCmpStrictly ( sWord, iLen, m_sWord, strlen ( m_sWord ) );
+
+	int iRes = 0;
 	iRes = iWordID<m_iWordID ? -1 : iRes;
 	iRes = iWordID>m_iWordID ? 1 : iRes;
 	return iRes;
