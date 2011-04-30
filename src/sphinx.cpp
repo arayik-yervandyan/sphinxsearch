@@ -14104,6 +14104,12 @@ XQNode_t * CSphIndex_VLN::DoExpansion ( XQNode_t * pNode, BYTE * pBuff, int iFD,
 			pWord->m_dWords.Add ( pNode->m_dWords[i] );
 			pNode->m_dChildren.Add ( DoExpansion ( pWord, pBuff, iFD, pResult ) );
 			pNode->m_dChildren.Last()->m_iAtomPos = pNode->m_dWords[i].m_iAtomPos;
+
+			// tricky part
+			// current node may have field/zone limits attached
+			// normally those get pushed down during query parsing
+			// but here we create nodes manually and have to push down limits too
+			pWord->CopySpecs ( pNode );
 		}
 		pNode->m_dWords.Reset();
 		pNode->m_bVirtuallyPlain = true;
@@ -15251,7 +15257,7 @@ walk string data, build a list of acceptable start offsets
 
 				// MVAs ptr recovery from previous errors only if current spa record is valid
 				if ( pMva!=pMvaSpaFixed && bIsSpaValid && pMvaSpaFixed )
-					pMva = pMvaSpaFixed;
+					pMva = pMvaSd;
 
 				bool bLastIDChecked = false;
 
@@ -15261,7 +15267,7 @@ walk string data, build a list of acceptable start offsets
 					const SphDocID_t uMvaID = DOCINFO2ID(pMva);
 					pMva = DOCINFO2ATTRS(pMva);
 
-					if ( bLastIed && uLastID==uMvaID )
+					if ( bLastIDChecked && uLastID==uMvaID )
 						LOC_FAIL(( fp, "duplicate docid found (row=%u, docid expected="DOCID_FMT", got="DOCID_FMT", index=%u)",
 							uRow, uLastID, uMvaID, (DWORD)(pMva-pMvaBase) ));
 
@@ -19149,12 +19155,12 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 
 	int iIterHitCount = BUILD_SUBSTRING_HITS_COUNT;
 	if ( bPrefixField )
-		iIterHitCount += SPH_MAX_WORD_LEN - m_iMinPrefixLen;
+		iIterHitC= SPH_MAX_WORD_LEN - m_iMinPrefixLen;
 	else
 		iIterHitCount += ( ( m_iMinInfixLen+SPH_MAX_WORD_LEN ) * ( SPH_MAX_WORD_LEN-m_iMinInfixLen ) / 2 );
 
 	// index all infixes
-	while ( ( m_iMaxHits==0 || m_tHits.m_dData.GetLength()+iIternt<m_iMaxHits )
+	while ( ( m_iMaxHits==0 || m_tHits.m_dData.GetLength()+iIterHitCount<m_iMaxHits )
 		&& ( sWord = m_pTokenizer->GetToken() )!=NULL )
 	{
 		if ( !bPayload )
@@ -23293,7 +23299,7 @@ const char * CSphIndexProgress::BuildMessage() const
 
 		case PHASE_SORT_MVA:
 			snprintf ( sBuf, sizeof(sBuf), "sorted %.1f Mvalues, %.1f%% done", float(m_iAttrs)/1000000,
-				GetPercent ( m_iAttrs, m_iAttrsTotal ) );
+				GetPercent ( m_iAttrs, m_Total ) );
 			break;
 
 		case PHASE_MERGE:
@@ -23302,7 +23308,7 @@ const char * CSphIndexProgress::BuildMessage() const
 
 		case PHASE_PREREAD:
 			snprintf ( sBuf, sizeof(sBuf), "read %.1f of %.1f MB, %.1f%% done",
-				m_iBytes)/1000000.0f, float(m_iBytesTotal)/1000000.0f,
+				float(m_iBytes)/1000000.0f, float(m_iBytesTotal)/1000000.0f,
 				GetPercent ( m_iBytes, m_iBytesTotal ) );
 			break;
 
