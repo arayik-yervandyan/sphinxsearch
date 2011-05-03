@@ -16768,9 +16768,7 @@ public:
 		SphWordID_t					m_uCRC;				// original unadjusted crc
 
 		bool operator < ( const HitblockException_t & rhs ) const
-		{
-			if ( m_uCRC!=rhs.m_uCRC )
-				return m_uCRC < rhs.m_uCRC;
+	C;
 			return m_pEntry->m_uWordid < rhs.m_pEntry->m_uWordid;
 		}
 	};
@@ -16977,40 +16975,102 @@ SphWordID_t CSphDictKeywords::HitblockGetID ( const char * sWord, int iLen, SphW
 			b++;
 		}
 
-		// collision detected!
-		// check list of exceptions
-		// FIXME! binary search, eh?
-		SphWordID_t uWordid = uCRC;
+		// collision detected!our crc is taken as a wordid, but keyword does not match
+		// welcome to the land of very tricky magic
+		//
+		// pEntry might either be a known exception, or a regular keyword
+		// sWord might either be a known exception, or a new one
+		// if they are not known, they needed to be added as exceptions now
+		//
+		// in case sWord is new, we need to assign a new unique wordid
+		// for that, we keep incrementing the crc until it is unique
+		// a starting point for wordid search loop would be handy
+		//
+		// let's scan the exceptions vector and work on all this
+		//
+		// NOTE, beware of the order, it is wordid asc, which does NOT guarantee crc asc
+		// example, assume crc(w1)==X, crc(w2)==X+1, crc(w3)==X (collides with w1)
+		// wordids will be X, X+1, X+2 but crcs will be X, X+1, X
+		//
+		// OPTIMIZE, might make sense to use binary search
+		// OPTIMIZE, add early out somehow
+		SphWordID_t uWordid = uCRC + 1;
+		const int iExcLen = m_dExceptions.GetLength();
+		int iExc = m_dExceptions.GetLength();
 		ARRAY_FOREACH ( i, m_dExceptions )
 		{
-			if ( m_dExceptions[i].m_uCRC==uCRC )
-			{
-				assert ( uWordid==m_dExceptions[i].m_pEntry->m_uWordid );
-				if ( strncmp ( m_dExceptions[i].m_pEntry->m_pKeyword, sWord, iLen )==0 )
-					return m_dExceptions[i].m_pEntry->m_uWordid;
-				uWordid++;
-			}
-			if ( m_dExceptions[i].m_uCRC>uCRC )
-				break;
+			const HitblockKeyword_t * pExcWord = m_dExceptions[i].m_pEntry;
+
+			// incoming word is a known exception? just return the pre-assigned wordid
+			if ( m_dExceptions[i].m_uCRC==uCRC && strncmp ( pExcWord->m_pKeyword, sWord, iLen )==0 )
+				return pExcWord->m_uWordid;
+
+			// incoming word collided into a known exception? clear the matched entry; no need to re-add it (see below)
+			if ( pExcWord==pEntry )
+				pEntry = NULL;
+
+			// find first exception with wordid greater or equal to our candidate
+			if ( pExcWord->m_uWordid>=uWordid && iExc==iExcLen )
+				iExc = i;
 		}
 
-		if ( uWordid==uCRC )
-		{
-			// brand new collision; lets add our collision root
+		// okay, this is a new collision
+		// if entry was a regular word, we have to add it
+		if ( pEntry )
+		{n root
 			m_dExceptions.Add();
 			m_dExceptions.Last().m_pEntry = pEntry;
-			m_dExceptions.Last().m_uCRC = uCRC;
+			m_dExceptions.Last().m_uCRC = uC}
+
+		// need to assign a new unique wordid now
+		// keep scanning both exceptions and keywords for collisions
+		for ( ;; )
+		{
+			// iExc must be either the first exception greater or equal to current candidate, or out of bounds
+			assert ( iExc==iExcLen || m_dExceptions[iExc].m_pEntry->m_uWordid>=uWordid );
+			assert ( iExc==0 || m_dExceptions[iExc-1].m_pEntry->m_uWordid<uWordid );
+
+			// candidate collides with a known exception? increment it, and keep looking
+			if ( iExc<iExcLen && m_dExceptions[iExc].m_pEntry->m_uWordid==uWordid )
+			{
+				uWordid++;
+				while ( iExc<iExcLen && m_dExceptions[iExc].m_pEntry->m_uWordid<uWordid )
+					iExc++;
+				continue;
+			}
+
+			// candidate collides with a keyword? must be a regular one; add it as an exception, and keep looking
+			HitblockKeyword_t * pCheck = m_dHash [ (DWORD)( uWordid % SLOTS ) ];
+			while ( pCheck )
+			{
+				if ( pCheck->m_uWordid==uWordid )
+					break;
+				pCheck = pCheck->m_pNextHash;
+			}
+
+			// no collisions; we've found our unique wordid!
+			if ( !pCheck )
+				break;
+
+			// got a collision; add it
+			HitblockException_t & tColl = m_dExceptions.Add();
+			tColl.m_pEntry = pCheck;
+			tColl.m_uCRC = pCheck->m_uWordid; // not a known exception; hence, wordid must equal crc
+
+			// and keep looking
 			uWordid++;
+			continue;
 		}
 
-		// hash collision under adjusted wordid
-		// (to handle the case of triple collisions; not directly findable)
+		// and finally, we have that precious new wordid
+		// so hash our new unique under its new unique adjusted wordid
 		pEntry = HitblockAddKeyword ( (DWORD)( uWordid % SLOTS ), sWord, iLen, uWordid );
 
-		// add collision
+		// add it as a collision toolision
 		m_dExceptions.Add();
 		m_dExceptions.Last().m_pEntry = pEntry;
-		m_dExceptions.Last().m_uCRC = uCRC;
+		m_dExceptions.Last().m_uCRC = 
+		// keep exceptions list sorted by wordid uCRC;
 		m_dExceptions.Sort();
 
 		return pEntry->m_uWordid;
@@ -17448,6 +17508,12 @@ static CSphWordHit * FindFirstGte ( CSphWordHit * pHits, int iHits, SphWordID_t 
 	assert ( pL->m_iWordID<uID );
 	assert ( pR->m_iWordID>=uID );
 	return pR;
+}full crc and keyword check
+static inline bool FullIsLess ( const CSphDictKeywords::HitblockException_t & a, const CSphDictKeywords::HitblockException_t & b )
+{
+	if ( a.m_uCRC!=b.m_uCRC )
+		return a.m_uCRC < b.m_uCRC;
+	return strcmp ( a.m_pEntry->m_pKeyword, b.m_pEntry->m_pKeyword ) < 0urn pR;
 }
 
 /// sort functor to compute collided hits reordering
@@ -17461,7 +17527,7 @@ struct HitblockPatchSort_fn
 
 	bool IsLess ( int a, int b ) const
 	{
-		return strcmp ( m_pExc[a].m_pEntry->m_pKeyword, m_pExc[b].m_pEntry->m_pKeyword ) < 0;
+		rFullIsLess ( m_pExc[a], m_pExc[b] ) ) < 0;
 	}
 };
 
@@ -17479,17 +17545,21 @@ void CSphDictKeywords::HitblockPatch ( CSphWordHit * pHits, int iHits )
 	{
 		// find next span of collisions, iFirst inclusive, iMax exclusive ie. [iFirst,iMax)
 		// (note that exceptions array is always sorted)
-		SphWordID_t uCRC = dExc[iFirst].m_uCRC;
-		assert ( dExc[iFirst].m_pEntry->m_uWordid==uCRC );
+		SphWordFirstWordid = dExc[iFirst].m_pEntry->m_uWordid;
+		assert ( dExc[iFirst].m_uCRC==uFirstWordid );
 
 		int iMax = iFirst+1;
-		while ( iMax < dExc.GetLength() && dExc[iMax].m_uCRC==uCRC )
+		SphWordID_t uSpan = uFirstWordid+1;
+		while ( iMax < dExc.GetLength() && dExc[iMax].m_pEntry->m_uWordid==uSpan )
+		{
 			iMax++;
+			uSpan++;
+		}Max++;
 
 		// check whether they are in proper order already
 		bool bSorted = true;
 		for ( int i=iFirst; i<iMax-1 && bSorted; i++ )
-			if ( strcmp ( dExc[i].m_pEntry->m_pKeyword, dExc[i+1].m_pEntry->m_pKeyword ) > 0 )
+		FullIsLess ( dExc[i+1], dExc[i] ) ) > 0 )
 				bSorted = false;
 
 		// order is ok; skip this span
@@ -17505,22 +17575,22 @@ void CSphDictKeywords::HitblockPatch ( CSphWordHit * pHits, int iHits )
 		dChunk.Resize ( iMax-iFirst+1 );
 
 		// find the end
-		dChunk.Last() = FindFirstGte ( pHits, iHits, uCRC+iMax-iFirst );
+		dChunk.Last() = FindFirstGte ( pHits, iHFirstWordid+iMax-iFirst );
 		if ( !dChunk.Last() )
 		{
-			assert ( iMax==dExc.GetLength() && pHits[iHits-1].m_iWordID==uCRC+iMax-1-iFirst );
+			assert ( iMax==dExc.GetLength() && pHits[iHits-1].m_iWordID==uFirstWordid==uCRC+iMax-1-iFirst );
 			dChunk.Last() = pHits+iHits;
 		}
 
 		// find the start
-		dChunk[0] = FindFirstGte ( pHits, dChunk.Last()-pHits, uCRC );
-		assert ( dChunk[0] && dChunk[0]->m_iWordID==uCRC );
+		dChunk[0] = FindFirstGte ( pHits, dChunk.Last()-pHFirstWordid );
+		assert ( dChunk[0] && dChunk[0]->m_iWordID==uFirstWordid==uCRC );
 
 		// find the chunk starts
 		for ( int i=1; i<dChunk.GetLength()-1; i++ )
 		{
-			dChunk[i] = FindFirstGte ( dChunk[i-1], dChunk.Last()-dChunk[i-1], uCRC+i );
-			assert ( dChunk[i] && dChunk[i]->m_iWordID==uCRC+i );
+			dChunk[i] = FindFirstGte ( dChunk[i-1], dChunk.Last()-dChunk[iFirstWordid+i );
+			assert ( dChunk[i] && dChunk[i]->m_iWordID==uFirstWordid==uCRC+i );
 		}
 
 		CSphWordHit * pTemp;
@@ -17546,7 +17616,7 @@ void CSphDictKeywords::HitblockPatch ( CSphWordHit * pHits, int iHits )
 			pTemp = new CSphWordHit [ dChunk.Last()-dChunk[0] ];
 			CSphWordHit * pOut = pTemp;
 
-			ARRAY_FOREACH ( i, dReorder )
+			ARRAY_FOREACH ( i, dReordeer )
 		{
 				int iChunk = dReorder[i];
 				int iHits = dChunk[iChunk+1] - dChunk[iChunk];
@@ -19043,7 +19113,7 @@ CSphSource_Document::CSphBuildHitsState_t::CSphBuildHitsState_t ()
 }
 
 CSphSource_Document::CSphSource_Document ( const char * sName )
-	: CSphSource ( sName )
+	: Crce ( sName )
 	, m_pReadFileBuffer ( NULL )
 	, m_iReadFileBufferSize ( 256 * 1024 )
 	, m_iMaxFileBufferSize ( 2 * 1024 * 1024 )
@@ -19155,7 +19225,7 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 
 	int iIterHitCount = BUILD_SUBSTRING_HITS_COUNT;
 	if ( bPrefixField )
-		iIterHitC= SPH_MAX_WORD_LEN - m_iMinPrefixLen;
+		iIterHitCount += SPH_MAX_WORD_LEN - m_iMinPrefixLen;
 	else
 		iIterHitCount += ( ( m_iMinInfixLen+SPH_MAX_WORD_LEN ) * ( SPH_MAX_WORD_LEN-m_iMinInfixLen ) / 2 );
 
@@ -23193,7 +23263,7 @@ void CSphSource_MSSQL::OdbcPostConnect ()
 	CSphString sDriver;
 	for ( ;; )
 	{
-		SQLRETURN iRet = SQLDrivers ( m_hEnv, iDir, (SQLCHAR*)szDriver, MAX_LEN, &iDescLen, (SQLCHAR*)szDriverAttrs, MAX_LEN, &iAttrLen );
+		SQLRETURN iRet = SQLDrivers ( m_hEnv, iDir, (SQLCHAR*)szDriver, MAX_LEN, &iDes(SQLCHAR*)szDriverAttrs, MAX_LEN, &iAttrLen );
 		if ( iRet==SQL_NO_DATA )
 			break;
 
@@ -23299,7 +23369,7 @@ const char * CSphIndexProgress::BuildMessage() const
 
 		case PHASE_SORT_MVA:
 			snprintf ( sBuf, sizeof(sBuf), "sorted %.1f Mvalues, %.1f%% done", float(m_iAttrs)/1000000,
-				GetPercent ( m_iAttrs, m_Total ) );
+				GetPercent ( m_iAttrs, m_iAttrsTotal ) );
 			break;
 
 		case PHASE_MERGE:
