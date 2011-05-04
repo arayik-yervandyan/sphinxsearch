@@ -10190,6 +10190,12 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 			int iBin = qDocinfo.Root();
 			DWORD * pEntry = dDocinfoQueue + iBin*iDocinfoStride;
 
+			if ( DOCINFO2ID ( pEntry )<uLastId )
+			{
+				m_sLastError.SetSprintf ( "descending document prev id="DOCID_FMT", curr="DOCID_FMT" bin=%d", uLastId, DOCINFO2ID ( pEntry ), iBin );
+				return 0;
+			}
+
 			// skip duplicates
 			if ( DOCINFO2ID ( pEntry )==uLastId )
 			{
@@ -10286,6 +10292,7 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 						}
 
 						sphSeek ( iDocinfoFD, iDocinfoWritePos, SEEK_SET );
+						iSharedOffset = iDocinfoWritePos;
 					}
 
 					if ( !sphWriteThrottled ( iDocinfoFD, dDocinfos, iLen, "sort_docinfo", m_sLastError ) )
@@ -10394,6 +10401,7 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 	int iBinSize = CSphBin::CalcBinSize ( int ( iMemoryLimit * fReadFactor ), dHitBlocks.GetLength() + m_bWordDict, "sort_hits" );
 
 	CSphAutoArray <BYTE> pRelocationBuffer ( iRelocationSize );
+	iSharedOffset = -1;
 
 	ARRAY_FOREACH ( i, dHitBlocks )
 	{
@@ -15251,13 +15259,13 @@ walk string data, build a list of acceptable start offsets
 							uRow, iItem, uLastID, uOffset ));
 					}
 
-					if ( uOffset && pMvaBase+uOffset<pMvaMax && !pMvaSpaFixed )
+					if ( uOffset && pMvaBase+uOffset<pMvaMax vaSpaFixed )
 						pMvaSpaFixed = pMvaBase + uOffset - sizeof(SphDocID_t) / sizeof(DWORD);
 				}
 
 				// MVAs ptr recovery from previous errors only if current spa record is valid
 				if ( pMva!=pMvaSpaFixed && bIsSpaValid && pMvaSpaFixed )
-					pMva = pMvaSd;
+					pMva = pMvaSpaFixed;
 
 				bool bLastIDChecked = false;
 
@@ -19100,7 +19108,7 @@ static void FormatEscaped ( FILE * fp, const char * sLine )
 }
 
 CSphSource_Document::CSphBuildHitsState_t::CSphBuildHitsState_t ()
-	: m_bProcessingHits ( false )
+	: m_bProcessingHitlse )
 	, m_bDocumentDone ( false )
 	, m_dFields ( NULL )
 	, m_iStartPos ( 0 )
@@ -19113,7 +19121,7 @@ CSphSource_Document::CSphBuildHitsState_t::CSphBuildHitsState_t ()
 }
 
 CSphSource_Document::CSphSource_Document ( const char * sName )
-	: Crce ( sName )
+	: CSphSource ( sName )
 	, m_pReadFileBuffer ( NULL )
 	, m_iReadFileBufferSize ( 256 * 1024 )
 	, m_iMaxFileBufferSize ( 2 * 1024 * 1024 )
@@ -23253,8 +23261,7 @@ le )
 
 void CSphSource_MSSQL::OdbcPostConnect ()
 {
-	const int MAX_LEN = 1024;
-	char szDriver[MAX_LEN];
+	const int MAX_LEN = 1024; szDriver[MAX_LEN];
 	char szDriverAttrs[MAX_LEN];
 	SQLSMALLINT iDescLen = 0;
 	SQLSMALLINT iAttrLen = 0;
@@ -23263,7 +23270,7 @@ void CSphSource_MSSQL::OdbcPostConnect ()
 	CSphString sDriver;
 	for ( ;; )
 	{
-		SQLRETURN iRet = SQLDrivers ( m_hEnv, iDir, (SQLCHAR*)szDriver, MAX_LEN, &iDes(SQLCHAR*)szDriverAttrs, MAX_LEN, &iAttrLen );
+		SQLRETURN iRet = SQLDrivers ( m_hEnv, iDir, (SQLCHAR*)szDriver, MAX_LEN, &iDescLen, (SQLCHAR*)szDriverAttrs, MAX_LEN, &iAttrLen );
 		if ( iRet==SQL_NO_DATA )
 			break;
 
