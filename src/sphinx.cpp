@@ -14720,8 +14720,8 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 		}
 
 		SphWordID_t uNewWordid = 0;
-		SphOffset_t iNewDoclistOffset = 0;64_t iDocs = 0;
-		int64_;
+		SphOffset_t iNewDoclistOffset = 0; iDocs = 0;
+		in;
 		int iHits = 0;
 
 		if ( bWordDict )
@@ -17668,24 +17668,27 @@ static inline int sphIsTagStart ( int c )
 	return ( c>='a' && c<='z' ) || ( c>='A' && c<='Z' ) || c=='_' || c=='.' || c==':';
 }
 
-CSphHTMLStripper::CSphHTMLStripper ()
+CSphHTMLStripper::CSphHTMLStri bool bDefaultTags )
 {
-	// known inline tags
-	const char * dKnown[] =
+	if ( !bDefaultTags )
 	{
-		"a", "b", "i", "s", "u",
-		"basefont", "big", "em", "font", "img",
-		"label", "small", "span", "strike", "strong",
-		"sub\0", "sup\0", // fix gcc 3.4.3 on solaris10 compiler bug
-		"tt"
-	};
+		// known inline tags
+		const char * dKnown[] =
+		{
+			"a", "b", "i", "s", "u",
+			"basefont", "big", "em", "font", "img",
+			"label", "small", "span", "strike", "strong",
+			"sub\0", "sup\0", // fix gcc 3.4.3 on solaris10 compiler bug
+			"tt"
+		};
 
-	m_dTags.Resize ( sizeof(dKnown)/sizeof(dKnown[0]) );
-	ARRAY_FOREACH ( i, m_dTags )
-	{
-		m_dTags[i].m_sTag = dKnown[i];
-		m_dTags[i].m_iTagLen = strlen ( dKnown[i] );
-		m_dTags[i].m_bInline = true;
+		m_dTags.Resize ( sizeof(dKnown)/sizeof(dKnown[0]) );
+		ARRAY_FOREACH ( i, m_dTags )
+		{
+			m_dTags[i].m_sTag = dKnown[i];
+			m_dTags[i].m_iTagLen = strlen ( dKnown[i] );
+			m_dTags[i].m_bInline = true;
+		} true;
 	}
 
 	UpdateTags ();
@@ -18570,56 +18573,10 @@ void CSphHTMLStripper::Strip ( BYTE * sData ) const
 
 		//////////////////////////////////////
 		// lookup this tag in known tags list
-		//////////////////////////////////////
-
-		int iTag = -1;
-		const BYTE * sTagName = ( s[0]=='/' ) ? s+1 : s;
-
-		const BYTE * sZoneName = s;
+		////////////////////////////////////const StripperTag_t * pTag = NULL;
 		int iZoneNameLen = 0;
-
-		int iIdx = GetCharIndex ( sTagName[0] );
-		assert ( iIdx>=0 && iIdx<MAX_CHAR_INDEX );
-
-		if ( m_dEnd[iIdx]>=0 )
-		{
-			int iStart = m_dStart[iIdx];
-			int iEnd = m_dEnd[iIdx];
-
-			for ( int i=iStart; i<=iEnd; i++ )
-			{
-				int iLen = m_dTags[i].m_iTagLen;
-				int iCmp = strncasecmp ( m_dTags[i].m_sTag.cstr(), (const char*)sTagName, iLen );
-
-				// the tags are sorted; so if current candidate is already greater, rest can be skipped
-				if ( iCmp>0 )
-					break;
-
-				// do we have a match?
-				if ( iCmp==0 )
-				{
-					// got exact match?
-					if ( !sphIsTag ( sTagName[iLen] ) )
-					{
-						iTag = i;
-						s = sTagName + iLen; // skip tag name
-if ( m_dTags[i].m_bZone )
-							iZoneNameLen = s - sZoneName;
-						break;
-					}
-
-					// got wildcard match?
-					if ( m_dTags[i].m_bZonePrefix_bZone )
-					{
-						iTag = i;
-						s = sTagName + iLen;
-						while ( sphIsTag(*s) )
-							s++;
-						iZoneNameLen = s - sZoneName;
-						break;
-					}
-				}
-			}
+		const BYTE * sZoneName = NULL;
+		s = FindTag ( s, &pTag, &sZoneName, &iZoneNameLen );	}
 		}
 
 		/////////////////////////////////////
@@ -18630,7 +18587,7 @@ if ( m_dTags[i].m_bZone )
 
 #define LOC_SKIP_SPACES() { while ( sphIsSpace(*s) ) s++; if ( !*s || *s=='>' ) break; }
 
-		bool bIndexAttrs = ( iTag>=0 && m_dTags[iTag].m_bIndexAttrs );
+		bool bIndexAttrpTag && pTag->iTag].m_bIndexAttrs );
 		while ( *s && *s!='>' )
 		{
 			LOC_SKIP_SPACES();
@@ -18660,14 +18617,13 @@ if ( m_dTags[i].m_bZone )
 					int iAttr = -1;
 					if ( bIndexAttrs )
 					{
-						const StripperTag_t & tTag = m_dTags[iTag];
-						for ( iAttr=0; iAttr<tTag.m_dAttrs.GetLength(); iAttr++ )
+for ( iAttr=0; iAttr<pTag-><tTag.m_dAttrs.GetLength(); iAttr++ )
 						{
-							int iLen = strlen ( tTag.m_dAttrs[iAttr].cstr() );
-							if ( iLen==iAttrLen && !strncasecmp ( tTag.m_dAttrs[iAttr].cstr(), (const char*)sAttr, iLen ) )
+							int iLen = strpTag->m_dAttrs[iAttr].cstr() );
+							if ( iLen==iAttrLen && !strncasecmp ( pTag->m_dAttrs[iAttr].cstr(), (const char*)sAttr, iLen ) )
 								break;
 						}
-						if ( iAttr==tTag.m_dAttrs.GetLength() )
+						if ( iAttr==pTag->=tTag.m_dAttrs.GetLength() )
 							iAttr = -1;
 					}
 
@@ -18719,16 +18675,14 @@ if ( m_dTags[i].m_bZone )
 			s++;
 
 		// unknown tag is done; others might require a bit more work
-		if ( iTag<0 )
+	!pTag )
 		{
 			*d++ = ' '; // unknown tags are *not* inline by default
 			continue;
 		}
 
-		const StripperTag_t & tTag = m_dTags[iTag];
-
 		// handle zones
-		if ( tTag.m_bZone )
+		if ( pTag-> tTag.m_bZone )
 		{
 			// should be at tag's end
 			assert ( s[0]=='\0' || s[-1]=='>' );
@@ -18745,7 +18699,7 @@ if ( m_dTags[i].m_bZone )
 		}
 
 		// handle paragraph boundaries
-		if ( tTag.m_bPara )
+	pTag-> tTag.m_bPara )
 		{
 			*d++ = MAGIC_CODE_PARAGRAPH;
 			continue;
@@ -18753,9 +18707,9 @@ if ( m_dTags[i].m_bZone )
 
 		// in all cases, the tag must be fully processed at this point
 		// not a remove-tag? we're done
-		if ( !tTag.m_bRemove )
+		pTag->m_bRemove )
 		{
-			if ( !tTag.m_bInline )
+			if ( !pTag->!tTag.m_bInline )
 				*d++ = ' ';
 			continue;
 		}
@@ -18765,7 +18719,7 @@ if ( m_dTags[i].m_bZone )
 			break;
 
 		// must be a proper remove-tag end, then
-		assert ( tTag.m_bRemove && s[-1]=='>' );
+		asspTag-> tTag.m_bRemove && s[-1]=='>' );
 
 		// short-form? we're done
 		if ( s[-2]=='/' )
@@ -18779,16 +18733,16 @@ if ( m_dTags[i].m_bZone )
 			if ( !*s ) break;
 
 			s += 2; // skip </
-			if ( strncasecmp ( tTag.m_sTag.cstr(), (const char*)s, tTag.m_iTagLen )!=0 ) continue;
-			if ( !sphIsTag ( s[tTag.m_iTagLen] ) )
+			if ( strncasepTag->m_sTag.cstr(), (const char*)s, pTag->m_iTagLen )!=0 ) continue;
+			if ( !sphIsTag ( s[pTag->m_iTagLen] ) )
 			{
-				s += tTag.m_iTagLen; // skip tag
+				s += pTag->m_iTagLen; // skip tag
 				if ( *s=='>' ) s++;
 				break;
 			}
 		}
 
-		if ( !tTag.m_bInline ) *d++ = ' ';
+		if ( !pTag->!tTag.m_bInline ) *d++ = ' ';
 	}
 	*d++ = '\0';
 
@@ -18854,10 +18808,72 @@ if ( m_dTags[i].m_bZone )
 			bSpaceOut = bParaOut = bZoneOut = false;
 		}
 	}
-	*d++ = '\0';
+	*d++ = '\0const BYTE * CSphHTMLStripper::FindTag ( const BYTE * sSrc, const StripperTag_t ** ppTag, const BYTE ** ppZoneName, int * pZoneNameLen ) const
+{
+	assert ( sSrc && ppTag && ppZoneName && pZoneNameLen );
+	assert ( sSrc[0]!='/' || sSrc[1]!='\0' );
+
+	const BYTE * sTagName = ( sSrc[0]=='/' ) ? sSrc+1 : sSrc;
+
+	*ppZoneName = sSrc;
+	*pZoneNameLen = 0;
+
+	int iIdx = GetCharIndex ( sTagName[0] );
+	assert ( iIdx>=0 && iIdx<MAX_CHAR_INDEX );
+
+	if ( m_dEnd[iIdx]>=0 )
+	{
+		int iStart = m_dStart[iIdx];
+		int iEnd = m_dEnd[iIdx];
+
+		for ( int i=iStart; i<=iEnd; i++ )
+		{
+			int iLen = m_dTags[i].m_iTagLen;
+			int iCmp = strncasecmp ( m_dTags[i].m_sTag.cstr(), (const char*)sTagName, iLen );
+
+ );
+
+				// the tags are sorted; so if current candidate is already greater, rest can be skippif ( iCmp>0 )
+				break;
+
+			// do we have a match?
+			if ( iCmp==0 )
+			{
+				// got exact match?
+				if ( !sphIsTag ( sTagName[iLen] ) )
+				{
+					*ppTag = m_dTags.Begin() + i;
+					sSrc = sTagName + iLen; // skip tag name
+					if ( m_dTags[i].m_bZone )
+						*pZoneNameLen = sSrc - *ppZoneName;
+					break;
+				}
+
+				// got wildcard match?
+				if ( m_dTags[i].m_bZonePrefix )
+				{
+					*ppTag = m_dTags.Begin() + i;
+					sSrc = sTagName + iLen;
+					while ( sphIsTag(*sSrc) )
+						sSrc++;
+					*pZoneNameLen = sSrc - *ppZoneName;
+					break;
+				}
+			}
+		}
+	}
+
+	return sSrc;
 }
 
-/////////////////////////////////////////////////////////////////////////////
+bool CSphHTMLStripper::IsValidTagStart ( int iCh ) const
+{
+	int i = GetCharIndex ( iCh );
+	return ( i>=0 && i<MAX_CHAR_INDEX );
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////
 // GENERIC SOURCE
 /////////////////////////////////////////////////////////////////////////////
 
@@ -18895,7 +18911,7 @@ CSphSource::CSphSource ( const char * sName )
 	, m_iNullIds ( 0 )
 	, m_iMaxIds ( 0 )
 {
-	m_pStripper = new CSphHTMLStripper ();
+	m_pStripper = new CSphHTMLStri true pper ();
 }
 
 
