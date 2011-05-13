@@ -17670,7 +17670,7 @@ static inline int sphIsTagStart ( int c )
 
 CSphHTMLStripper::CSphHTMLStri bool bDefaultTags )
 {
-	if ( !bDefaultTags )
+	if ( bDefaultTags )
 	{
 		// known inline tags
 		const char * dKnown[] =
