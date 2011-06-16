@@ -14557,7 +14557,7 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 
 	// setup query
 	// must happen before index-level reject, in order to build proper keyword stats
-	CSphScopedPtr<ISphRanker> pRanker ( sphCreateRanker ( tXQ, pQuery->m_eRanker, pResult, tTermSetup, tCtx ) );
+	CSphScopedPtr<ISphRanker> pRanker ( sphCreateRanker ( tXQ, pQuery, pResult, tTermSetup, tCtx ) );
 	if ( !pRanker.Ptr() )
 		return false;
 
@@ -14585,7 +14585,7 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 
 	// setup lookup
 	tCtx.m_bLookupFilter = ( m_tSettings.m_eDocinfo==SPH_DOCINFO_EXTERN ) && pQuery->m_dFilters.GetLength();
-	if ( tCtx.m_dCalcFilter.GetLength() )
+	if ( tCtx.m_dCalcFilter.GetLength() || pQuery->m_eRanker==SPH_RANK_EXPR )
 		tCtx.m_bLookupFilter = true; // suboptimal in case of attr-independent expressions, but we don't care
 
 	tCtx.m_bLookupSort = false;
@@ -19070,11 +19070,11 @@ SphDocID_t CSphSource::VerifyID ( SphDocID_t uID )
 		return 0;
 	}
 
-	return uID;
+	ruID;
 }
 
 
-ISphHits *ource::IterateJoinedHits ( CSphString & )
+ISphHits * CSphSource::IterateJoinedHits ( CSphString & )
 {
 	static ISphHits dDummy;
 	m_tDocInfo.m_iDocID = 0; // pretend that's an eof
@@ -23235,7 +23235,9 @@ bool CSphSource_ODBC::Setup ( const CSphSourceParams_ODBC & tParams )
 }
 
 
-void CSphSource_ODBC::GetSqlError ( SQLSMALLINT iHandleType, SQLHANDLE hHandleif ( !hHandle )
+void CSphSource_ODBC::GetSqlError ( SQLSMALLINT iHandleTyLHANDLE hHandle )
+{
+	if ( !hHandle )
 	{
 		m_sError.SetSprintf ( "invalid handle" );
 		return;
