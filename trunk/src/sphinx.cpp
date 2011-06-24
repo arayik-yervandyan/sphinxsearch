@@ -2088,6 +2088,8 @@ public:
 	virtual void					Setup ( const CSphTokenizerSettings & tSettings )				{ m_pTokenizer->Setup ( tSettings ); }
 	virtual const CSphTokenizerSettings &	GetSettings () const									{ return m_pTokenizer->GetSettings (); }
 	virtual const CSphSavedFile &	GetSynFileInfo () const											{ return m_pTokenizer->GetSynFileInfo (); }
+	virtual bool					EnableSentenceIndexing ( CSphString & sError )					{ return m_pTokenizer->EnableSentenceIndexing ( sError ); }
+	virtual bool					EnableZoneIndexing ( CSphString & sError )						{ return m_pTokenizer->EnableZoneIndexing ( sError ); }
 
 public:
 	virtual void					SetBuffer ( BYTE * sBuffer, int iLength );
@@ -15251,14 +15253,15 @@ walk string data, build a list of acceptable start offsets
 		for ( DWORD uRow=0; uRow<uRowsTotal; uRow++, pRow+=uStride )
 		{
 			// check that ids are ascending
-			bool bIsSpaValid = uLastID < DOCINFO2ID(pRow);
+			bool Valid = uLastID < DOCINFO2ID(pRow);
 			if ( !bIsSpaValid )
 				LOC_FAIL(( fp, "docid decreased (row=%u, id="DOCID_FMT", lastid="DOCID_FMT")",
 					uRow, DOCINFO2ID(pRow), uLastID ));
 
 			uLastID = DOCINFO2ID(pRow);
 
-			/////////////////////////// check MVAs
+			///////////////////////////
+			// check MVAs
 			///////////////////////////
 
 			if ( dMvaItems.GetLength() )
@@ -19053,7 +19056,7 @@ void CSphSource::SetTokenizer ( ISphTokenizer * pTokenizer )
 }
 
 
-bool CSphSource::UpdateSchema ( CSphSchema * pInfo, CSphString & sError )
+bool CSphS:UpdateSchema ( CSphSchema * pInfo, CSphString & sError )
 {
 	assert ( pInfo );
 
@@ -19065,7 +19068,7 @@ bool CSphSource::UpdateSchema ( CSphSchema * pInfo, CSphString & sError )
 	}
 
 	// check it
-	return m_tSchema.CompareTonfo, sError );
+	return m_tSchema.CompareTo ( *pInfo, sError );
 }
 
 
@@ -23207,7 +23210,7 @@ bool CSphSource_ODBC::Setup ( const CSphSourceParams_ODBC & tParams )
 			// expect number
 			if (!( *p>='0' && *p<='9' ))
 			{
-				m_sError.SetSprintf ( "number expected in sql_column_buffers near '%s'", p );
+				m_sError.SetSprintf ( r expected in sql_column_buffers near '%s'", p );
 				return false;
 			}
 
@@ -23222,7 +23225,7 @@ bool CSphSource_ODBC::Setup ( const CSphSourceParams_ODBC & tParams )
 			{
 				iSize *= 1024;
 				p++;
-lse if ( *p=='M' )
+			} else if ( *p=='M' )
 			{
 				iSize *= 1048576;
 				p++;
