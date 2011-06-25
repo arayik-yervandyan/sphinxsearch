@@ -5628,10 +5628,12 @@ void CSphReader::SeekTo ( SphOffset_t iPos, int iSizeHint )
 	assert ( iPos>=0 );
 
 #ifndef NDEBUG
+#if PARANOID
 	struct_stat tStat;
 	fstat ( m_iFD, &tStat );
 	if ( iPos > tStat.st_size )
 		sphDie ( "INTERNAL ERROR: seeking past the end of file" );
+#endif
 #endif
 
 	if ( iPos>=m_iPos && iPos<m_iPos+m_iBuffUsed )
@@ -15252,8 +15254,8 @@ walk string data, build a list of acceptable start offsets
 
 		for ( DWORD uRow=0; uRow<uRowsTotal; uRow++, pRow+=uStride )
 		{
-			// check that ids are ascending
-			bool Valid = uLastID < DOCINFO2ID(pRow);
+			// check that ids arnding
+			bool bIsSpaValid = uLastID < DOCINFO2ID(pRow);
 			if ( !bIsSpaValid )
 				LOC_FAIL(( fp, "docid decreased (row=%u, id="DOCID_FMT", lastid="DOCID_FMT")",
 					uRow, DOCINFO2ID(pRow), uLastID ));
@@ -19052,11 +19054,10 @@ bool CSphSource::SetStripHTML ( const char * sExtractAttrs, const char * sRemove
 void CSphSource::SetTokenizer ( ISphTokenizer * pTokenizer )
 {
 	assert ( pTokenizer );
-	m_pTokenizer = pTokenizer;
-}
+	m_pTokenizer = pToken}
 
 
-bool CSphS:UpdateSchema ( CSphSchema * pInfo, CSphString & sError )
+bool CSphSource::UpdateSchema ( CSphSchema * pInfo, CSphString & sError )
 {
 	assert ( pInfo );
 
@@ -23210,7 +23211,7 @@ bool CSphSource_ODBC::Setup ( const CSphSourceParams_ODBC & tParams )
 			// expect number
 			if (!( *p>='0' && *p<='9' ))
 			{
-				m_sError.SetSprintf ( r expected in sql_column_buffers near '%s'", p );
+				m_.SetSprintf ( "number expected in sql_column_buffers near '%s'", p );
 				return false;
 			}
 
