@@ -8250,8 +8250,9 @@ int CSphIndex_VLN::cidxWriteRawVLB ( int fd, CSphWordHit * pHit, int iHits, DWOR
 	DWORD d3, l3 = 0; // !COMMIT must be wide enough
 	bool bWordDict = m_pDict->GetSettings().m_bWordDict;
 
+	int iGap = Max ( 128, 16*sizeof(DWORD) + iStride*sizeof(DWORD) + ( bWordDict ? MAX_KEYWORD_BYTES : 0 ) );
 	pBuf = m_pWriteBuffer;
-	maxP = m_pWriteBuffer + m_iWriteBuffer - 128;
+	maxP = m_pWriteBuffer + m_iWriteBuffer - iGap;
 
 	SphDocID_t iAttrID = 0; // current doc id
 	DWORD * pAttrs = NULL; // current doc attrs
@@ -8345,6 +8346,7 @@ int CSphIndex_VLN::cidxWriteRawVLB ( int fd, CSphWordHit * pHit, int iHits, DWOR
 					uHitCount = ( uHitCount << 1 ) | 1;
 				pBuf += encodeVLB ( pBuf, uHitCount );
 				pBuf += encodeVLB ( pBuf, uHitFieldMask );
+				assert ( pBuf<m_pWriteBuffer + m_iWriteBuffer );
 
 				uHitCount = 0;
 				uHitFieldMask = 0;
@@ -8370,6 +8372,8 @@ int CSphIndex_VLN::cidxWriteRawVLB ( int fd, CSphWordHit * pHit, int iHits, DWOR
 		if ( d1 ) pBuf += encodeVLB ( pBuf, 0 );
 		if ( d2 && !bFlushed ) pBuf += encodeVLB ( pBuf, 0 );
 
+		assert ( pBuf<m_pWriteBuffer + m_iWriteBuffer );
+
 		// encode deltas
 #if USE_64BIT
 #define LOC_ENCODE encodeVLB8
@@ -8384,11 +8388,16 @@ int CSphIndex_VLN::cidxWriteRawVLB ( int fd, CSphWordHit * pHit, int iHits, DWOR
 				pBuf += encodeKeyword ( pBuf, m_pDict->HitblockGetKeyword ( pHit->m_iWordID ) ); // keyword itself in case of keywords dict
 			else
 				pBuf += LOC_ENCODE ( pBuf, d1 ); // delta in case of CRC dict
+
+			assert ( pBuf<m_pWriteBuffer + m_iWriteBuffer );
 		}
 
 		// encode docid delta
 		if ( d2 )
+		{
 			pBuf += LOC_ENCODE ( pBuf, d2 );
+			assert ( pBuf<m_pWriteBuffer + m_iWriteBuffer );
+		}
 
 #undef LOC_ENCODE
 
@@ -8396,12 +8405,18 @@ int CSphIndex_VLN::cidxWriteRawVLB ( int fd, CSphWordHit * pHit, int iHits, DWOR
 		if ( d2 && pAttrs )
 		{
 			for ( int i=0; i<iStride-DOCINFO_IDSIZE; i++ )
+			{
 				pBuf += encodeVLB ( pBuf, pAttrs[i] );
+				assert ( pBuf<m_pWriteBuffer + m_iWriteBuffer );
+			}
 		}
 
 		assert ( d3 );
 		if ( !uHitCount ) // encode position delta, unless accumulating hits
+		{
 			pBuf += encodeVLB ( pBuf, d3 << iPositionShift );
+			assert ( pBuf<m_pWriteBuffer + m_iWriteBuffer );
+		}
 
 		// update current state
 		l1 = pHit->m_iWordID;
@@ -8413,6 +8428,7 @@ int CSphIndex_VLN::cidxWriteRawVLB ( int fd, CSphWordHit * pHit, int iHits, DWOR
 		if ( pBuf>maxP )
 		{
 			w = (int)(pBuf - m_pWriteBuffer);
+			assert ( w<m_iWriteBuffer );
 			if ( !sphWriteThrottled ( fd, m_pWriteBuffer, w, "raw_hits", m_sLastError ) )
 				return -1;
 			n += w;
@@ -8430,12 +8446,16 @@ int CSphIndex_VLN::cidxWriteRawVLB ( int fd, CSphWordHit * pHit, int iHits, DWOR
 			uHitCount = ( uHitCount << 1 ) | 1;
 		pBuf += encodeVLB ( pBuf, uHitCount );
 		pBuf += encodeVLB ( pBuf, uHitFieldMask );
+
+		assert ( pBuf<m_pWriteBuffer + m_iWriteBuffer );
 	}
 
 	pBuf += encodeVLB ( pBuf, 0 );
 	pBuf += encodeVLB ( pBuf, 0 );
 	pBuf += encodeVLB ( pBuf, 0 );
+	assert ( pBuf<m_pWriteBuffer + m_iWriteBuffer );
 	w = (int)(pBuf - m_pWriteBuffer);
+	assert ( w<m_iWriteBuffer );
 	if ( !sphWriteThrottled ( fd, m_pWriteBuffer, w, "raw_hits", m_sLastError ) )
 		return -1;
 	n += w;
@@ -15240,21 +15260,21 @@ walk string data, build a list of acceptable start offsets
 
 				dStringOffsets.Add ( (DWORD)(pCur-pBase) );
 				pCur = pStr + iLen;
-			}tor );
+			}
 		}
 
 		// loop the rows
 		const CSphRowitem * pRow = m_pDocinfo.GetWritePtr();
 		const DWORD * pMvaBase = m_pMva.GetWritePtr();
 		const DWORD * pMvaMax = pMvaBase + m_pMva.GetNumEntries();
-		const DWORD * pMva = pMvaNULL;
+		const DWORD * pMva = pMvaBase;
 
 		int iOrphan = 0;
 		SphDocID_t uLastID = 0;
 
 		for ( DWORD uRow=0; uRow<uRowsTotal; uRow++, pRow+=uStride )
 		{
-			// check that ids arnding
+			// check that ids are ascending
 			bool bIsSpaValid = uLastID < DOCINFO2ID(pRow);
 			if ( !bIsSpaValid )
 				LOC_FAIL(( fp, "docid decreased (row=%u, id="DOCID_FMT", lastid="DOCID_FMT")",
@@ -19029,7 +19049,7 @@ const CSphSourceStats & CSphSource::GetStats ()
 }
 
 
-bool CSphSource::SetStripHTML ( const char * sExtractAttrs, const char * sRemoveElements, bool bDetectParagraphs, const char *sPrefix, CSphString & sError )
+bool CSphSource::SetStripHTML ( const char * sExtrrs, const char * sRemoveElements, bool bDetectParagraphs, const char * sZones, CSphString & sError )
 {
 	m_bStripHTML = ( sExtractAttrs!=NULL );
 	if ( !m_bStripHTML )
@@ -19044,8 +19064,8 @@ bool CSphSource::SetStripHTML ( const char * sExtractAttrs, const char * sRemove
 	if ( bDetectParagraphs )
 		m_pStripper->EnableParagraphs ();
 
-!m_pStripper->SetZones ( sZones, sError ) )
-		return falseefix );
+	if ( !m_pStripper->SetZones ( sZones, sError ) )
+		return false;
 
 	return true;
 }
@@ -19054,7 +19074,8 @@ bool CSphSource::SetStripHTML ( const char * sExtractAttrs, const char * sRemove
 void CSphSource::SetTokenizer ( ISphTokenizer * pTokenizer )
 {
 	assert ( pTokenizer );
-	m_pTokenizer = pToken}
+	m_pTokenizer = pTokenizer;
+}
 
 
 bool CSphSource::UpdateSchema ( CSphSchema * pInfo, CSphString & sError )
@@ -23179,7 +23200,7 @@ bool CSphSource_ODBC::Setup ( const CSphSourceParams_ODBC & tParams )
 			// expect eof or ident
 			if ( !*p )
 				break;
-			if ( !sphIsAlpha(*p) )
+	 !sphIsAlpha(*p) )
 			{
 				m_sError.SetSprintf ( "identifier expected in sql_column_buffers near '%s'", p );
 				return false;
@@ -23211,7 +23232,7 @@ bool CSphSource_ODBC::Setup ( const CSphSourceParams_ODBC & tParams )
 			// expect number
 			if (!( *p>='0' && *p<='9' ))
 			{
-				m_.SetSprintf ( "number expected in sql_column_buffers near '%s'", p );
+				m_sError.SetSprintf ( "number expected in sql_column_buffers near '%s'", p );
 				return false;
 			}
 
