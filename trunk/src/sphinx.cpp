@@ -11437,25 +11437,22 @@ bool CSphIndex_VLN::Merge ( CSphIndex * pSource, CSphVector<CSphFilterSettings> 
 
 	// create filters
 	ISphFilter * pFilter = CreateMergeFilters ( dFilters, m_tSchema, GetMVAPool() );
-	if ( !bMergeKillLists )
+	DWORD nKillListSize = pSrcIndex->GetKillListSize ();
+	if ( nKillListSize )
 	{
-		DWORD nKillListSize = pSrcIndex->GetKillListSize ();
-		if ( nKillListSize )
-		{
-			CSphFilterSettings tKillListFilter;
-			SphAttr_t * pKillList = pSrcIndex->GetKillList ();
+		CSphFilterSettings tKillListFilter;
+		SphAttr_t * pKillList = pSrcIndex->GetKillList ();
 
-			tKillListFilter.m_bExclude = true;
-			tKillListFilter.m_eType = SPH_FILTER_VALUES;
-			tKillListFilter.m_uMinValue = pKillList[0];
-			tKillListFilter.m_uMaxValue = pKillList[nKillListSize -1];
-			tKillListFilter.m_sAttrName = "@id";
-			tKillListFilter.SetExternalValues ( pKillList, nKillListSize );
+		tKillListFilter.m_bExclude = true;
+		tKillListFilter.m_eType = SPH_FILTER_VALUES;
+		tKillListFilter.m_uMinValue = pKillList[0];
+		tKillListFilter.m_uMaxValue = pKillList[nKillListSize -1];
+		tKillListFilter.m_sAttrName = "@id";
+		tKillListFilter.SetExternalValues ( pKillList, nKillListSize );
 
-			ISphFilter * pKillListFilter =
-				sphCreateFilter ( tKillListFilter, m_tSchema, GetMVAPool(), m_sLastError );
-			pFilter = sphJoinFilters ( pFilter, pKillListFilter );
-		}
+		ISphFilter * pKillListFilter =
+			sphCreateFilter ( tKillListFilter, m_tSchema, GetMVAPool(), m_sLastError );
+		pFilter = sphJoinFilters ( pFilter, pKillListFilter );
 	}
 
 	/////////////////////////////////////////
@@ -11694,7 +11691,7 @@ bool CSphIndex_VLN::Merge ( CSphIndex * pSource, CSphVector<CSphFilterSettings> 
 	{
 		// merge spk
 		CSphVector<SphAttr_t> dKillList;
-		dKillList.Reserve ( 1024 );
+		dKillList.Reserve ( GetKillListSize() + pSrcIndex->GetKillListSize() );
 		for ( int i = 0; i < pSrcIndex->GetKillListSize (); i++ )
 			dKillList.Add ( pSrcIndex->GetKillList () [i] );
 
@@ -11710,6 +11707,9 @@ bool CSphIndex_VLN::Merge ( CSphIndex * pSource, CSphVector<CSphFilterSettings> 
 			if ( !sphWriteThrottled ( fdKillList.GetFD(), &dKillList[0], dKillList.GetLength()*sizeof(SphAttr_t), "kill_list", m_sLastError ) )
 				return false;
 		}
+	} else
+	{
+		m_iKillListSize = 0;
 	}
 
 	fdKillList.Close ();
@@ -15260,10 +15260,11 @@ rd) );
 
 				uFieldMask |= ( 1UL<<iField );
 				iDocHits++; // to check doclist entry
-				iHitlistHits++; // to check dictionary entry
+				iHitlistHits++; // to check dictionary
 			}
 
-			// check hit co	if ( iDocHits!=(int)pQword->m_uMatchHits )
+			// check hit count
+			if ( iDocHits!=(int)pQword->m_uMatchHits )
 				LOC_FAIL(( fp, "doc hit count mismatch (wordid="UINT64_FMT"(%s), docid="DOCID_FMT", doclist=%d, hitlist=%d)",
 					(uint64_t)uWordid, sWord, pQword->m_tDoc.m_iDocID, pQword->m_uMatchHits, iDocHits ));
 
@@ -23137,9 +23138,9 @@ bool CSphSource_ODBC::SqlQuery ( const char * sQuery )
 			return false;
 
 		tCol.m_sName = szColumnName;
-		tCol.m_sName.ToLower();
+		tCoame.ToLower();
 
-		// deducer size
+		// deduce buffer size
 		// use a small buffer by default, and a bigger one for varchars
 		int iBuffLen = DEFAULT_COL_SIZE;
 		if ( iDataType==SQL_WCHAR || iDataType==SQL_WVARCHAR || iDataType==SQL_WLONGVARCHAR|| iDataType==SQL_VARCHAR )
