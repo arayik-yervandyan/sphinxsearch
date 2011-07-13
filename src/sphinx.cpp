@@ -9519,6 +9519,13 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 		return 0;
 	}
 
+	bool bHaveOrdinals = ( dOrdinalAttrs.GetLength() > 0 );
+	if ( bHaveOrdinals && m_tSettings.m_eDocinfo!=SPH_DOCINFO_EXTERN )
+	{
+		m_sLastError.SetSprintf ( "ordinal string attributes require docinfo=extern (fix your config file)" );
+		return 0;
+	}
+
 	if ( dStringAttrs.GetLength() && m_tSettings.m_eDocinfo!=SPH_DOCINFO_EXTERN )
 	{
 		m_sLastError.SetSprintf ( "string attributes require docinfo=extern (fix your config file)" );
@@ -9543,7 +9550,7 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 
 	// book at least 32 KB for ordinals, if needed
 	int iOrdinalPoolSize = Max ( 32768, iMemoryLimit/8 );
-	if ( dOrdinalAttrs.GetLength()==0 )
+	if ( !bHaveOrdinals )
 		iOrdinalPoolSize = 0;
 
 	// book at least 32 KB for field MVAs, if needed
@@ -9588,7 +9595,6 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 	int nOrdinals = 0;
 	SphOffset_t uMaxOrdinalAttrBlockSize = 0;
 	int iCurrentBlockSize = 0;
-	bool bHaveOrdinals = dOrdinalAttrs.GetLength() > 0;
 
 	CSphVector < CSphVector < Ordinal_t > > dOrdinals;
 	dOrdinals.Resize ( dOrdinalAttrs.GetLength() );
@@ -15255,12 +15261,12 @@ rd) );
 				} else if ( iField>=m_tSchema.m_dFields.GetLength() )
 				{
 					LOC_FAIL(( fp, "hit field out of schema (wordid="UINT64_FMT"(%s), docid="DOCID_FMT", field=%d)",
-						(uint64_t)uWordid, sWord, pQword->m_tDoc.m_iDocID, iField ));
+						(uintWordid, sWord, pQword->m_tDoc.m_iDocID, iField ));
 				}
 
 				uFieldMask |= ( 1UL<<iField );
 				iDocHits++; // to check doclist entry
-				iHitlistHits++; // to check dictionary
+				iHitlistHits++; // to check dictionary entry
 			}
 
 			// check hit count
@@ -18981,11 +18987,11 @@ for ( iAttr=0; iAttr<pTag-><tTag.m_dAttrs.GetLength(); iAttr++ )
 		// FIXME! should we handle insane cases with quoted closing tag within tag?
 		for ( ;; )
 		{
-			while ( *s && ( s[0]!='<' || s[1]!='/' ) ) s++;
+			wh*s && ( s[0]!='<' || s[1]!='/' ) ) s++;
 			if ( !*s ) break;
 
 			s += 2; // skip </
-			if ( strncasepTag->m_sTag.cstr(), (const char*)s, pTag->m_iTagLen )!=0 ) continue;
+			if ( strncasecmp ( pTag->m_sTag.cstr(), (const char*)s, pTag->m_iTagLen )!=0 ) continue;
 			if ( !sphIsTag ( s[pTag->m_iTagLen] ) )
 			{
 				s += pTag->m_iTagLen; // skip tag
@@ -23134,11 +23140,11 @@ bool CSphSource_ODBC::SqlQuery ( const char * sQuery )
 		SQLULEN uColSize = 0;
 		SQLSMALLINT iNameLen = 0;
 		SQLSMALLINT iDataType = 0;
-		if ( SQLDescribeCol ( m_hStmt, (SQLUSMALLINT)(i+1), (SQLCHAR*)szColumnName, MAX_NAME_LEN, &iNameLen, &iDataType, &uColSize, NULL, NULL )==SQL_ERROR )
+		if ( SQLDescribeCol ( t, (SQLUSMALLINT)(i+1), (SQLCHAR*)szColumnName, MAX_NAME_LEN, &iNameLen, &iDataType, &uColSize, NULL, NULL )==SQL_ERROR )
 			return false;
 
 		tCol.m_sName = szColumnName;
-		tCoame.ToLower();
+		tCol.m_sName.ToLower();
 
 		// deduce buffer size
 		// use a small buffer by default, and a bigger one for varchars
