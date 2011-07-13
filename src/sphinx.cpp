@@ -19358,7 +19358,7 @@ CSphSource_Document::CSphSource_Document ( const char * sName )
 	, m_pReadFileBuffer ( NULL )
 	, m_iReadFileBufferSize ( 256 * 1024 )
 	, m_iMaxFileBufferSize ( 2 * 1024 * 1024 )
-	, m_bSkipFileFieldErrors ( false )
+	, m_eOnFileFieldError ( FFE_IGNORE_FIELD )
 	, m_fpDumpRows ( NULL )
 	, m_iMaxHits ( MAX_SOURCE_HITS )
 {
@@ -19390,13 +19390,23 @@ bool CSphSource_Document::IterateDocument ( CSphString & sError )
 		// we can only skip document indexing from here, IterateHits() is too late
 		// so in case the user chose to skip documents with file field problems
 		// we need to check for those here
-		if ( m_bSkipFileFieldErrors )
+		if ( m_eOnFileFieldError==FFE_SKIP_DOCUMENT || m_eOnFileFieldError==FFE_FAIL_INDEX )
 		{
 			bool bOk = true;
 			for ( int iField=0; iField<m_tState.m_iEndField && bOk; iField++ )
+			{
+				const BYTE * sFilename = m_tState.m_dFields[iField];
 				if ( m_tSchema.m_dFields[iField].m_bFilename )
-					bOk &= CheckFileField ( m_tState.m_dFields[iField] );
-			if ( !bOk )
+					bOk &= CheckFileField ( sFilename );
+
+				if ( !bOk && m_eOnFileFieldError==FFE_FAIL_INDEX )
+				{
+					sError.SetSprintf ( "error reading file field data (docid=" DOCID_FMT ", filename=%s)",
+						m_tDocInfo.m_iDocID, sFilename );
+					return false;
+				}
+			}
+			if ( !bOk && m_eOnFileFieldError==FFE_SKIP_DOCUMENT )
 				continue;
 		}
 
@@ -19429,15 +19439,15 @@ bool CSphSource_Document::CheckFileField ( const BYTE * sField )
 
 	if ( tFileSource.Open ( (const char *)sField, SPH_O_READ, sError )==-1 )
 	{
-		sphWarning ( "failed to open file '%s', error '%s'", (const char *)sField, sError.cstr() );
+		sphWarning ( "docid=" DOCID_FMT ": %s", m_tDocInfo.m_iDocID, sError.cstr() );
 		return false;
 	}
 
 	int64_t iFileSize = tFileSource.GetSize();
 	if ( iFileSize+16 > m_iMaxFileBufferSize )
 	{
-		sphWarning ( "file '%s' too big for a field (size="INT64_FMT", max_file_field_buffer=%d)",
-			(const char *)sField, iFileSize, m_iMaxFileBufferSize );
+		sphWarning ( "docid=" DOCID_FMT ": file '%s' too big for a field (size="INT64_FMT", max_file_field_buffer=%d)",
+			m_tDocInfo.m_iDocID, (const char *)sField, iFileSize, m_iMaxFileBufferSize );
 		return false;
 	}
 
@@ -19454,15 +19464,15 @@ int CSphSource_Document::LoadFileField ( BYTE ** ppField, CSphString & sError )
 	BYTE * sField = *ppField;
 	if ( tFileSource.Open ( (const char *)sField, SPH_O_READ, sError )==-1 )
 	{
-		sphWarning ( "failed to open file '%s', error '%s'", (const char *)sField, sError.cstr() );
+		sphWarning ( "docid=" DOCID_FMT ": %s", m_tDocInfo.m_iDocID, sError.cstr() );
 		return -1;
 	}
 
 	int64_t iFileSize = tFileSource.GetSize();
 	if ( iFileSize+16 > m_iMaxFileBufferSize )
 	{
-		sphWarning ( "file '%s' too big for a field (size="INT64_FMT", max_file_field_buffer=%d)",
-			(const char *)sField, iFileSize, m_iMaxFileBufferSize );
+		sphWarning ( "docid=" DOCID_FMT ": file '%s' too big for a field (size="INT64_FMT", max_file_field_buffer=%d)",
+			m_tDocInfo.m_iDocID, (const char *)sField, iFileSize, m_iMaxFileBufferSize );
 		return -1;
 	}
 
@@ -19482,7 +19492,7 @@ int CSphSource_Document::LoadFileField ( BYTE ** ppField, CSphString & sError )
 
 	if ( !tFileSource.Read ( m_pReadFileBuffer, iFieldBytes, sError ) )
 	{
-		sphWarning ( "failed to read file '%s', error '%s'", (const char *)sField, sError.cstr() );
+		sphWarning ( "docid=" DOCID_FMT ": read failed: %s", m_tDocInfo.m_iDocID, sError.cstr() );
 		return -1;
 	}
 
@@ -19803,7 +19813,7 @@ CSphSourceParams_SQL::CSphSourceParams_SQL ()
 	: m_iRangeStep ( 1024 )
 	, m_iRefRangeStep ( 1024 )bPrintQueries ( false( 1024 )
 	, m_iRangedThrottle ( 0 )
-	, m_iMaxFileBufferSize ( 0 )bSkipFileFieldErrors ( falseze ( 0 )
+	, m_iMaxFileBufferSize ( 0 )eOnFileFieldError ( FFE_IGNORE_FIELDze ( 0 )
 	, m_iPort ( 0 )
 {
 }
@@ -19869,7 +19879,7 @@ bool CSphSource_SQL::Setup ( const CSphSourceParams_SQL & tParams )
 	m_sSqlDSN = sBuf;
 
 	if ( m_tParams.m_iMaxFileBufferSize > 0 )
-		m_iMaxFileBufferSize = m_tParams.m_iMaxFileBuffer	m_bSkipFileFieldErrors = m_tParams.m_bSkipFileFieldErrorserSize;
+		m_iMaxFileBufferSize = m_tParams.m_iMaxFileBuffer	m_eOnFileFieldError = m_tParams.m_eOnFileFieldErrorerSize;
 
 	return true;
 }
@@ -23121,8 +23131,7 @@ bool CSphSource_ODBC::SqlQuery ( const char * sQuery )
 	if ( m_tParams.m_bPrintQueries )
 		fprintf ( stdout, "SQL-QUERY: %s: ok\n", sQuery ) false;
 
-	SQLSMALLINT nCols = 0;
-	m_nResultCols = 0;
+	SQLSMALLINT nCols m_nResultCols = 0;
 	if ( SQLNumResultCols ( m_hStmt, &nCols )==SQL_ERROR )
 		return false;
 
@@ -23140,7 +23149,7 @@ bool CSphSource_ODBC::SqlQuery ( const char * sQuery )
 		SQLULEN uColSize = 0;
 		SQLSMALLINT iNameLen = 0;
 		SQLSMALLINT iDataType = 0;
-		if ( SQLDescribeCol ( t, (SQLUSMALLINT)(i+1), (SQLCHAR*)szColumnName, MAX_NAME_LEN, &iNameLen, &iDataType, &uColSize, NULL, NULL )==SQL_ERROR )
+		if ( SQLDescribeCol ( m_hStmt, (SQLUSMALLINT)(i+1), (SQLCHAR*)szColumnName, MAX_NAME_LEN, &iNameLen, &iDataType, &uColSize, NULL, NULL )==SQL_ERROR )
 			return false;
 
 		tCol.m_sName = szColumnName;
