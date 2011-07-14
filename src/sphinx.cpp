@@ -7562,7 +7562,9 @@ bool CSphIndex_VLN::LoadPersistentMVA ( CSphString & sError )
 		if ( tAttr.m_eAttrType==SPH_ATTR_UINT32SET )
 			dMvaLocators.Add ( tAttr.m_tLocator );
 	}
+#ifndef NDEBUG
 	int iMva64 = dMvaLocators.GetLength();
+#endif
 	for ( int i=0; i<m_tSchema.GetAttrsCount(); i++ )
 	{
 		const CSphColumnInfo & tAttr = m_tSchema.GetAttr(i);
@@ -7733,7 +7735,9 @@ bool CSphIndex_VLN::SaveAttributes ()
 			if ( tAttr.m_eAttrType==SPH_ATTR_UINT32SET )
 				dMvaLocators.Add ( tAttr.m_tLocator );
 		}
+#ifndef NDEBUG
 		int iMva64 = dMvaLocators.GetLength();
+#endif
 		for ( int i=0; i<m_tSchema.GetAttrsCount(); i++ )
 		{
 			const CSphColumnInfo & tAttr = m_tSchema.GetAttr(i);
@@ -15260,8 +15264,8 @@ rd) );
 
 				} else if ( iField>=m_tSchema.m_dFields.GetLength() )
 				{
-					LOC_FAIL(( fp, "hit field out of schema (wordid="UINT64_FMT"(%s), docid="DOCID_FMT", field=%d)",
-						(uintWordid, sWord, pQword->m_tDoc.m_iDocID, iField ));
+					LOC_FAIL(( fp, "hit field out of schema (wordid="UINT64_FMT"(%s)d="DOCID_FMT", field=%d)",
+						(uint64_t)uWordid, sWord, pQword->m_tDoc.m_iDocID, iField ));
 				}
 
 				uFieldMask |= ( 1UL<<iField );
@@ -18984,10 +18988,10 @@ for ( iAttr=0; iAttr<pTag-><tTag.m_dAttrs.GetLength(); iAttr++ )
 			continue;
 
 		// skip everything until the closing tag
-		// FIXME! should we handle insane cases with quoted closing tag within tag?
+		// FIXME! should we handle insane cases with quoted cltag within tag?
 		for ( ;; )
 		{
-			wh*s && ( s[0]!='<' || s[1]!='/' ) ) s++;
+			while ( *s && ( s[0]!='<' || s[1]!='/' ) ) s++;
 			if ( !*s ) break;
 
 			s += 2; // skip </
@@ -23129,9 +23133,10 @@ bool CSphSource_ODBC::SqlQuery ( const char * sQuery )
 		return false;
 	}
 	if ( m_tParams.m_bPrintQueries )
-		fprintf ( stdout, "SQL-QUERY: %s: ok\n", sQuery ) false;
+		fprintf ( stdout, "SQL-QUERY: %s: ok\n", sQuery );
 
-	SQLSMALLINT nCols m_nResultCols = 0;
+	SQLSMALLINT nCols = 0;
+	m_nResultCols = 0;
 	if ( SQLNumResultCols ( m_hStmt, &nCols )==SQL_ERROR )
 		return false;
 
