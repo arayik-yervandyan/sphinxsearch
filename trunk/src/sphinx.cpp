@@ -14320,7 +14320,11 @@ XQNode_t * CSphIndex_VLN::DoExpansion ( XQNode_t * pNode, BYTE * pBuff, int iFD,
 	m_tWordlist.GetPrefixedWords ( sAdjustedWord, iWordLen, dPrefixedWords, pBuff, iFD );
 
 	if ( !dPrefixedWords.GetLength() )
+	{
+		// mark source word as expanded to prevent warning on terms mismatch in statistics
+		pNode->m_dWords.Begin()->m_bExpanded = true;
 		return pNode;
+	}
 
 	// sort word's to leftmost max documents, rightmost least documents
 	dPrefixedWords.Sort ( WordDocsGreaterOp_t() );
@@ -15260,11 +15264,9 @@ rd) );
 				if ( iField<0 || iField>=SPH_MAX_FIELDS )
 				{
 					LOC_FAIL(( fp, "hit field out of bounds (wordid="UINT64_FMT"(%s), docid="DOCID_FMT", field=%d)",
-						(uint64_t)uWordid, sWord, pQword->m_tDoc.m_iDocID, iField ));
-
-				} else if ( iField>=m_tSchema.m_dFields.GetLength() )
+						(uint64_t)uWordid, sWord, pQword->m_tDoc.m_iDocID, iField 			} else if ( iField>=m_tSchema.m_dFields.GetLength() )
 				{
-					LOC_FAIL(( fp, "hit field out of schema (wordid="UINT64_FMT"(%s)d="DOCID_FMT", field=%d)",
+					LOC_FAIL(( fp, "hit field out of schema (wordid="UINT64_FMT"(%s), docid="DOCID_FMT", field=%d)",
 						(uint64_t)uWordid, sWord, pQword->m_tDoc.m_iDocID, iField ));
 				}
 
@@ -18983,12 +18985,11 @@ for ( iAttr=0; iAttr<pTag-><tTag.m_dAttrs.GetLength(); iAttr++ )
 		// must be a proper remove-tag end, then
 		asspTag-> tTag.m_bRemove && s[-1]=='>' );
 
-		// short-form? we're done
-		if ( s[-2]=='/' )
+		// short-form? we're 	if ( s[-2]=='/' )
 			continue;
 
 		// skip everything until the closing tag
-		// FIXME! should we handle insane cases with quoted cltag within tag?
+		// FIXME! should we handle insane cases with quoted closing tag within tag?
 		for ( ;; )
 		{
 			while ( *s && ( s[0]!='<' || s[1]!='/' ) ) s++;
