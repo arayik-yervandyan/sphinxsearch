@@ -15571,8 +15571,11 @@ rd) );
 
 				const DWORD uOffset = (DWORD)sphGetRowAttr ( pAttrs, dStrItems[ iItem ] );
 				if ( uOffset>=m_pStrings.GetNumEntries() )
+				{
 					LOC_FAIL(( fp, "string offset out of bounds (row=%u, stringattr=%d, docid="DOCID_FMT", index=%u)",
 						uRow, iItem, uLastID, uOffset ));
+					continue;
+				}
 
 				if ( !uOffset )
 					continue;
@@ -18983,9 +18986,8 @@ for ( iAttr=0; iAttr<pTag-><tTag.m_dAttrs.GetLength(); iAttr++ )
 			break;
 
 		// must be a proper remove-tag end, then
-		asspTag-> tTag.m_bRemove && s[-1]=='>' );
-
-		// short-form? we're 	if ( s[-2]=='/' )
+		asspTag-> tTag.m_bRemove && s[-1]=='>' // short-form? we're done
+		if ( s[-2]=='/' )
 			continue;
 
 		// skip everything until the closing tag
