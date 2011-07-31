@@ -7215,6 +7215,7 @@ CSphIndex_VLN::CSphIndex_VLN ( const char* sIndexName, const char * sFilename )
 	m_tLastHit.m_iWordPos = EMPTY_HIT;
 	m_tLastHit.m_sKeyword = m_sLastKeyword;
 	m_iLastHitlistPos = 0;
+	m_dLastDocFields.Unset();
 	m_uLastDocHits = 0;
 	m_iLastWordDocs = 0;
 	m_iLastWordHits = 0;
@@ -15262,8 +15263,8 @@ rd) );
 
 			for ( ;; )
 			{
-				Hitpos_t uHit = pQword->GetNextHit();
-				if ( uHit==EMP )
+				Hitpos_t uHit = pQword->GetNe);
+				if ( uHit==EMPTY_HIT )
 					break;
 
 				if (!( uLastHit<uHit ))
@@ -18973,9 +18974,10 @@ for ( iAttr=0; iAttr<pTag-><tTag.m_dAttrs.GetLength(); iAttr++ )
 				*d++ = (BYTE) tolower ( sZoneName[i] );
 			*d++ = MAGIC_CODE_ZONE;
 
-			if ( !*s )
+			if (
 				break;
-			contin}
+			continue;
+		}
 
 		// handle paragraph boundaries
 		if ( pTag->m_bPara )
@@ -23127,8 +23129,7 @@ void CSphSource_ODBC::SqlDismissResult ()
 {
 	if ( m_hStmt )
 	{
-		SQLCloseCursor ( m_hStmt );
-		SQLFreeHandle ( SQL_HSTMT, m_hStmt );
+		SQLCloseCursor ( m_hStmtSQLFreeHandle ( SQL_HANDLE_STMT, m_hStmt );
 		m_hStmt = NULL;
 	}
 }
