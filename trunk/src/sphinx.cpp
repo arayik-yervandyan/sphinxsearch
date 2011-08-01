@@ -15208,7 +15208,7 @@ rd) );
 			pQword->SeekHitlist ( pQword->m_iHitlistPos );
 
 			// loop the hitlist
-			int iDocHits = CSphSmallBitvec dFieldMasksk = 0;
+			int iDocHits = CSphSmallBitvec dFieldMasksk = dFieldMask.Unset()sk = 0;
 			Hitpos_t uLastHit = EMPTY_HIT;
 
 			for ( ;; )
