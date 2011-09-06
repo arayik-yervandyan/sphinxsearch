@@ -19548,6 +19548,36 @@ int CSphSource_Document::LoadFileField ( BYTE ** ppField, CSphString & sError )
 	return iFieldBytes;
 }
 
+//////////////////////////////////////////////////////////////////////////
+// HIT GENERATORS
+//////////////////////////////////////////////////////////////////////////
+
+bool CSphSource_Document::BuildZoneHits ( SphDocID_t uDocid, BYTE * sWord )
+{
+	if ( *sWord==MAGIC_CODE_SENTENCE || *sWord==MAGIC_CODE_PARAGRAPH || *sWord==MAGIC_CODE_ZONE )
+	{
+		m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( (BYTE*)MAGIC_WORD_SENTENCE ), m_tState.m_iHitPos );
+
+		if ( *sWord==MAGIC_CODE_PARAGRAPH || *sWord==MAGIC_CODE_ZONE )
+			m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( (BYTE*)MAGIC_WORD_PARAGRAPH ), m_tState.m_iHitPos );
+
+		if ( *sWord==MAGIC_CODE_ZONE )
+		{
+			BYTE * pZone = (BYTE*) m_pTokenizer->GetBufferPtr();
+			BYTE * pEnd = pZone;
+			while ( *pEnd!=MAGIC_CODE_ZONE )
+				pEnd++;
+			*pEnd = '\0';
+			m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( pZone-1 ), m_tState.m_iHitPos );
+			m_pTokenizer->SetBufferPtr ( (const char*) pEnd+1 );
+		}
+
+		m_tState.m_iBuildLastStep = 1;
+		return true;
+	}
+	return false;
+}
+
 
 #define BUILD_SUBSTRING_HITS_COUNT 4
 
@@ -19581,6 +19611,9 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 			m_tState.m_iBuildLastStep = 1;
 		}
 
+		if ( BuildZoneHits ( uDocid, sWord ) )
+			continue;
+
 		int iLen = m_pTokenizer->GetLastTokenLen ();
 
 		// always index full word (with magic head/tail marker(s))
@@ -19601,13 +19634,13 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 
 		// stemmed word w/markers
 		SphWordID_t iWord = m_pDict->GetWordIDWithMarkers ( sBuf );
-		if ( iWord )
-			m_tHits.AddHit ( uDocid, iWord, m_tState.m_iHitPos );
-		else
+		if ( !iWord )
 		{
 			m_tState.m_iBuildLastStep = m_iStopwordStep;
 			continue;
 		}
+		m_tHits.AddHit ( uDocid, iWord, m_tState.m_iHitPos );
+		m_tState.m_iBuildLastStep = m_pTokenizer->TokenIsBlended() ? 0 : 1;
 
 		// restore stemmed word
 		int iStemmedLen = strlen ( ( const char *)sBuf );
@@ -19698,27 +19731,8 @@ void CSphSource_Document::BuildRegularHits ( SphDocID_t uDocid, bool bPayload, b
 				HITMAN::AddPos ( &m_tState.m_iHitPos, m_iBoundaryStep );
 		}
 
-		if ( *sWord==MAGIC_CODE_SENTENCE || *sWord==MAGIC_CODE_PARAGRAPH || *sWord==MAGIC_CODE_ZONE )
-		{
-			m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( (BYTE*)MAGIC_WORD_SENTENCE ), m_tState.m_iHitPos );
-
-			if ( *sWord==MAGIC_CODE_PARAGRAPH || *sWord==MAGIC_CODE_ZONE )
-				m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( (BYTE*)MAGIC_WORD_PARAGRAPH ), m_tState.m_iHitPos );
-
-			if ( *sWord==MAGIC_CODE_ZONE )
-			{
-				BYTE * pZone = (BYTE*) m_pTokenizer->GetBufferPtr();
-				BYTE * pEnd = pZone;
-				while ( *pEnd!=MAGIC_CODE_ZONE )
-					pEnd++;
-				*pEnd = '\0';
-				m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( pZone-1 ), m_tState.m_iHitPos );
-				m_pTokenizer->SetBufferPtr ( (const char*) pEnd+1 );
-			}
-
-			m_tState.m_iBuildLastStep = 1;
+		if ( BuildZoneHits ( uDocid, sWord ) )
 			continue;
-		}
 
 		if ( bGlobalPartialMatch )
 		{
@@ -19808,6 +19822,7 @@ void CSphSource_Document::BuildHits ( CSphString & sError, bool bSkipEndMarker )
 	m_tState.m_bDocumentDone = !m_tState.m_bProcessingHits;
 }
 
+//////////////////////////////////////////////////////////////////////////
 
 void CSphSource_Document::ParseFieldMVA ( CSphVector < CSphVector < DWORD > > & dFieldMVAs, int iFieldMVA, const char * szValue )
 {
@@ -23109,7 +23124,7 @@ FILE * sphDetectXMLPipe ( const char * szCommand, BYTE * dBuf, int & iBufSize, i
 		return NULL;
 
 	BYTE * pStart = dBuf;
-	iBufSize = (int)fread ( dBuf, 1, iMaxBufSize, pPipe );
+	iBufSize = (int)fread ( dBuf, 1, iMaxBufSizee );
 	BYTE * pEnd = pStart + iBufSize;
 
 	// BOM
@@ -23121,7 +23136,7 @@ FILE * sphDetectXMLPipe ( const char * szCommand, BYTE * dBuf, int & iBufSize, i
 		pStart++;
 
 	if ( ( pEnd - pStart)>=5 )
-		bUsePipe2 = !strncasecmp ( (char rt, "<?xml", 5 );
+		bUsePipe2 = !strncasecmp ( (char *)pStart, "<?xml", 5 );
 
 	return pPipe;
 }
