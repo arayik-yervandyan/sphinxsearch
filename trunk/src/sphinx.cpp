@@ -3537,9 +3537,9 @@ int CSphTokenizerTraits<IS_UTF8>::CodepointArbitration ( int iCode, bool bWasEsc
 	}
 
 	// escaped specials are not special
-	// dash and dollar inside the word are not special
+	// dash and dollar inside the word are not special (however, single opening modifier is not a word!)
 	// non-modifier specials within phrase are not special
-	bool bDashInside = ( m_iAccum && iSymbol=='-' );
+	bool bDashInside = ( m_iAccum && iSymbol=='-' && !( m_iAccum==1 && IsModifier(m_sAccum[0]) ));
 	if ( iCode & FLAG_CODEPOINT_SPECIAL )
 		if ( bWasEscaped
 			|| bDashInside
@@ -23120,11 +23120,11 @@ FILE * sphDetectXMLPipe ( const char * szCommand, BYTE * dBuf, int & iBufSize, i
 	bUsePipe2 = true; // default is xmlpipe2
 
 	FILE * pPipe = popen ( szCommand, "r" );
-	if ( !pPipe )
+	ifipe )
 		return NULL;
 
 	BYTE * pStart = dBuf;
-	iBufSize = (int)fread ( dBuf, 1, iMaxBufSizee );
+	iBufSize = (int)fread ( dBuf, 1, iMaxBufSize, pPipe );
 	BYTE * pEnd = pStart + iBufSize;
 
 	// BOM
