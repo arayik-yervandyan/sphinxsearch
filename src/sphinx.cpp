@@ -4358,7 +4358,11 @@ BYTE * CSphTokenizer_SBCS::GetToken ()
 			if ( m_iAccum==0 )
 				m_pTokenStart = pCur;
 
-			m_bNonBlended = m_bNonBlended || bNoBlend;
+			// tricky bit
+			// heading modifiers must not (!) affected blended status
+			// eg. we want stuff like '=-' (w/o apostrophes) thrown away when pure_blend is on
+			if (!( m_bQueryMode && !m_iAccum && IsModifier(iCode) ) )
+				m_bNonBlended = m_bNonBlended || bNoBlend;
 			m_sAccum[m_iAccum++] = (BYTE)iCode;
 		}
 	}
@@ -4558,8 +4562,8 @@ BYTE * CSphTokenizer_UTF8::GetToken ()
 
 			if ( m_iAccum==0 )
 			{
-				m_bWasSpecial = !( iCode & FLAG_CODEPOINT_NGRAM );
 				m_bNonBlended = m_bNonBlended || ( !( iCode & FLAG_CODEPOINT_BLEND ) && !( iCode & FLAG_CODEPOINT_SPECIAL ) );
+				m_bWasSpecial = !( iCode & FLAG_CODEPOINT_NGRAM );
 				m_pTokenStart = pCur;
 				m_pTokenEnd = m_pCur;
 				AccumCodepoint ( iCode & MASK_CODEPOINT ); // handle special as a standalone token
@@ -4580,8 +4584,13 @@ BYTE * CSphTokenizer_UTF8::GetToken ()
 		if ( m_iAccum==0 )
 			m_pTokenStart = pCur;
 
+		// tricky bit
+		// heading modifiers must not (!) affected blended status
+		// eg. we want stuff like '=-' (w/o apostrophes) thrown away when pure_blend is on
+		if (!( m_bQueryMode && !m_iAccum && IsModifier ( iCode & MASK_CODEPOINT ) ) )
+			m_bNonBlended = m_bNonBlended || !( iCode & FLAG_CODEPOINT_BLEND );
+
 		// just accumulate
-		m_bNonBlended = m_bNonBlended || !( iCode & FLAG_CODEPOINT_BLEND );
 		AccumCodepoint ( iCode & MASK_CODEPOINT );
 	}
 }
@@ -15267,13 +15276,13 @@ rd) );
 
 			uLastDocid = tDoc.m_iDocID;
 			iDoclistDocs++;
-			iDoclistHits += pQword->m_uMatchHits;
+			iDoclistHitsword->m_uMatchHits;
 
 			// check position in case of regular (not-inline) hit
 			if (!( pQword->m_iHitlistPos>>63 ))
 			{
 				if ( !bWordDict && pQword->m_iHitlistPos!=pQword->m_rdHitlist.GetPos() )
-					LOC_FAIL(( fp, "unexpected hitlist offset (="UINT64_FMT"(%s), docid="DOCID_FMT", expected="INT64_FMT", actual="INT64_FMT")",
+					LOC_FAIL(( fp, "unexpected hitlist offset (wordid="UINT64_FMT"(%s), docid="DOCID_FMT", expected="INT64_FMT", actual="INT64_FMT")",
 						(uint64_t)uWordid, sWord, pQword->m_tDoc.m_iDocID,
 						(int64_t)pQword->m_iHitlistPos, (int64_t)pQword->m_rdHitlist.GetPos() ));
 			}
@@ -18927,8 +18936,7 @@ void CSphHTMLStripper::Strip ( BYTE * sData ) const
 				}
 
 			} else if ( s[1]=='?' )
-			{
-				// scan until PI end
+			// scan until PI end
 				s += 2; // skip opening '<?'
 				while ( *s )
 				{
@@ -18952,7 +18960,9 @@ void CSphHTMLStripper::Strip ( BYTE * sData ) const
 
 		//////////////////////////////////////
 		// lookup this tag in known tags list
-		////////////////////////////////////const StripperTag_t * pTag = NULL;
+		//////////////////////////////////////
+
+		const StripperTag_t * pTag = NULL;
 		int iZoneNameLen = 0;
 		const BYTE * sZoneName = NULL;
 		s = FindTag ( s, &pTag, &sZoneName, &iZoneNameLen );
@@ -23083,20 +23093,19 @@ void CSphSource_XMLPipe2::Characters ( const char * pCharacters, int iLen )
 		const CSphString & sName = ( m_iCurField!=-1 ) ? m_tSchema.m_dFields[m_iCurField].m_sName : m_tSchema.GetAttr ( m_iCurAttr ).m_sName;
 
 		bool bWarned = false;
-		for ( int i = 0; i < m_dWarned.GetLength () && !bWarned; i++ )
-			bWarned = m_dWarned[i]==sName;
+		for ( int i = 0; i < m_dWarned.GetLength () && !bWarned; i		bWarned = m_dWarned[i]==sName;
 
 		if ( !bWarned )
 		{
 #if USE_LIBEXPAT
 			sphWarn ( "source '%s': field/attribute '%s' length exceeds max length (line=%d, pos=%d, docid=" DOCID_FMT ")",
-				m_tSchema.m_sName.cstr(), sName.cstr()",
-			(int)XML_GetCurrentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ),
+				m_tSchema.m_sName.cstr(), sName.cstr(),
+				(int)XML_GetCurrentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ),
 				m_pCurDocument->m_iDocID );
 #endif
 
 #if USE_LIBXML
-			sphWarn ( "source '%s': field/attribute '%s' length exceeds max length (docidID_FMT ")",
+			sphWarn ( "source '%s': field/attribute '%s' length exceeds max length (docid=" DOCID_FMT ")",
 				m_tSchema.m_sName.cstr(), sName.cstr(), m_pCurDocument->m_iDocID );
 #endif
 			m_dWarned.Add ( sName );
