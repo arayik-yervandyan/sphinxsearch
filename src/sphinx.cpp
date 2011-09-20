@@ -7275,7 +7275,7 @@ int CSphIndex_VLN::UpdateAttributes ( const CSphAttrUpdate & tUpd, int iIndex, C
 	bool bRaw = tUpd.m_dDocids.GetLength()==0;
 
 	// check if we have to
-	assert ( uRows==tUpd.m_dRowOffset.GetLength() );
+	assert ( (int)uRows==tUpd.m_dRowOffset.GetLength() );
 	if ( !m_uDocinfo || !uRows )
 		return 0;
 
@@ -8873,7 +8873,13 @@ bool CSphIndex_VLN::BuildMVA ( const CSphVector<CSphSource*> & dSources,
 				{
 					pMva->m_uDocID = pSource->m_tDocInfo.m_iDocID;
 					pMva->m_iAttr = i;
-					pMva->m_uValue = pSource->m_tDocInfo.GetAttr ( tAttr.m_tLocator );
+					if ( tAttr.m_eAttrType==SPH_ATTR_UINT32SET )
+					{
+						pMva->m_uValue = pSource->m_dMva[0];
+					} else
+					{
+						pMva->m_uValue = MVA_UPSIZE ( pSource->m_dMva.Begin() );
+					}
 
 					if ( ++pMva>=pMvaMax )
 					{
@@ -9399,9 +9405,10 @@ bool CSphIndex_VLN::SortOrdinalIds ( const char * szToFile, int iFromFD, int iAr
 
 struct FieldMVARedirect_t
 {
+	CSphAttrLocator		m_tLocator;
 	int					m_iAttr;
 	int					m_iMVAAttr;
-	CSphAttrLocator		m_tLocator;
+	bool				m_bMva64;
 };
 
 
@@ -9812,12 +9819,14 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 		ARRAY_FOREACH ( i, dMvaIndexes )
 		{
 			int iAttr = dMvaIndexes[i];
-			if ( m_tSchema.GetAttr(iAttr).m_eSrc==SPH_ATTRSRC_FIELD )
+			const CSphColumnInfo & tCol = m_tSchema.GetAttr ( iAttr );
+			if ( tCol.m_eSrc==SPH_ATTRSRC_FIELD )
 			{
 				FieldMVARedirect_t & tRedirect = dFieldMvaIndexes.Add();
+				tRedirect.m_tLocator = tCol.m_tLocator;
 				tRedirect.m_iAttr = iAttr;
 				tRedirect.m_iMVAAttr = i;
-				tRedirect.m_tLocator = m_tSchema.GetAttr ( iAttr ).m_tLocator;
+				tRedirect.m_bMva64 = ( tCol.m_eAttrType==SPH_ATTR_UINT64SET );
 			}
 		}
 
@@ -9865,32 +9874,42 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 			{
 				ARRAY_FOREACH ( i, dFieldMvaIndexes )
 				{
+					CSphAttrLocator tLoc = dFieldMvaIndexes[i].m_tLocator;
 					int iAttr = dFieldMvaIndexes[i].m_iAttr;
 					int iMVA = dFieldMvaIndexes[i].m_iMVAAttr;
-					CSphAttrLocator tLoc = dFieldMvaIndexes[i].m_tLocator;
+					bool bMva64 = dFieldMvaIndexes[i].m_bMva64;
+					int iStep = ( bMva64 ? 2 : 1 );
 
 					// store per-document MVAs
-					if ( pSource->IterateFieldMVAStart ( iAttr, m_sLastError ) )
-						while ( pSource->IterateFieldMVANext () )
+					SphRange_t tFieldMva = pSource->IterateFieldMVAStart ( iAttr );
+					m_tProgress.m_iAttrs += ( tFieldMva.m_iLength / iStep );
+
+					assert ( ( tFieldMva.m_iStart + tFieldMva.m_iLength )<=pSource->m_dMva.GetLength() );
+					for ( int i=tFieldMva.m_iStart; i<( tFieldMva.m_iStart+tFieldMva.m_iLength); i+=iStep )
+					{
+						MvaEntry_t & tMva = dFieldMVAs.Add();
+						tMva.m_uDocID = pSource->m_tDocInfo.m_iDocID;
+						tMva.m_iAttr = iMVA;
+						if ( bMva64 )
 						{
-							MvaEntry_t & tMva = dFieldMVAs.Add();
-							tMva.m_uDocID = pSource->m_tDocInfo.m_iDocID;
-							tMva.m_iAttr = iMVA;
-							tMva.m_uValue = pSource->m_tDocInfo.GetAttr ( tLoc );
-							m_tProgress.m_iAttrs++;
-
-							int iLength = dFieldMVAs.GetLength ();
-							if ( iLength==iMaxPoolFieldMVAs )
-							{
-								dFieldMVAs.Sort ( CmpMvaEntries_fn () );
-								if ( !sphWriteThrottled ( fdTmpFieldMVAs.GetFD (), &dFieldMVAs[0], iLength*sizeof(MvaEntry_t), "temp_field_mva", m_sLastError ) )
-									return 0;
-
-								dFieldMVAs.Resize ( 0 );
-
-								nFieldMVAs += iMaxPoolFieldMVAs;
-							}
+							tMva.m_uValue = MVA_UPSIZE ( pSource->m_dMva.Begin() + i );
+						} else
+						{
+							tMva.m_uValue = pSource->m_dMva[i];
 						}
+
+						int iLength = dFieldMVAs.GetLength ();
+						if ( iLength==iMaxPoolFieldMVAs )
+						{
+							dFieldMVAs.Sort ( CmpMvaEntries_fn () );
+							if ( !sphWriteThrottled ( fdTmpFieldMVAs.GetFD (), &dFieldMVAs[0], iLength*sizeof(MvaEntry_t), "temp_field_mva", m_sLastError ) )
+								return 0;
+
+							dFieldMVAs.Resize ( 0 );
+
+							nFieldMVAs += iMaxPoolFieldMVAs;
+						}
+					}
 				}
 			}
 
@@ -15261,8 +15280,7 @@ rd) );
 			{
 				const CSphRowitem * pFound = FindDocinfo ( tDoc.m_iDocID );
 				if ( !pFound )
-					LOC_FAIL(( fp, "row not found (wordid="UINT64_FMT"(%s), docid="DOCID_FMT")",
-						uint64_t(uWordid), sWord, tDoc.m_iDocID ));
+					LOC_FAIL(( fp, "row not found (wordid="UINT64_FMT"(%s), docid="DOCID_FMT")"		uint64_t(uWordid), sWord, tDoc.m_iDocID ));
 
 				if ( pFound )
 					if ( tDoc.m_iDocID!=DOCINFO2ID(pFound) )
@@ -15276,7 +15294,7 @@ rd) );
 
 			uLastDocid = tDoc.m_iDocID;
 			iDoclistDocs++;
-			iDoclistHitsword->m_uMatchHits;
+			iDoclistHits += pQword->m_uMatchHits;
 
 			// check position in case of regular (not-inline) hit
 			if (!( pQword->m_iHitlistPos>>63 ))
@@ -18901,7 +18919,7 @@ void CSphHTMLStripper::Strip ( BYTE * sData ) const
 					while ( *s )
 					{
 						if ( s[0]=='-' && s[1]=='-' && s[2]=='>' )
-							break;
+							
 						s++;
 					}
 					if ( !*s )
@@ -18936,7 +18954,8 @@ void CSphHTMLStripper::Strip ( BYTE * sData ) const
 				}
 
 			} else if ( s[1]=='?' )
-			// scan until PI end
+			{
+				// scan until PI end
 				s += 2; // skip opening '<?'
 				while ( *s )
 				{
@@ -19506,6 +19525,8 @@ bool CSphSource_Document::IterateDocument ( CSphString & sError )
 	m_tState = CSphBuildHitsState_t();
 	m_tState.m_iEndField = m_tSchema.m_iBaseFields ? m_tSchema.m_iBaseFields : m_tSchema.m_dFields.GetLength();
 
+	m_dMva.Resize ( 1 ); // must not have zero offset
+
 	// fetch next document
 	for ( ;; )
 	{
@@ -19908,17 +19929,52 @@ void CSphSource_Document::BuildHits ( CSphString & sError, bool bSkipEndMarker )
 
 //////////////////////////////////////////////////////////////////////////
 
-void CSphSource_Document::ParseFieldMVA ( CSphVector < CSphVector < DWORD > > & dFieldMVAs, int iFieldMVA, const char * szValue )
+SphRange_t CSphSource_Document::IterateFieldMVAStart ( int iAttr )
 {
-	dFieldMVAs [iFieldMVA].Resize ( 0 );
+	SphRange_t tRange;
+	tRange.m_iStart = tRange.m_iLength = 0;
 
+	if ( iAttr<0 || iAttr>=m_tSchema.GetAttrsCount() )
+		return tRange;
+
+	const CSphColumnInfo & tMva = m_tSchema.GetAttr ( iAttr );
+	int uOff = MVA_DOWNSIZE ( m_tDocInfo.GetAttr ( tMva.m_tLocator ) );
+	if ( !uOff )
+		return tRange;
+
+	int iCount = m_dMva[uOff];
+	assert ( iCount );
+
+	tRange.m_iStart = uOff+1;
+	tRange.m_iLength = iCount;
+
+	return tRange;
+}
+
+
+static int sphAddMva64 ( CSphVector<DWORD> & dStorage, uint64_t uVal )
+{
+	int uOff = dStorage.GetLength();
+	dStorage.Resize ( uOff+2 );
+	dStorage[uOff] = MVA_DOWNSIZE ( uVal );
+	dStorage[uOff+1] = MVA_DOWNSIZE ( ( uVal>>32 ) & 0xffffffff );
+	return uOff;
+}
+
+
+int CSphSource_Document::ParseFieldMVA ( CSphVector < DWORD > & dMva, const char * szValue, bool bMva64 )
+{
 	if ( !szValue )
-		return;
+		return 0;
 
 	const char * pPtr = szValue;
 	const char * pDigit = NULL;
 	const int MAX_NUMBER_LEN = 64;
 	char szBuf [MAX_NUMBER_LEN];
+
+	assert ( dMva.GetLength() ); // must not have zero offset
+	int uOff = dMva.GetLength();
+	dMva.Add ( 0 ); // reserve value for count
 
 	while ( *pPtr )
 	{
@@ -19934,7 +19990,10 @@ void CSphSource_Document::ParseFieldMVA ( CSphVector < CSphVector < DWORD > > & 
 				{
 					strncpy ( szBuf, pDigit, pPtr - pDigit );
 					szBuf [pPtr - pDigit] = '\0';
-					dFieldMVAs [iFieldMVA].Add ( sphToDword ( szBuf ) );
+					if ( !bMva64 )
+						dMva.Add ( sphToDword ( szBuf ) );
+					else
+						sphAddMva64 ( dMva, sphToUint64 ( szBuf ) );
 				}
 
 				pDigit = NULL;
@@ -19945,11 +20004,27 @@ void CSphSource_Document::ParseFieldMVA ( CSphVector < CSphVector < DWORD > > & 
 	}
 
 	if ( pDigit )
-		dFieldMVAs [iFieldMVA].Add ( sphToDword ( pDigit ) );
+	{
+		if ( !bMva64 )
+			dMva.Add ( sphToDword ( pDigit ) );
+		else
+			sphAddMva64 ( dMva, sphToUint64 ( pDigit ) );
+	}
+
+	int iCount = dMva.GetLength()-uOff-1;
+	if ( !iCount )
+	{
+		dMva.Pop(); // remove reserved value for count in case of 0 MVAs
+		return 0;
+	} else
+	{
+		dMva[uOff] = iCount;
+		return uOff; // return offset to ( count, [value] )
+	}
 }
 
-E
-///////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////
 // GENERIC 
 // PGSQL SOURCE
 /////////////////////////////////////////////////////////////////////////////
@@ -19980,8 +20055,6 @@ CSphSource_SQL::CSphSource_SQL ( const char * sName )
 	, m_uMaxFetchedID		( 0 )
 	, m_iMultiAttr			( -1 )
 	, m_iSqlFields			( 0 )
-	, m_iFieldMVA			( 0 )
-	, m_iFieldMVAIterator	( 0 )
 	, m_bCanUnpack			( false )
 	, m_bUnpackFailed		( false )
 	, m_bUnpackOverflow		( false )
@@ -20351,24 +20424,6 @@ bool CSphSource_SQL::IterateStart ( CSphString & sError )
 		if ( !dFound[i] )
 			sphWarn ( "attribute '%s' not found - IGNORING", m_tParams.m_dAttrs[i].m_sName.cstr() );
 
-	m_iFieldMVA = 0;
-	m_iFieldMVAIterator = 0;
-	m_dAttrToFieldMVA.Resize ( 0 );
-
-	int iFieldMVA = 0;
-	for ( int i = 0; i < m_tSchema.GetAttrsCount (); i++ )
-	{
-		const CSphColumnInfo & tCol = m_tSchema.GetAttr ( i );
-	( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_UINT64SET )T32SET && tCol.m_eSrc==SPH_ATTRSRC_FIELD )
-			m_dAttrToFieldMVA.Add ( iFieldMVA++ );
-		else
-			m_dAttrToFieldMVA.Add ( -1 );
-	}
-
-	m_dFieldMVAs.Resize ( iFieldMVA );
-	ARRAY_FOREACH ( i, m_dFieldMVAs )
-		m_dFieldMVAs[i].Reserve ( 16 );
-
 	// joined fields
 	m_tSchema.m_iBaseFields = m_tSchema.m_dFields.GetLength();
 
@@ -20523,19 +20578,18 @@ BYTE ** CSphSource_SQL::NextDocument ( CSphString & sError )
 			continue;
 		}
 		#endif
-		m_dFields[i] = (BYTE*) SqlColumn ( m_tSchema.m_dFields[i].m_iIndex );
-	}
-
-	int iFieldMVA = 0;
+		m_dFields[i] = (BYTE*) SqlColumn ( m_tSchema.m_dFields[i].m_iIndex );= 0;
 	for ( int i=0; i<m_tSchema.GetAttrsCount(); i++ )
 	{
 		const CSphColumnInfo & tAttr = m_tSchema.GetAttr(i); // shortcut
 
 		if ( tAttr.m_eAttrType==SPH_ATTR_UINT|| tAttr.m_eAttrType==SPH_ATTR_UINT64UINT32SET )
-		{
-			m_tDocInfo.SetAttr ( tAttr.m_tLocator, 0 );
+	int uOff = 0;
 			if ( tAttr.m_eSrc==SPH_ATTRSRC_FIELD )
-				ParseFieldMVA ( m_dFieldMVAs, iFieldMVA++, SqlColumn ( tAttr.m_iIndex ) );
+			{
+				uOff = ParseFieldMVA ( m_dMva, SqlColumn ( tAttr.m_iIndex ), tAttr.m_eAttrType==SPH_ATTR_UINT64SET );
+			}
+			m_tDocInfo.SetAttr ( tAttr.m_tLocator, uOff ); ) );
 
 			continue;
 		}
@@ -20706,41 +20760,13 @@ bool CSphSource_SQL::IterateMultivaluedNext ()
 		continue;
 	}
 
-	// return that tuple
-	const CSphAttrLocator & tLoc = m_tSchema.GetAttr ( m_iMultiAttr ).m_tLocator;
-	m_tDocInfo.m_iDocID = sphToDocid ( SqlColumn(0if ( tAttr.m_eAttrType==SPH_ATTR_UINT32SET )
-		m_tDocInfo.SetAttr ( tLoc, sphToDword ( SqlColumn(1) ) );
+	// return that or offset to storage for MVA64 value
+	m_tDocInfo.m_iDocID = sphToDocid ( SqlColumn(0) );
+	m_dMva.Resize ( 0 );
+	if ( tAttr.m_eAttrType==SPH_ATTR_UINT32SET )
+		m_dMva.Add ( sphToDword ( SqlColumn(1) ) );
 	else
-		m_tDocInfo.SetAttr ( tLoc, sphToUint64oDword ( SqlColumn(1) ) );
-	return true;
-}
-
-
-bool CSphSource_SQL::IterateFieldMVAStart ( int iAttr, CSphString & )
-{
-	if ( iAttr<0 || iAttr>=m_tSchema.GetAttrsCount() )
-		return false;
-
-	if ( m_dAttrToFieldMVA[iAttr]==-1 )
-		return false;
-
-	m_iFieldMVA = iAttr;
-	m_iFieldMVAIterator = 0;
-
-	return true;
-}
-
-
-bool CSphSource_SQL::IterateFieldMVANext ()
-{
-	int iFieldMVA = m_dAttrToFieldMVA [m_iFieldMVA];
-	if ( m_iFieldMVAIterator>=m_dFieldMVAs[iFieldMVA].GetLength() )
-		return false;
-
-	const CSphColumnInfo & tAttr = m_tSchema.GetAttr ( m_iFieldMVA );
-	m_tDocInfo.SetAttr ( tAttr.m_tLocator, m_dFieldMVAs[iFieldMVA][m_iFieldMVAIterator] );
-
-	++m_iFieldMVAIterator;
+		sphAddMva64 ( m_dMva, sphToUint64 ( SqlColumn(1) ) )erator;
 
 	return true;
 }
@@ -21670,7 +21696,11 @@ ISphHits * CSphSource_XMLPipe::IterateHits ( CSphString & )
 
 	m_bHitsReady = false;
 
-	return &m_tHits;
+	return &m_tHitsSphRange_t	CSphSource_XMLPipe::IterateFieldMVAStart ( int )
+{
+	SphRange_t tRange;
+	tRange.m_iStart = tRange.m_iLength = 0;
+	return tRange_tHits;
 }
 
 
@@ -21897,8 +21927,6 @@ public:
 	virtual bool	HasAttrsConfigured ()							{ return true; }	///< xmlpipe always has some attrs for now
 	virtual bool	IterateMultivaluedStart ( int, CSphString & )	{ return false; }
 	virtual bool	IterateMultivaluedNext ()						{ return false; }
-	virtual bool	IterateFieldMVAStart ( int iAttr, CSphString & sError );
-	virtual bool	IterateFieldMVANext ();
 	virtual bool	IterateKillListStart ( CSphString & );
 	virtual bool	IterateKillListNext ( SphDocID_t & tDocId );
 
@@ -22627,8 +22655,7 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 			continue;
 		}
 
-		// attributes
-		int iFieldMVA = 0;
+		// attribu 0;
 		for ( int i = 0; i < nAttrs; i++ )
 		{
 			const CSphString & sAttrValue = pDocument->m_dAttrs[i].IsEmpty () && m_dDefaultAttrs.GetLength () ? m_dDefaultAttrs[i] : pDocument->m_dAttrs[i];
@@ -22636,8 +22663,7 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 
 			if ( tAttr.m_eAttrType==SPH_ATTR_UINT|| tAttr.m_eAttrType==SPH_ATTR_UINT64UINT32SET )
 			{
-				m_tDocInfo.SetAttr ( tAttr.m_tLocator, 0 );
-				ParseFieldMVA ( m_dFieldMVAs, iFieldMVA++, sAttrValue.cstr () );
+				m_tDocInfo.SetAttr ( tAttr.m_tLocParseFieldMVA ( m_dMva, sAttrValue.cstr (), tAttr.m_eAttrType==SPH_ATTR_UINT64SET cstr () );
 				continue;
 			}
 
@@ -22687,36 +22713,6 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 		m_tDocInfo.m_iDocID = 0;
 
 	return NULL;
-}
-
-
-bool CSphSource_XMLPipe2::IterateFieldMVAStart ( int iAttr, CSphString & )
-{
-	if ( iAttr<0 || iAttr>=m_tSchema.GetAttrsCount() )
-		return false;
-
-	if ( m_dAttrToMVA[iAttr]==-1 )
-		return false;
-
-	m_iMVA = iAttr;
-	m_iMVAIterator = 0;
-
-	return true;
-}
-
-
-bool CSphSource_XMLPipe2::IterateFieldMVANext ()
-{
-	int iFieldMVA = m_dAttrToMVA [m_iMVA];
-	if ( m_iMVAIterator>=m_dFieldMVAs[iFieldMVA].GetLength() )
-		return false;
-
-	const CSphColumnInfo & tAttr = m_tSchema.GetAttr ( m_iMVA );
-	m_tDocInfo.SetAttr ( tAttr.m_tLocator, m_dFieldMVAs [iFieldMVA][m_iMVAIterator] );
-
-	++m_iMVAIterator;
-
-	return true;
 }
 
 
