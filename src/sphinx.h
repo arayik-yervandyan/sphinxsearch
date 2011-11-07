@@ -27,7 +27,6 @@
 	#define USE_LIBXML		0	/// whether to compile libxml support
 	#define	USE_LIBSTEMMER	0	/// whether to compile libstemmber support
 	#define USE_WINDOWS		1	/// whether to compile for Windows
-	#define USE_SYSLOG		0	/// whether to use syslog for logging
 
 	#define UNALIGNED_RAM_ACCESS	1
 	#define USE_LITTLE_ENDIAN		1
@@ -173,19 +172,13 @@ inline SphDocID_t DOCINFO2ID ( const DWORD * pDocinfo )
 #if PARANOID
 template < typename DOCID > inline DWORD *			DOCINFO2ATTRS_T ( DWORD * pDocinfo )		{ assert ( pDocinfo ); return pDocinfo+DWSIZEOF(DOCID); }
 template < typename DOCID > inline const DWORD *	DOCINFO2ATTRS_T ( const DWORD * pDocinfo )	{ assert ( pDocinfo ); return pDocinfo+DWSIZEOF(DOCID); }
-template < typename DOCID > inline DWORD *			STATIC2DOCINFO_T ( DWORD * pAttrs )		{ assert ( pDocinfo ); return pAttrs-DWSIZEOF(DOCID); }
-template < typename DOCID > inline const DWORD *	STATIC2DOCINFO_T ( const DWORD * pAttrs )	{ assert ( pDocinfo ); return pAttrs-DWSIZEOF(DOCID); }
 #else
 template < typename DOCID > inline DWORD *			DOCINFO2ATTRS_T ( DWORD * pDocinfo )		{ return pDocinfo + DWSIZEOF(DOCID); }
 template < typename DOCID > inline const DWORD *	DOCINFO2ATTRS_T ( const DWORD * pDocinfo )	{ return pDocinfo + DWSIZEOF(DOCID); }
-template < typename DOCID > inline DWORD *			STATIC2DOCINFO_T ( DWORD * pAttrs )		{ return pAttrs - DWSIZEOF(DOCID); }
-template < typename DOCID > inline const DWORD *	STATIC2DOCINFO_T ( const DWORD * pAttrs )	{ return pAttrs - DWSIZEOF(DOCID); }
 #endif
 
 inline 			DWORD *	DOCINFO2ATTRS ( DWORD * pDocinfo )			{ return DOCINFO2ATTRS_T<SphDocID_t>(pDocinfo); }
 inline const	DWORD *	DOCINFO2ATTRS ( const DWORD * pDocinfo )	{ return DOCINFO2ATTRS_T<SphDocID_t>(pDocinfo); }
-inline 			DWORD *	STATIC2DOCINFO ( DWORD * pAttrs )			{ return STATIC2DOCINFO_T<SphDocID_t>(pAttrs); }
-inline const	DWORD *	STATIC2DOCINFO ( const DWORD * pAttrs )	{ return STATIC2DOCINFO_T<SphDocID_t>(pAttrs); }
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -196,13 +189,13 @@ inline const	DWORD *	STATIC2DOCINFO ( const DWORD * pAttrs )	{ return STATIC2DOC
 #define SPHINX_TAG "-dev"
 #endif
 
-#define SPHINX_VERSION			"2.0.2" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
+#define SPHINX_VERSION			"2.0.1" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
 #define SPHINX_BANNER			"Sphinx " SPHINX_VERSION "\nCopyright (c) 2001-2011, Andrew Aksyonoff\nCopyright (c) 2008-2011, Sphinx Technologies Inc (http://sphinxsearch.com)\n\n"
 #define SPHINX_SEARCHD_PROTO	1
 
 #define SPH_MAX_WORD_LEN		42		// so that any UTF-8 word fits 127 bytes
 #define SPH_MAX_FILENAME_LEN	512
-#define SPH_MAX_FIELDS			256
+#define SPH_MAX_FIELDS			32
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -265,6 +258,9 @@ void				sphStartIOStats ();
 
 /// stops collecting stats, returns results
 const CSphIOStats &	sphStopIOStats ();
+
+/// startup mva updates arena
+DWORD *				sphArenaInit ( int iMaxBytes );
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -1294,15 +1290,14 @@ protected:
 class CSphHTMLStripper
 {
 public:
-	explicit					CSphHTMLStripper ( bool bDefaultTags );
+								CSphHTMLStripper ();
 	bool						SetIndexedAttrs ( const char * sConfig, CSphString & sError );
 	bool						SetRemovedElements ( const char * sConfig, CSphString & sError );
 	bool						SetZones ( const char * sZones, CSphString & sError );
 	void						EnableParagraphs ();
 	void						Strip ( BYTE * sData ) const;
 
-public:
-
+protected:
 	struct StripperTag_t
 	{
 		CSphString				m_sTag;			///< tag name
@@ -1331,11 +1326,6 @@ public:
 		}
 	};
 
-	/// finds appropriate tag and zone name ( tags zone name could be prefix only )
-	/// advances source to the end of the tag
-	const BYTE * 				FindTag ( const BYTE * sSrc, const StripperTag_t ** ppTag, const BYTE ** ppZoneName, int * pZoneNameLen ) const;
-	bool						IsValidTagStart ( int iCh ) const;
-
 protected:
 	static const int			MAX_CHAR_INDEX = 28;		///< max valid char index (a-z, underscore, colon)
 
@@ -1350,7 +1340,6 @@ protected:
 
 
 /// indexing-related source settings
-/// NOTE, newly added fields should be synced with CSphSource::Setup()
 struct CSphSourceSettings
 {
 	int		m_iMinPrefixLen;	///< min indexable prefix (0 means don't index prefixes)
@@ -1361,11 +1350,7 @@ struct CSphSourceSettings
 	int		m_iStopwordStep;	///< position step on stopword token (default is 1)
 	bool	m_bIndexSP;			///< whether to index sentence and paragraph delimiters
 
-	CSphVector<CSphString>	m_dPrefixFields;	///< list of prefix fields
-	CSphVector<CSphString>	m_dInfixFields;		///< list of infix fields
-
-	explicit				CSphSourceSettings ();
-	ESphWordpart			GetWordpart ( const char * sField, bool bWordDict );
+			CSphSourceSettings ();
 };
 
 
@@ -1406,20 +1391,12 @@ public:
 };
 
 
-struct SphRange_t
-{
-	int m_iStart;
-	int m_iLength;
-};
-
-
 /// generic data source
 class CSphSource : public CSphSourceSettings
 {
 public:
 	CSphMatch							m_tDocInfo;		///< current document info
 	CSphVector<CSphString>				m_dStrAttrs;	///< current document string attrs
-	CSphVector<DWORD>					m_dMva;			///< MVA storage for mva64
 
 public:
 	/// ctor
@@ -1504,12 +1481,15 @@ public:
 	/// can also fail if configured settings are invalid (eg. SQL query can not be executed)
 	virtual bool						IterateMultivaluedStart ( int iAttr, CSphString & sError ) = 0;
 
-	/// get next multi-valued (id,attr-value) or (id, offset) for mva64 tuple to m_tDocInfo
+	/// get next multi-valued (id,attr-value) tuple to m_tDocInfo
 	virtual bool						IterateMultivaluedNext () = 0;
 
 	/// begin iterating values of multi-valued attribute iAttr stored in a field
 	/// will fail if iAttr is out of range, or is not multi-valued
-	virtual SphRange_t					IterateFieldMVAStart ( int iAttr ) = 0;
+	virtual bool						IterateFieldMVAStart ( int iAttr, CSphString & sError ) = 0;
+
+	/// get next multi-valued (id,attr-value) tuple to m_tDocInfo
+	virtual bool						IterateFieldMVANext () = 0;
 
 	/// begin iterating kill list
 	virtual bool						IterateKillListStart ( CSphString & sError ) = 0;
@@ -1520,6 +1500,9 @@ public:
 	/// post-index callback
 	/// gets called when the indexing is succesfully (!) over
 	virtual void						PostIndex () {}
+
+	/// setup field match mode
+	virtual void						SetupFieldMatch ( const char *, const char * ) {}
 
 protected:
 	ISphTokenizer *						m_pTokenizer;	///< my tokenizer
@@ -1535,15 +1518,6 @@ protected:
 	int			m_iMaxIds;
 
 	SphDocID_t	VerifyID ( SphDocID_t uID );
-};
-
-
-/// how to handle IO errors in file fields
-enum ESphOnFileFieldError
-{
-	FFE_IGNORE_FIELD,
-	FFE_SKIP_DOCUMENT,
-	FFE_FAIL_INDEX
 };
 
 
@@ -1567,16 +1541,15 @@ public:
 	/// to be implemented by descendants
 	virtual BYTE **			NextDocument ( CSphString & sError ) = 0;
 
+	virtual void			SetupFieldMatch ( const char * szPrefixFields, const char * szInfixFields );
 	virtual void			SetDumpRows ( FILE * fpDumpRows ) { m_fpDumpRows = fpDumpRows; }
 
-	virtual SphRange_t		IterateFieldMVAStart ( int iAttr );
-
 protected:
-	int						ParseFieldMVA ( CSphVector < DWORD > & dMva, const char * szValue, bool bMva64 );
-	bool					CheckFileField ( const BYTE * sField );
-	int						LoadFileField ( BYTE ** ppField, CSphString & sError );
+	bool					IsPrefixMatch ( const char * szField ) const;
+	bool					IsInfixMatch ( const char * szField ) const;
 
-	bool					BuildZoneHits ( SphDocID_t uDocid, BYTE * sWord );
+	void					ParseFieldMVA ( CSphVector < CSphVector < DWORD > > & dFieldMVAs, int iFieldMVA, const char * szValue );
+	int						LoadFileField ( BYTE ** ppField, CSphString & sError );
 	void					BuildSubstringHits ( SphDocID_t uDocid, bool bPayload, ESphWordpart eWordpart, bool bSkipEndMarker );
 	void					BuildRegularHits ( SphDocID_t uDocid, bool bPayload, bool bSkipEndMarker );
 
@@ -1585,10 +1558,15 @@ protected:
 
 protected:
 	char *					m_pReadFileBuffer;
-	int						m_iReadFileBufferSize;	///< size of read buffer for the 'sql_file_field' fields
-	int						m_iMaxFileBufferSize;	///< max size of read buffer for the 'sql_file_field' fields
-	ESphOnFileFieldError	m_eOnFileFieldError;
+	int						m_iReadFileBufferSize;	///< size of read buffer for the 'slq_file_field' fields
+	int						m_iMaxFileBufferSize;	///< max size of read buffer for the 'slq_file_field' fields
 	FILE *					m_fpDumpRows;
+
+private:
+	CSphString				m_sPrefixFields;
+	CSphString				m_sInfixFields;
+
+	bool					IsFieldInStr ( const char * szField, const char * szString ) const;
 
 protected:
 	struct CSphBuildHitsState_t
@@ -1627,7 +1605,6 @@ struct CSphJoinedField
 	bool				m_bPayload;
 };
 
-
 /// generic SQL source params
 struct CSphSourceParams_SQL
 {
@@ -1647,7 +1624,6 @@ struct CSphSourceParams_SQL
 
 	int								m_iRangedThrottle;
 	int								m_iMaxFileBufferSize;
-	ESphOnFileFieldError			m_eOnFileFieldError;
 
 	CSphVector<CSphUnpackInfo>		m_dUnpack;
 	DWORD							m_uUnpackMemoryLimit;
@@ -1688,6 +1664,9 @@ struct CSphSource_SQL : CSphSource_Document
 	virtual bool		IterateMultivaluedStart ( int iAttr, CSphString & sError );
 	virtual bool		IterateMultivaluedNext ();
 
+	virtual bool		IterateFieldMVAStart ( int iAttr, CSphString & sError );
+	virtual bool		IterateFieldMVANext ();
+
 	virtual bool		IterateKillListStart ( CSphString & sError );
 	virtual bool		IterateKillListNext ( SphDocID_t & tDocId );
 
@@ -1706,6 +1685,11 @@ protected:
 	SphDocID_t			m_uMaxFetchedID;	///< max actually fetched ID
 	int					m_iMultiAttr;		///< multi-valued attr being currently fetched
 	int					m_iSqlFields;		///< field count (for row dumper)
+
+	int					m_iFieldMVA;
+	int					m_iFieldMVAIterator;
+	CSphVector < CSphVector <DWORD> > m_dFieldMVAs;
+	CSphVector < int >	m_dAttrToFieldMVA;
 
 	CSphSourceParams_SQL		m_tParams;
 
@@ -1928,7 +1912,8 @@ public:
 	virtual bool	HasAttrsConfigured ()							{ return true; }	///< xmlpipe always has some attrs for now
 	virtual bool	IterateMultivaluedStart ( int, CSphString & )	{ return false; }	///< xmlpipe does not support multi-valued attrs for now
 	virtual bool	IterateMultivaluedNext ()						{ return false; }	///< xmlpipe does not support multi-valued attrs for now
-	virtual SphRange_t	IterateFieldMVAStart ( int );
+	virtual bool	IterateFieldMVAStart ( int, CSphString & )		{ return false; }
+	virtual bool	IterateFieldMVANext ()							{ return false; }
 	virtual bool	IterateKillListStart ( CSphString & )			{ return false; }
 	virtual bool	IterateKillListNext ( SphDocID_t & )			{ return false; }
 
@@ -2058,7 +2043,6 @@ enum ESphRankMode
 	SPH_RANK_MATCHANY			= 5,	///< emulate old match-any weighting (aka SPH02)
 	SPH_RANK_FIELDMASK			= 6,	///< sets bits where there were matches
 	SPH_RANK_SPH04				= 7,	///< codename SPH04, phrase proximity + bm25 + head/exact boost
-	SPH_RANK_EXPR				= 8,	///< rank by user expression (eg. "sum(lcs*user_weight)*1000+bm25")
 
 	SPH_RANK_TOTAL,
 	SPH_RANK_DEFAULT			= SPH_RANK_PROXIMITY_BM25
@@ -2212,7 +2196,6 @@ public:
 	int				m_iWeights;		///< number of user-supplied weights. missing fields will be assigned weight 1. default is 0
 	ESphMatchMode	m_eMode;		///< match mode. default is "match all"
 	ESphRankMode	m_eRanker;		///< ranking mode, default is proximity+BM25
-	CSphString		m_sRankerExpr;	///< ranking expression for SPH_RANK_EXPR
 	ESphSortOrder	m_eSort;		///< sort mode
 	CSphString		m_sSortBy;		///< attribute to sort by
 	int				m_iMaxMatches;	///< max matches to retrieve, default is 1000. more matches use more memory and CPU time to hold and sort them
@@ -2324,7 +2307,8 @@ public:
 	const DWORD *			m_pMva;				///< pointer to MVA storage
 	const BYTE *			m_pStrings;			///< pointer to strings storage
 
-	CSphVector<void *>		m_dStorage2Free;	/// < aggregated external storage from rt indexes
+	CSphVector<BYTE *>			m_dStr2Free;		/// < aggregated external string attributes from rt indexes
+	CSphVector<CSphRowitem *>	m_dAttr2Free;		///< aggregated external result attributes from rt indexes
 
 	int						m_iOffset;			///< requested offset into matches array
 	int						m_iCount;			///< count which will be actually served (computed from total, offset and limit)
@@ -2347,8 +2331,7 @@ struct CSphAttrUpdate
 	CSphVector<CSphColumnInfo>		m_dAttrs;		///< update schema (ie. what attrs to update)
 	CSphVector<DWORD>				m_dPool;		///< update values pool
 	CSphVector<SphDocID_t>			m_dDocids;		///< document IDs vector
-	CSphVector<const CSphRowitem*>	m_dRows;		///< document attribute's vector, used instead of m_dDocids.
-	CSphVector<int>					m_dRowOffset;	///< document row offsets in the pool (1 per doc, i.e. the length is the same as of m_dDocids)
+	CSphVector<int>					m_dRowOffset;	///< document row offsets in the pool
 };
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2527,8 +2510,8 @@ public:
 	/// get first entry ptr
 	/// used for docinfo lookup
 	/// entries order does NOT matter and is NOT guaranteed
-	/// however top GetLength() entries MUST be stored linearly starting from Finalize()
-	virtual CSphMatch *	Finalize () = 0;
+	/// however top GetLength() entries MUST be stored linearly starting from First()
+	virtual CSphMatch *	First () = 0;
 
 	/// store all entries into specified location and remove them from the queue
 	/// entries are stored in properly sorted order,
@@ -2623,9 +2606,6 @@ public:
 	virtual bool				HasDocid ( SphDocID_t uDocid ) const = 0;
 	virtual bool				IsRT() const { return false; }
 
-	virtual void				SetEnableStar ( bool bEnableStar ) { m_bEnableStar = bEnableStar; }
-	bool						IsStarEnabled () const { return m_bEnableStar; }
-
 public:
 	/// build index by indexing given sources
 	virtual int					Build ( const CSphVector<CSphSource*> & dSources, int iMemoryLimit, int iWriteBuffer ) = 0;
@@ -2680,8 +2660,6 @@ public:
 	/// on failure, false is returned and GetLastError() contains error message
 	virtual bool				SaveAttributes () = 0;
 
-	virtual DWORD				GetAttributeStatus () const = 0;
-
 public:
 	/// internal debugging hook, DO NOT USE
 	virtual void				DebugDumpHeader ( FILE * fp, const char * sHeaderName, bool bConfig ) = 0;
@@ -2699,13 +2677,14 @@ public:
 	const char * GetName () { return m_sIndexName.cstr(); }
 
 public:
+	DWORD						m_uAttrsStatus;			///< whether in-memory attrs are updated (compared to disk state)
 	int64_t						m_iTID;
 
+	bool						m_bEnableStar;			///< enable star-syntax
 	bool						m_bExpandKeywords;		///< enable automatic query-time keyword expansion (to "( word | =word | *word* )")
 	int							m_iExpansionLimit;
 
 protected:
-
 	ProgressCallback_t *		m_pProgress;
 	CSphSchema					m_tSchema;
 	CSphString					m_sLastError;
@@ -2721,7 +2700,6 @@ protected:
 	bool						m_bPreloadWordlist;		///< preload wordlists or keep them on disk
 
 	bool						m_bStripperInited;		///< was stripper initialized (old index version (<9) handling)
-	bool						m_bEnableStar;			///< enable star-syntax
 
 public:
 	bool						m_bId32to64;			///< did we convert id32 to id64 on startup
@@ -2737,21 +2715,6 @@ protected:
 	CSphString					m_sIndexName;
 };
 
-// update attributes with index pointer attached
-struct CSphAttrUpdateEx
-{
-	const CSphAttrUpdate*	m_pUpdate;	///< the unchangeable update pool
-	CSphIndex *			m_pIndex;		///< the index on which the update should happen
-	CSphString *		m_pError;		///< the error, if any
-	int					m_iAffected;	///< num of updated rows.
-	CSphAttrUpdateEx()
-		: m_pUpdate ( NULL )
-		, m_pIndex ( NULL )
-		, m_pError ( NULL )
-		, m_iAffected ( 0 )
-	{}
-};
-
 /////////////////////////////////////////////////////////////////////////////
 
 /// create phrase fulltext index implemntation
@@ -2762,9 +2725,7 @@ void				sphSetQuiet ( bool bQuiet );
 
 /// creates proper queue for given query
 /// may return NULL on error; in this case, error message is placed in sError
-/// if the pUpdate is given, creates the updater's queue and perform the index update
-/// instead of searching
-ISphMatchSorter *	sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & tSchema, CSphString & sError, bool bComputeItems=true, CSphSchema * pExtra=NULL, CSphAttrUpdateEx* pUpdate=NULL );
+ISphMatchSorter *	sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & tSchema, CSphString & sError, bool bComputeItems=true, CSphSchema * pExtra=NULL );
 
 /// convert queue to sorted array, and add its entries to result's matches array
 void				sphFlattenQueue ( ISphMatchSorter * pQueue, CSphQueryResult * pResult, int iTag );

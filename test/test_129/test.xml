@@ -5,7 +5,6 @@
 
 <requires>
 <non-rt/>
-<variant_match/>
 </requires>
 
 <config>
@@ -25,10 +24,7 @@ source src
 	<sql_settings/>
 	sql_query = SELECT id, text, mva, tag FROM test_table
 
-<Dynamic>	
-	<Variant>sql_attr_multi = uint mva from field</Variant>
-	<Variant>sql_attr_multi = bigint mva from field</Variant>
-</Dynamic>	
+	sql_attr_multi	= uint mva from field
 	sql_attr_uint	= tag
 }
 
@@ -67,7 +63,8 @@ for ( $i=0; $i<2; $i++ )
 
 // final fixup; we don't want to compare times
 for ( $i=0; $i<count($results); $i++ )
-	CompareResultSetFixup ( $results[$i], 0, true );
+	if ( is_array ( $results[$i] ) )
+		unset ( $results[$i]["time"] );
 ]]></custom_test>
 
 <db_create>

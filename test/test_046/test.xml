@@ -3,8 +3,6 @@
 <test>
 <name>mva filtering</name>
 
-<requires> <variant_match /> </requires>
-
 <config>
 indexer
 {
@@ -22,10 +20,7 @@ source test
 	<sql_settings/>
 
 	sql_query = SELECT id, text, mva FROM test_table;
-<Dynamic>	
-	<Variant>sql_attr_multi = uint mva from field</Variant>
-	<Variant>sql_attr_multi = bigint mva from field</Variant>
-</Dynamic>	
+	sql_attr_multi = uint mva from field
 }
 
 index test

@@ -71,7 +71,6 @@ void DoSearch ( CSphIndex * pIndex )
 void DoIndexing ( CSphSource * pSrc, ISphRtIndex * pIndex )
 {
 	CSphString sError;
-	CSphVector<DWORD> dMvas;
 
 	int64_t tmStart = sphMicroTimer ();
 	int64_t tmAvgCommit = 0;
@@ -86,7 +85,7 @@ void DoIndexing ( CSphSource * pSrc, ISphRtIndex * pIndex )
 			sphDie ( "iterate-hits failed: %s", sError.cstr() );
 
 		if ( pSrc->m_tDocInfo.m_iDocID )
-			pIndex->AddDocument ( pHitsNext, pSrc->m_tDocInfo, NULL, dMvas, sError );
+			pIndex->AddDocument ( pHitsNext, pSrc->m_tDocInfo, NULL, sError );
 
 		if ( ( pSrc->GetStats().m_iTotalDocuments % COMMIT_STEP )==0 || !pSrc->m_tDocInfo.m_iDocID )
 		{
@@ -196,8 +195,8 @@ int main ()
 	sphRTInit();
 	sphRTConfigure ( tRTConfig, true );
 	SmallStringHash_T< CSphIndex * > dTemp;
-	sphReplayBinlog ( dTemp, 0 );
-	ISphRtIndex * pIndex = sphCreateIndexRT ( tSchema, "testrt", 32*1024*1024, "data/dump", false );
+	sphReplayBinlog ( dTemp );
+	ISphRtIndex * pIndex = sphCreateIndexRT ( tSchema, "testrt", 32*1024*1024, "data/dump" );
 	pIndex->SetTokenizer ( pTok ); // index will own this pair from now on
 	pIndex->SetDictionary ( pDict );
 	if ( !pIndex->Prealloc ( false, false, sError ) )

@@ -3,8 +3,6 @@
 
 <name>merge vs docinfo, range, mva</name>
 
-<requires> <variant_match /> </requires>
-
 <config>
 indexer
 {
@@ -27,7 +25,6 @@ source srcmain
 	<Dynamic>
 		<Variant> sql_attr_multi = uint mva from field </Variant>
 		<Variant> </Variant>
-		<Variant> sql_attr_multi = bigint mva from field </Variant>
 	</Dynamic>
 }
 
@@ -42,7 +39,6 @@ source srcdelta
 	<Dynamic>
 		<Variant> sql_attr_multi = uint mva from field </Variant>
 		<Variant> </Variant>
-		<Variant> sql_attr_multi = bigint mva from field </Variant>
 	</Dynamic>
 }
 

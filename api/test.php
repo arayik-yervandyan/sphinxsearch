@@ -58,7 +58,6 @@ $filter = "group_id";
 $filtervals = array();
 $distinct = "";
 $sortby = "";
-$sortexpr = "";
 $limit = 20;
 $ranker = SPH_RANK_PROXIMITY_BM25;
 $select = "";
@@ -146,7 +145,7 @@ if ( $res===false )
 			foreach ( $res["attrs"] as $attrname => $attrtype )
 			{
 				$value = $docinfo["attrs"][$attrname];
-				if ( $attrtype==SPH_ATTR_MULTI || $attrtype==SPH_ATTR_MULTI64 )
+				if ( $attrtype & SPH_ATTR_MULTI )
 				{
 					$value = "(" . join ( ",", $value ) .")";
 				} else

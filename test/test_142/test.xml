@@ -56,6 +56,7 @@ $results[] = "inserting";
 $results[]= "killing";
 KillSearchd ('config.conf', 'searchd.pid',9,false);
 StartSearchd ( "config.conf", "error.txt", 'searchd.pid', $error, true );
+usleep (50000);
 
 $results[] = "connecting again";
 $sock = @mysql_connect ($sockStr,'','',	true );

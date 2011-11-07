@@ -16,14 +16,13 @@
 #include "sphinx.h"
 #include "sphinxutils.h"
 #include "sphinxint.h"
-#include "sphinxrt.h"
 #include <time.h>
 
 
 void StripStdin ( const char * sIndexAttrs, const char * sRemoveElements )
 {
 	CSphString sError;
-	CSphHTMLStripper tStripper ( true );
+	CSphHTMLStripper tStripper;
 	if ( !tStripper.SetIndexedAttrs ( sIndexAttrs, sError )
 		|| !tStripper.SetRemovedElements ( sRemoveElements, sError ) )
 			sphDie ( "failed to configure stripper: %s", sError.cstr() );
@@ -193,26 +192,9 @@ int main ( int argc, char ** argv )
 			sphDie ( "index '%s': missing 'path' in config'\n", sIndex.cstr() );
 
 		// preload that index
-		CSphString sError;
-		if ( hConf["index"][sIndex]("type") && hConf["index"][sIndex]["type"]=="rt" )
-		{
-			CSphSchema tSchema;
-			bool bDictKeywords = false;
-			if ( hConf["index"][sIndex].Exists ( "dict" ) )
-				bDictKeywords = ( hConf["index"][sIndex]["dict"]=="keywords" );
-
-			if ( sphRTSchemaConfigure ( hConf["index"][sIndex], &tSchema, &sError ) )
-				pIndex = sphCreateIndexRT ( tSchema, sIndex.cstr(), 32*1024*1024, hConf["index"][sIndex]["path"].cstr(), bDictKeywords );
-		} else
-		{
-			pIndex = sphCreateIndexPhrase ( sIndex.cstr(), hConf["index"][sIndex]["path"].cstr() );
-		}
-
+		pIndex = sphCreateIndexPhrase ( sIndex.cstr(), hConf["index"][sIndex]["path"].cstr() );
 		if ( !pIndex )
-			sphDie ( "index '%s': failed to create (%s)", sIndex.cstr(), sError.cstr() );
-
-		// don't need any long load operations
-		pIndex->SetWordlistPreload ( false );
+			sphDie ( "index '%s': failed to create", sIndex.cstr() );
 
 		CSphString sWarn;
 		if ( !pIndex->Prealloc ( false, bStripPath, sWarn ) )

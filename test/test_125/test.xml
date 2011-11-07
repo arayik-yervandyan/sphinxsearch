@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <test>
-<name>select expressions, functions, operators</name> <!-- all the misc tests -->
+<name>SphinxQL: arithmetic expressions</name>
 
 <config>
 indexer
@@ -11,7 +11,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-	compat_sphinxql_magics = 0
 }
 
 source test
@@ -20,7 +19,6 @@ source test
 	<sql_settings/>
 	sql_query = SELECT * FROM test_table
 	sql_attr_uint = aa
-	sql_attr_multi = uint mm from field
 }
 
 index test
@@ -35,8 +33,7 @@ CREATE TABLE test_table
 (
 	id INT NOT NULL,
 	aa INT NOT NULL,
-	title VARCHAR(255) NOT NULL,
-	mm VARCHAR(255) NOT NULL
+	title VARCHAR(255) NOT NULL
 );
 </db_create>
 
@@ -45,21 +42,11 @@ DROP TABLE IF EXISTS test_table;
 </db_drop>
 
 <db_insert>
-INSERT INTO test_table ( id, aa, title, mm ) VALUES
-( 1, 2, 'dummy', '' ),
-( 10, 3, 'ohai', '7 40')
+INSERT INTO test_table ( id, aa, title ) VALUES ( 1, 2, 'dummy' );
 </db_insert>
 
 <sphqueries>
-
-<!-- test boolean operator precedence -->
-<sphinxql>SELECT 0 AND 0 OR 1 AS a, 0 AND 1 OR 1 AS b, 1 OR 0 AND 0 AS c, 1 OR 1 AND 0 AS d FROM test WHERE id=1</sphinxql>
-
-<!-- test argument type check -->
-<sphinxql>SELECT id, CRC32('test') FROM test WHERE id=10</sphinxql>
-<sphinxql>SELECT id, ABS(CRC32('test')) FROM test WHERE id=10</sphinxql>
-<sphinxql>SELECT id, IF(IN(mm,7),111,222) FROM test</sphinxql>
-
+<sphinxql>SELECT 0 AND 0 OR 1 AS a, 0 AND 1 OR 1 AS b, 1 OR 0 AND 0 AS c, 1 OR 1 AND 0 AS d FROM test</sphinxql>
 </sphqueries>
 
 </test>

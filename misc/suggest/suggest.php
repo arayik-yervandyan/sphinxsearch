@@ -1,10 +1,7 @@
 <?php
 
-define ( "FREQ_THRESHOLD", 40 );
-define ( "SUGGEST_DEBUG", 0 );
-define ( "LENGTH_THRESHOLD", 2 );
-define ( "LEVENSHTEIN_THRESHOLD", 2 );
-define ( "TOP_COUNT", 10 );
+define ( FREQ_THRESHOLD, 40 );
+define ( SUGGEST_DEBUG, 0 );
 
 require ( "../../api/sphinxapi.php" );
 
@@ -31,14 +28,13 @@ CREATE TABLE suggest (
 	id			INTEGER PRIMARY KEY AUTO_INCREMENT NOT NULL,
 	keyword		VARCHAR(255) NOT NULL,
 	trigrams	VARCHAR(255) NOT NULL,
-	freq		INTEGER NOT NULL,
-	UNIQUE(keyword)
+	freq		INTEGER NOT NULL
 );
 
+INSERT INTO suggest VALUES
 " );
 
 	$n = 0;
-	$m = 0;
 	while ( $line = fgets ( $in, 1024 ) )
 	{
 		list ( $keyword, $freq ) = split ( " ", trim ( $line ) );
@@ -48,24 +44,11 @@ CREATE TABLE suggest (
 
 		$trigrams = BuildTrigrams ( $keyword );
 
-		if ( !$m )
-			print "INSERT INTO suggest VALUES\n";
-		else
-			print ",\n";
-
-		$n++;
-		fwrite ( $out, "( 0, '$keyword', '$trigrams', $freq )" );
-
-		$m++;
-		if ( ( $m % 10000 )==0 )
-		{
-			print ";\n";
-			$m = 0;
-		}
+		if ( $n++ ) print ",\n";
+		fwrite ( $out, "( $n, '$keyword', '$trigrams', $freq )" );
 	}
 
-	if ( $m )
-		fwrite ( $out, ";" );
+	fwrite ( $out, ";" );
 }
 
 
@@ -76,17 +59,15 @@ function MakeSuggestion ( $keyword )
 	$query = "\"$trigrams\"/1";
 	$len = strlen($keyword);
 
-	$delta = LENGTH_THRESHOLD;
 	$cl = new SphinxClient ();
 	$cl->SetMatchMode ( SPH_MATCH_EXTENDED2 );
 	$cl->SetRankingMode ( SPH_RANK_WORDCOUNT );
-	$cl->SetFilterRange ( "len", $len-$delta, $len+$delta );
-	$cl->SetSelect ( "*, @weight+$delta-abs(len-$len) AS myrank" );
+	$cl->SetFilterRange ( "len", $len-2, $len+2 );
+	$cl->SetSelect ( "*, @weight+2-abs(len-$len) AS myrank" );
 	$cl->SetSortMode ( SPH_SORT_EXTENDED, "myrank DESC, freq DESC" );
   	$cl->SetArrayResult ( true );
 
-  	// pull top-N best trigram matches and run them through Levenshtein
-	$res = $cl->Query ( $query, "suggest", 0, TOP_COUNT );
+	$res = $cl->Query ( $query, "suggest" );
 
 	if ( !$res || !$res["matches"] )
 		return false;
@@ -95,28 +76,25 @@ function MakeSuggestion ( $keyword )
 	{
 		print "--- DEBUG START ---\n";
 
-		foreach ( $res["matches"] as $match )
+		foreach ( $res["matches"]  as $match )
 		{
-			$w = $match["keyword"];
-			$myrank = @$match["attrs"]["myrank"];
-			if ( $myrank )
-				$myrank = ", myrank=$myrank";
-			$levdist = levenshtein ( $keyword, $w );
+			$r = mysql_query ( "SELECT keyword FROM suggest WHERE id=".$match["id"] ) or die ( "mysql_query() failed: ".mysql_error() );
+			$row = mysql_fetch_row ( $r );
+			$w = $row[0];
 
-			print "id=$match[id], weight=$match[weight], freq={$match[attrs][freq]}{$myrank}, word=$w, levdist=$levdist\n";
+			$myrank = @$match["attrs"]["myrank"];
+			if ( $myrank ) $myrank = ", myrank=$myrank";
+
+			print "id=$match[id], weight=$match[weight], freq={$match[attrs][freq]}{$myrank}, word=$w\n";
 		}
 
 		print "--- DEBUG END ---\n";
 	}
 
-	// further restrict trigram matches with a sane Levenshtein distance limit
-	foreach ( $res["matches"] as $match )
-	{
-		$suggested = $match["attrs"]["keyword"];
-		if ( levenshtein ( $keyword, $suggested )<=LEVENSHTEIN_THRESHOLD )
-			return $suggested;
-	}
-	return $keyword;
+	$id = (int)$res["matches"][0]["id"];
+	$r = mysql_query ( "SELECT keyword FROM suggest WHERE id=$id" ) or die ( "mysql_query() failed: ".mysql_error() );
+	$row = mysql_fetch_row ( $r );
+	return $row[0];
 }
 
 /// main

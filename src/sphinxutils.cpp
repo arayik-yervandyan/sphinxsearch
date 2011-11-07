@@ -159,7 +159,6 @@ static KeyDesc_t g_dKeysSource[] =
 	{ "xmlpipe_attr_bool",		KEY_LIST, NULL },
 	{ "xmlpipe_attr_float",		KEY_LIST, NULL },
 	{ "xmlpipe_attr_multi",		KEY_LIST, NULL },
-	{ "xmlpipe_attr_multi_64",	KEY_LIST, NULL },
 	{ "xmlpipe_attr_string",	KEY_LIST, NULL },
 	{ "xmlpipe_attr_wordcount",	KEY_LIST, NULL },
 	{ "xmlpipe_field_string",	KEY_LIST, NULL },
@@ -237,8 +236,6 @@ static KeyDesc_t g_dKeysIndex[] =
 	{ "rt_attr_float",			KEY_LIST, NULL },
 	{ "rt_attr_timestamp",		KEY_LIST, NULL },
 	{ "rt_attr_string",			KEY_LIST, NULL },
-	{ "rt_attr_multi",			KEY_LIST, NULL },
-	{ "rt_attr_multi_64",		KEY_LIST, NULL },
 	{ "rt_mem_limit",			0, NULL },
 	{ "dict",					0, NULL },
 	{ "index_sp",				0, NULL },
@@ -256,7 +253,6 @@ static KeyDesc_t g_dKeysIndexer[] =
 	{ "max_xmlpipe2_field",		0, NULL },
 	{ "max_file_field_buffer",	0, NULL },
 	{ "write_buffer",			0, NULL },
-	{ "on_file_field_error",	0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -305,7 +301,6 @@ static KeyDesc_t g_dKeysSearchd[] =
 	{ "collation_server",		0, NULL },
 	{ "collation_libc_locale",	0, NULL },
 	{ "watchdog",				0, NULL },
-	{ "prefork_rotation_throttle", 0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -890,9 +885,8 @@ void sphConfDictionary ( const CSphConfigSection & hIndex, CSphDictSettings & tS
 }
 
 
-bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSettings, CSphString & sError )
+void sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSettings )
 {
-	// misc settings
 	tSettings.m_iMinPrefixLen = Max ( hIndex.GetInt ( "min_prefix_len" ), 0 );
 	tSettings.m_iMinInfixLen = Max ( hIndex.GetInt ( "min_infix_len" ), 0 );
 	tSettings.m_iBoundaryStep = Max ( hIndex.GetInt ( "phrase_boundary_step" ), -1 );
@@ -900,48 +894,6 @@ bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 	tSettings.m_iOvershortStep = Min ( Max ( hIndex.GetInt ( "overshort_step", 1 ), 0 ), 1 );
 	tSettings.m_iStopwordStep = Min ( Max ( hIndex.GetInt ( "stopword_step", 1 ), 0 ), 1 );
 
-	// prefix/infix fields
-	CSphString sFields;
-
-	sFields = hIndex.GetStr ( "prefix_fields" );
-	sFields.ToLower();
-	sphSplit ( tSettings.m_dPrefixFields, sFields.cstr() );
-
-	sFields = hIndex.GetStr ( "infix_fields" );
-	sFields.ToLower();
-	sphSplit ( tSettings.m_dInfixFields, sFields.cstr() );
-
-	if ( tSettings.m_iMinPrefixLen==0 && tSettings.m_dPrefixFields.GetLength()!=0 )
-	{
-		fprintf ( stdout, "WARNING: min_prefix_len=0, prefix_fields ignored\n" );
-		tSettings.m_dPrefixFields.Reset();
-	}
-
-	if ( tSettings.m_iMinInfixLen==0 && tSettings.m_dInfixFields.GetLength()!=0 )
-	{
-		fprintf ( stdout, "WARNING: min_infix_len=0, infix_fields ignored\n" );
-		tSettings.m_dInfixFields.Reset();
-	}
-
-	// the only way we could have both prefixes and infixes enabled is when specific field subsets are configured
-	if ( tSettings.m_iMinInfixLen>0 && tSettings.m_iMinPrefixLen>0
-		&& ( !tSettings.m_dPrefixFields.GetLength() || !tSettings.m_dInfixFields.GetLength() ) )
-	{
-		sError.SetSprintf ( "prefixes and infixes can not both be enabled on all fields" );
-		return false;
-	}
-
-	tSettings.m_dPrefixFields.Uniq();
-	tSettings.m_dInfixFields.Uniq();
-
-	ARRAY_FOREACH ( i, tSettings.m_dPrefixFields )
-		if ( tSettings.m_dInfixFields.Contains ( tSettings.m_dPrefixFields[i] ) )
-	{
-		sError.SetSprintf ( "field '%s' marked both as prefix and infix", tSettings.m_dPrefixFields[i].cstr() );
-		return false;
-	}
-
-	// html stripping
 	if ( hIndex ( "html_strip" ) )
 	{
 		tSettings.m_bHtmlStrip = hIndex.GetInt ( "html_strip" )!=0;
@@ -949,7 +901,6 @@ bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 		tSettings.m_sHtmlRemoveElements = hIndex.GetStr ( "html_remove_elements" );
 	}
 
-	// docinfo
 	tSettings.m_eDocinfo = SPH_DOCINFO_EXTERN;
 	if ( hIndex("docinfo") )
 	{
@@ -960,8 +911,6 @@ bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 			fprintf ( stdout, "WARNING: unknown docinfo=%s, defaulting to extern\n", hIndex["docinfo"].cstr() );
 	}
 
-	// hit format
-	// TODO! add the description into documentation.
 	tSettings.m_eHitFormat = SPH_HIT_FORMAT_INLINE;
 	if ( hIndex("hit_format") )
 	{
@@ -991,9 +940,6 @@ bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 	// sentence and paragraph indexing
 	tSettings.m_bIndexSP = ( hIndex.GetInt ( "index_sp" )!=0 );
 	tSettings.m_sZones = hIndex.GetStr ( "index_zones" );
-
-	// all good
-	return true;
 }
 
 
@@ -1111,7 +1057,7 @@ void sphWarning ( const char * sFmt, ... )
 {
 	va_list ap;
 	va_start ( ap, sFmt );
-	Log ( SPH_LOG_WARNING, sFmt, ap );
+	Log ( LOG_WARNING, sFmt, ap );
 	va_end ( ap );
 }
 
@@ -1120,7 +1066,7 @@ void sphInfo ( const char * sFmt, ... )
 {
 	va_list ap;
 	va_start ( ap, sFmt );
-	Log ( SPH_LOG_INFO, sFmt, ap );
+	Log ( LOG_INFO, sFmt, ap );
 	va_end ( ap );
 }
 
@@ -1128,7 +1074,7 @@ void sphLogFatal ( const char * sFmt, ... )
 {
 	va_list ap;
 	va_start ( ap, sFmt );
-	Log ( SPH_LOG_FATAL, sFmt, ap );
+	Log ( LOG_FATAL, sFmt, ap );
 	va_end ( ap );
 }
 
@@ -1136,7 +1082,7 @@ void sphLogDebug ( const char * sFmt, ... )
 {
 	va_list ap;
 	va_start ( ap, sFmt );
-	Log ( SPH_LOG_DEBUG, sFmt, ap );
+	Log ( LOG_DEBUG, sFmt, ap );
 	va_end ( ap );
 }
 
@@ -1144,7 +1090,7 @@ void sphLogDebugv ( const char * sFmt, ... )
 {
 	va_list ap;
 	va_start ( ap, sFmt );
-	Log ( SPH_LOG_VERBOSE_DEBUG, sFmt, ap );
+	Log ( LOG_VERBOSE_DEBUG, sFmt, ap );
 	va_end ( ap );
 }
 
@@ -1152,7 +1098,7 @@ void sphLogDebugvv ( const char * sFmt, ... )
 {
 	va_list ap;
 	va_start ( ap, sFmt );
-	Log ( SPH_LOG_VERY_VERBOSE_DEBUG, sFmt, ap );
+	Log ( LOG_VERY_VERBOSE_DEBUG, sFmt, ap );
 	va_end ( ap );
 }
 
@@ -1398,6 +1344,7 @@ void sphBacktrace ( int iFD, bool bSafe )
 		return;
 
 	sphSafeInfo ( iFD, "-------------- backtrace begins here ---------------" );
+	sphSafeInfo ( iFD, "Sphinx " SPHINX_VERSION );
 #ifdef COMPILER
 	sphSafeInfo ( iFD, "Program compiled with " COMPILER );
 #endif
@@ -1433,10 +1380,6 @@ void sphBacktrace ( int iFD, bool bSafe )
 #ifdef __x86_64__
 #define SIGRETURN_FRAME_OFFSET 23
 		__asm __volatile__ ( "movq %%rbp,%0":"=r"(pFramePointer):"r"(pFramePointer) );
-#endif
-
-#ifndef SIGRETURN_FRAME_OFFSET
-#define SIGRETURN_FRAME_OFFSET 0
 #endif
 
 		if ( !pFramePointer )

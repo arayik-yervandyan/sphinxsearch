@@ -72,31 +72,20 @@ bool CreateSynonymsFile ( const char * sMagic )
 }
 
 
-const DWORD TOK_EXCEPTIONS		= 1;
-const DWORD TOK_ESCAPED			= 2;
-const DWORD TOK_NO_DASH			= 4;
-
-ISphTokenizer * CreateTestTokenizer ( bool bUTF8, DWORD uMode )
+ISphTokenizer * CreateTestTokenizer ( bool bUTF8, bool bSynonyms, bool bEscaped = false )
 {
 	CSphString sError;
 	CSphTokenizerSettings tSettings;
 	tSettings.m_iType = bUTF8 ? TOKENIZER_UTF8 : TOKENIZER_SBCS;
 	tSettings.m_iMinWordLen = 2;
 	ISphTokenizer * pTokenizer = ISphTokenizer::Create ( tSettings, sError );
-	if (!( uMode & TOK_NO_DASH ))
-	{
-		assert ( pTokenizer->SetCaseFolding ( "-, 0..9, A..Z->a..z, _, a..z, U+80..U+FF", sError ) );
-		pTokenizer->AddSpecials ( "!-" );
-	} else
-	{
-		assert ( pTokenizer->SetCaseFolding ( "0..9, A..Z->a..z, _, a..z, U+80..U+FF", sError ) );
-		pTokenizer->AddSpecials ( "!" );
-	}
+	assert ( pTokenizer->SetCaseFolding ( "-, 0..9, A..Z->a..z, _, a..z, U+80..U+FF", sError ) );
+	pTokenizer->AddSpecials ( "!-" );
 	pTokenizer->EnableQueryParserMode ( true );
-	if ( uMode & TOK_EXCEPTIONS )
+	if ( bSynonyms )
 		assert ( pTokenizer->LoadSynonyms ( g_sTmpfile, sError ) );
 
-	if ( uMode & TOK_ESCAPED )
+	if ( bEscaped )
 	{
 		ISphTokenizer * pOldTokenizer = pTokenizer;
 		pTokenizer = pTokenizer->Clone ( true );
@@ -123,7 +112,7 @@ void TestTokenizer ( bool bUTF8 )
 		assert ( CreateSynonymsFile ( sMagic ) );
 		bool bExceptions = ( iRun>=2 );
 		bool bEscaped = ( iRun==3 );
-		ISphTokenizer * pTokenizer = CreateTestTokenizer ( bUTF8, bExceptions*TOK_EXCEPTIONS + bEscaped*TOK_ESCAPED );
+		ISphTokenizer * pTokenizer = CreateTestTokenizer ( bUTF8, bExceptions, bEscaped );
 
 		const char * dTests[] =
 		{
@@ -305,7 +294,7 @@ void TestTokenizer ( bool bUTF8 )
 			assert ( pTokenizer->GetToken()==NULL );
 		}
 
-		SafeDeleteArray ( sLine4 );
+		SafeDelete ( sLine4 );
 
 		// test boundaries
 		printf ( "%s for boundaries handling, run=%d\n", sPrefix, iRun );
@@ -347,7 +336,7 @@ void TestTokenizer ( bool bUTF8 )
 	printf ( "%s vs escaping vs blend_chars edge cases\n", sPrefix );
 
 	CSphString sError;
-	ISphTokenizer * pTokenizer = CreateTestTokenizer ( bUTF8, TOK_ESCAPED );
+	ISphTokenizer * pTokenizer = CreateTestTokenizer ( bUTF8, false, true ); // no exceptions, but escaped
 	pTokenizer->AddSpecials ( "()!-\"" );
 	assert ( pTokenizer->SetBlendChars ( ".", sError ) );
 
@@ -387,25 +376,6 @@ void TestTokenizer ( bool bUTF8 )
 	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "bb" ) );
 	assert ( !pTokenizer->TokenIsBlended() );
 	assert ( !pTokenizer->TokenIsBlendedPart() );
-
-	// blended/special vs query mode vs modifier.. hell, this is complicated
-	CSphRemapRange tModifier ( '=', '=', '=' );
-
-	SafeDelete ( pTokenizer );
-	pTokenizer = CreateTestTokenizer ( bUTF8, TOK_NO_DASH );
-	assert ( pTokenizer->SetBlendChars ( "., -", sError ) );
-	pTokenizer->AddSpecials ( "-" );
-	pTokenizer->AddCaseFolding ( tModifier );
-	pTokenizer->EnableQueryParserMode ( true );
-	assert ( pTokenizer->SetBlendMode ( "trim_none, skip_pure", sError ) );
-
-	char sTest4[] = "hello =- =world";
-	printf ( "test %s\n", sTest4 );
-	pTokenizer->SetBuffer ( (BYTE*)sTest4, strlen(sTest4) );
-
-	const BYTE * sToken;
-	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "hello" ) );
-	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "=world" ) );
 
 	SafeDelete ( pTokenizer );
 }
@@ -519,7 +489,7 @@ void TestStripper ()
 		printf ( "testing HTML stripper, test %d/%d... ", 1+iTest, nTests );
 
 		CSphString sError;
-		CSphHTMLStripper tStripper ( true );
+		CSphHTMLStripper tStripper;
 		assert ( tStripper.SetIndexedAttrs ( sTests[iTest][1], sError ) );
 		assert ( tStripper.SetRemovedElements ( sTests[iTest][2], sError ) );
 
@@ -554,7 +524,7 @@ void BenchStripper ()
 	for ( int iRun=0; iRun<2; iRun++ )
 	{
 		CSphString sError;
-		CSphHTMLStripper tStripper ( true );
+		CSphHTMLStripper tStripper;
 		if ( iRun==1 )
 			tStripper.SetRemovedElements ( "style, script", sError );
 
@@ -782,11 +752,11 @@ CSphString ReconstructNode ( const XQNode_t * pNode, const CSphSchema & tSchema 
 			default:					assert ( 0 && "unexpected op in ReconstructNode()" ); break;
 		}
 
-		if ( !pNode->m_dFieldMask.TestAll(true) )
+		if ( pNode->m_uFieldMask!=0xFFFFFFFFUL )
 		{
 			CSphString sFields ( "" );
-			for ( int i=0; i<CSphSmallBitvec::iTOTALBITS; i++ )
-				if ( pNode->m_dFieldMask.Test(i) )
+			for ( int i=0; i<32; i++ )
+				if ( pNode->m_uFieldMask & (1<<i) )
 					sFields.SetSprintf ( "%s,%s", sFields.cstr(), tSchema.m_dFields[i].m_sName.cstr() );
 
 			sRes.SetSprintf ( "( @%s: %s )", sFields.cstr()+1, sRes.cstr() );
@@ -898,7 +868,7 @@ void TestQueryParser ()
 		printf ( "testing query parser, test %d/%d... ", i+1, nTests );
 
 		XQQuery_t tQuery;
-		sphParseExtendedQuery ( tQuery, dTest[i].m_sQuery, pTokenizer.Ptr(), &tSchema, pDict.Ptr(), 1 );
+		sphParseExtendedQuery ( tQuery, dTest[i].m_sQuery, pTokenizer.Ptr(), &tSchema, pDict.Ptr() );
 
 		CSphString sReconst = ReconstructNode ( tQuery.m_pRoot, tSchema );
 		assert ( sReconst==dTest[i].m_sReconst );
@@ -1486,15 +1456,9 @@ struct TestAccCmp_fn
 #ifndef NDEBUG
 static bool IsSorted ( DWORD * pData, int iCount, const TestAccCmp_fn & fn )
 {
-	if ( iCount<1 )
-		return true;
-
 	const DWORD * pPrev = pData;
 	if ( !fn.IsKeyDataSynced ( pPrev ) )
 		return false;
-
-	if ( iCount<2 )
-		return true;
 
 	for ( int i = 1; i < iCount; ++i )
 	{
@@ -1544,13 +1508,6 @@ void TestStridedSortPass ( int iStride, int iCount )
 	memset ( pData, 0, sizeof ( DWORD ) * iCount * iStride );
 	TestAccCmp_fn fnSort ( iStride );
 	RandomFill ( pData, iCount, fnSort, false );
-
-	// crash on sort of mini-arrays
-	TestAccCmp_fn fnSortDummy ( 1 );
-	DWORD dMini[1] = { 1 };
-	sphSort ( dMini, 1, fnSortDummy, fnSortDummy );
-	sphSort ( dMini, 0, fnSortDummy, fnSortDummy );
-	assert ( IsSorted ( dMini, 1, fnSortDummy ) );
 
 	// random sort
 	sphSort ( pData, iCount, fnSort, fnSort );
@@ -1695,7 +1652,7 @@ void TestRTInit ()
 	sphRTConfigure ( tRTConfig, true );
 
 	SmallStringHash_T<CSphIndex*> hIndexes;
-	sphReplayBinlog ( hIndexes, 0 );
+	sphReplayBinlog ( hIndexes );
 }
 
 
@@ -1749,20 +1706,13 @@ void TestRTWeightBoundary ()
 		for ( int i=0; i<tSrcSchema.GetAttrsCount(); i++ )
 			tSchema.AddAttr ( tSrcSchema.GetAttr(i), false );
 
-		ISphRtIndex * pIndex = sphCreateIndexRT ( tSchema, "testrt", 32*1024*1024, RT_INDEX_FILE_NAME, false );
+		ISphRtIndex * pIndex = sphCreateIndexRT ( tSchema, "testrt", 32*1024*1024, RT_INDEX_FILE_NAME );
 
-		// tricky bit
-		// index owns its tokenizer/dict pair, and MAY do whatever it wants
-		// and starting with meta v4, it WILL deallocate tokenizer/dict in Prealloc()
-		// in favor of tokenizer/dict loaded from the saved settings in meta
-		// however, source still needs those guys!
-		// so for simplicity i just clone them
-		pIndex->SetTokenizer ( pTok->Clone ( false ) );
-		pIndex->SetDictionary ( pDict->Clone() );
+		pIndex->SetTokenizer ( pTok ); // index will own this pair from now on
+		pIndex->SetDictionary ( pDict );
 		Verify ( pIndex->Prealloc ( false, false, sError ) );
 
 		ISphHits * pHits;
-		CSphVector<DWORD> dMvas;
 		for ( ;; )
 		{
 			Verify ( pSrc->IterateDocument ( sError ) );
@@ -1773,7 +1723,7 @@ void TestRTWeightBoundary ()
 			if ( !pHits )
 				break;
 
-			pIndex->AddDocument ( pHits, pSrc->m_tDocInfo, NULL, dMvas, sError );
+			pIndex->AddDocument ( pHits, pSrc->m_tDocInfo, NULL, sError );
 			pIndex->Commit ();
 		}
 
@@ -1795,8 +1745,6 @@ void TestRTWeightBoundary ()
 		SafeDelete ( pSorter );
 		SafeDelete ( pIndex );
 
-		SafeDelete ( pDict );
-		SafeDelete ( pTok );
 		sphRTDone ();
 
 		printf ( "ok\n" );
@@ -1928,7 +1876,7 @@ void TestRTSendVsMerge ()
 	for ( int i=0; i<tSrcSchema.GetAttrsCount(); i++ )
 		tSchema.AddAttr ( tSrcSchema.GetAttr(i), false );
 
-	ISphRtIndex * pIndex = sphCreateIndexRT ( tSchema, "testrt", 128*1024, RT_INDEX_FILE_NAME, false );
+	ISphRtIndex * pIndex = sphCreateIndexRT ( tSchema, "testrt", 128*1024, RT_INDEX_FILE_NAME );
 
 	pIndex->SetTokenizer ( pTok ); // index will own this pair from now on
 	pIndex->SetDictionary ( pDict );
@@ -1941,7 +1889,6 @@ void TestRTSendVsMerge ()
 	ISphMatchSorter * pSorter = sphCreateQueue ( &tQuery, pIndex->GetMatchSchema(), tResult.m_sError, false );
 	assert ( pSorter );
 
-	CSphVector<DWORD> dMvas;
 	for ( ;; )
 	{
 		Verify ( pSrc->IterateDocument ( sError ) );
@@ -1952,7 +1899,7 @@ void TestRTSendVsMerge ()
 		if ( !pHits )
 			break;
 
-		pIndex->AddDocument ( pHits, pSrc->m_tDocInfo, NULL, dMvas, sError );
+		pIndex->AddDocument ( pHits, pSrc->m_tDocInfo, NULL, sError );
 		if ( pSrc->m_tDocInfo.m_iDocID==350 )
 		{
 			pIndex->Commit ();
@@ -2004,14 +1951,6 @@ void TestSentenceTokenizer()
 	const char * SENTENCE = "\2"; // MUST be in sync with sphinx.cpp
 	const char * sTest[] =
 	{
-		"Bill Gates Jr. attended", "bill", "gates", "jr", "attended", NULL,
-		"Very good, Dr. Watson", "very", "good", "dr", "watson", NULL,
-		"VERY GOOD, DR. WATSON", "very", "good", "dr", "watson", NULL,
-		"He left US. Went abroad", "he", "left", "us", SENTENCE, "went", "abroad", NULL,
-		"Known as Mr. Doe", "known", "as", "mr", "doe", NULL,
-		"Survived by Mrs. Doe", "survived", "by", "mrs", "doe", NULL,
-		"J. R. R. Tolkien", "j", "r", "r", "tolkien", NULL,
-		"That is it. A boundary", "that", "is", "it", SENTENCE, "a", "boundary", NULL,
 		"Just a sentence. And then some.", "just", "a", "sentence", SENTENCE, "and", "then", "some", SENTENCE, NULL,
 		"Right, guy number two? Yes, guy number one!", "right", "guy", "number", "two", SENTENCE, "yes", "guy", "number", "one", SENTENCE, NULL,
 		"S.T.A.L.K.E.R. sold well in the U.K and elsewhere. Including Russia.", "s", "t", "a", "l", "k", "e", "r", "sold", "well", "in", "the", "u", "k", "and", "elsewhere", SENTENCE, "including", "russia", SENTENCE, NULL,

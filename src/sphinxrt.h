@@ -30,11 +30,11 @@ public:
 
 	/// insert/update document in current txn
 	/// fails in case of two open txns to different indexes
-	virtual bool AddDocument ( int iFields, const char ** ppFields, const CSphMatch & tDoc, bool bReplace, const char ** ppStr, const CSphVector<DWORD> & dMvas, CSphString & sError ) = 0;
+	virtual bool AddDocument ( int iFields, const char ** ppFields, const CSphMatch & tDoc, bool bReplace, const char ** ppStr, CSphString & sError ) = 0;
 
 	/// insert/update document in current txn
 	/// fails in case of two open txns to different indexes
-	virtual bool AddDocument ( ISphHits * pHits, const CSphMatch & tDoc, const char ** ppStr, const CSphVector<DWORD> & dMvas, CSphString & sError ) = 0;
+	virtual bool AddDocument ( ISphHits * pHits, const CSphMatch & tDoc, const char ** ppStr, CSphString & sError ) = 0;
 
 	/// delete document in current txn
 	/// fails in case of two open txns to different indexes
@@ -49,42 +49,28 @@ public:
 	/// dump index data to disk
 	virtual void DumpToDisk ( const char * sFilename ) = 0;
 
-	/// check and periodically flush RAM chunk to disk
+	/// check and flush index memory to disk
 	virtual void CheckRamFlush () = 0;
-
-	/// forcibly flush RAM chunk to disk
-	virtual void ForceRamFlush ( bool bPeriodic=false ) = 0;
-
-	/// attach a disk chunk to current index
-	virtual bool AttachDiskIndex ( CSphIndex * pIndex, CSphString & sError ) = 0;
 };
 
 /// initialize subsystem
 class CSphConfigSection;
 void sphRTInit ();
 void sphRTConfigure ( const CSphConfigSection & hSearchd, bool bTestMode );
-bool sphRTSchemaConfigure ( const CSphConfigSection & hIndex, CSphSchema * pSchema, CSphString * pError );
 
 /// deinitialize subsystem
 void sphRTDone ();
 
 /// RT index factory
-ISphRtIndex * sphCreateIndexRT ( const CSphSchema & tSchema, const char * sIndexName, DWORD uRamSize, const char * sPath, bool bKeywordDict );
+ISphRtIndex * sphCreateIndexRT ( const CSphSchema & tSchema, const char * sIndexName, DWORD uRamSize, const char * sPath );
 
 /// Get current txn index
 ISphRtIndex * sphGetCurrentIndexRT();
 
 typedef void ProgressCallbackSimple_t ();
 
-//////////////////////////////////////////////////////////////////////////
-
-enum ESphBinlogReplayFlags
-{
-	SPH_REPLAY_ACCEPT_DESC_TIMESTAMP = 1
-};
-
 /// replay stored binlog
-void sphReplayBinlog ( const SmallStringHash_T<CSphIndex*> & hIndexes, DWORD uReplayFlags, ProgressCallbackSimple_t * pfnProgressCallback=NULL );
+void sphReplayBinlog ( const SmallStringHash_T<CSphIndex*> & hIndexes, ProgressCallbackSimple_t * pfnProgressCallback=NULL );
 
 #endif // _sphinxrt_
 

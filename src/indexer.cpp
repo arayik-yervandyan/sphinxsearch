@@ -48,8 +48,6 @@ int				g_iMaxXmlpipe2Field		= 0;
 int				g_iWriteBuffer			= 0;
 int				g_iMaxFileFieldBuffer	= 1024*1024;
 
-ESphOnFileFieldError	g_eOnFileFieldError = FFE_IGNORE_FIELD;
-
 const int		EXT_COUNT = 8;
 const char *	g_dExt[EXT_COUNT] = { "sph", "spa", "spi", "spd", "spp", "spm", "spk", "sps" };
 
@@ -287,17 +285,17 @@ void ShowProgress ( const CSphIndexProgress * pProgress, bool bPhaseEnd )
 
 static void Logger ( ESphLogLevel eLevel, const char * sFmt, va_list ap )
 {
-	if ( eLevel>=SPH_LOG_DEBUG )
+	if ( eLevel>=LOG_DEBUG )
 		return;
 
 	switch ( eLevel )
 	{
-		case SPH_LOG_FATAL: fprintf ( stdout, "FATAL: " ); break;
-		case SPH_LOG_WARNING: fprintf ( stdout, "WARNING: " ); break;
-		case SPH_LOG_INFO: fprintf ( stdout, "WARNING: " ); break;
-		case SPH_LOG_DEBUG: // yes, I know that this branch will never execute because of the condition above.
-		case SPH_LOG_VERBOSE_DEBUG:
-		case SPH_LOG_VERY_VERBOSE_DEBUG: fprintf ( stdout, "DEBUG: " ); break;
+		case LOG_FATAL: fprintf ( stdout, "FATAL: " ); break;
+		case LOG_WARNING: fprintf ( stdout, "WARNING: " ); break;
+		case LOG_INFO: fprintf ( stdout, "WARNING: " ); break;
+		case LOG_DEBUG: // yes, I know that this branch will never execute because of the condition above.
+		case LOG_VERBOSE_DEBUG:
+		case LOG_VERY_VERBOSE_DEBUG: fprintf ( stdout, "DEBUG: " ); break;
 	}
 
 	vfprintf ( stdout, sFmt, ap );
@@ -312,7 +310,7 @@ bool ParseMultiAttr ( const char * sBuf, CSphColumnInfo & tAttr, const char * sS
 	// format is as follows:
 	//
 	// multi-valued-attr := ATTR-TYPE ATTR-NAME 'from' SOURCE-TYPE [;QUERY] [;RANGE-QUERY]
-	// ATTR-TYPE := 'uint' | 'timestamp' | 'bigint'
+	// ATTR-TYPE := 'uint' | 'timestamp'
 	// SOURCE-TYPE := 'field' | 'query' | 'ranged-query'
 
 	const char * sTok = NULL;
@@ -336,8 +334,7 @@ bool ParseMultiAttr ( const char * sBuf, CSphColumnInfo & tAttr, const char * sS
 	LOC_SPACE0(); LOC_TOK();
 	if ( LOC_TOKEQ("uint") )				tAttr.m_eAttrType = SPH_ATTR_UINT32SET;
 	else if ( LOC_TOKEQ("timestamp") )		tAttr.m_eAttrType = SPH_ATTR_UINT32SET;
-	else if ( LOC_TOKEQ("bigint") )			tAttr.m_eAttrType = SPH_ATTR_UINT64SET;
-	else									LOC_ERR ( "attr type ('uint' or 'timestamp' or 'bigint')", sTok );
+	else									LOC_ERR ( "attr type ('uint' or 'timestamp')", sTok );
 
 	// handle ATTR-NAME
 	LOC_SPACE1(); LOC_TOK ();
@@ -610,7 +607,6 @@ bool SqlParamsConfigure ( CSphSourceParams_SQL & tParams, const CSphConfigSectio
 
 	tParams.m_iMaxFileBufferSize = g_iMaxFileFieldBuffer;
 	tParams.m_iRefRangeStep = tParams.m_iRangeStep;
-	tParams.m_eOnFileFieldError = g_eOnFileFieldError;
 
 	// unpack
 	if ( !ConfigureUnpack ( hSource("unpack_zlib"), SPH_UNPACK_ZLIB, tParams, sSourceName ) )
@@ -883,8 +879,7 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		return false;
 	}
 
-	bool bInfix = hIndex.GetInt ( "min_infix_len", 0 ) > 0;
-	if ( ( hIndex.GetInt ( "min_prefix_len", 0 ) > 0 || bInfix )
+	if ( ( hIndex.GetInt ( "min_prefix_len", 0 ) > 0 || hIndex.GetInt ( "min_infix_len", 0 ) > 0 )
 		&& hIndex.GetInt ( "enable_star" )==0 )
 	{
 		const char * szMorph = hIndex.GetStr ( "morphology", "" );
@@ -919,6 +914,26 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		if ( !pTokenizer->EnableZoneIndexing ( sError ) )
 			sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
 
+	// prefix/infix indexing
+	int iPrefix = hIndex("min_prefix_len") ? hIndex["min_prefix_len"].intval() : 0;
+	int iInfix = hIndex("min_infix_len") ? hIndex["min_infix_len"].intval() : 0;
+	iPrefix = Max ( iPrefix, 0 );
+	iInfix = Max ( iInfix, 0 );
+
+	CSphString sPrefixFields, sInfixFields;
+
+	if ( hIndex.Exists ( "prefix_fields" ) )
+		sPrefixFields = hIndex ["prefix_fields"].cstr ();
+
+	if ( hIndex.Exists ( "infix_fields" ) )
+		sInfixFields = hIndex ["infix_fields"].cstr ();
+
+	if ( iPrefix==0 && !sPrefixFields.IsEmpty () )
+		fprintf ( stdout, "WARNING: min_prefix_len = 0. prefix_fields are ignored\n" );
+
+	if ( iInfix==0 && !sInfixFields.IsEmpty () )
+		fprintf ( stdout, "WARNING: min_infix_len = 0. infix_fields are ignored\n" );
+
 	CSphDict * pDict = NULL;
 	CSphDictSettings tDictSettings;
 
@@ -928,10 +943,10 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		sphConfDictionary ( hIndex, tDictSettings );
 
 		// FIXME! no support for infixes in keywords dict yet
-		if ( tDictSettings.m_bWordDict && bInfix )
+		if ( tDictSettings.m_bWordDict && iInfix>0 )
 		{
 			tDictSettings.m_bWordDict = false;
-			fprintf ( stdout, "WARNING: min_infix_len is not supported yet with dict=keywords; using dict=crc\n" );
+			fprintf ( stdout, "WARNING: min_infix_len=%d is not supported yet with dict=keywords; using dict=crc\n", iInfix );
 		}
 
 		pDict = tDictSettings.m_bWordDict
@@ -1029,6 +1044,8 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 
 		if ( pSource->HasJoinedFields() )
 			bGotJoinedFields = true;
+
+		pSource->SetupFieldMatch ( sPrefixFields.cstr (), sInfixFields.cstr () );
 
 		// strip_html, index_html_attrs
 		CSphString sError;
@@ -1131,10 +1148,8 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 			exit ( 1 );
 		}
 
-		CSphString sError;
 		CSphIndexSettings tSettings;
-		if ( !sphConfIndex ( hIndex, tSettings, sError ) )
-			sphDie ( "index '%s': %s.", sIndexName, sError.cstr() );
+		sphConfIndex ( hIndex, tSettings );
 		tSettings.m_bVerbose = bVerbose;
 
 		if ( tSettings.m_bIndexExactWords && !pDict->HasMorphology () )
@@ -1224,13 +1239,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 bool DoMerge ( const CSphConfigSection & hDst, const char * sDst,
 	const CSphConfigSection & hSrc, const char * sSrc, CSphVector<CSphFilterSettings> & tPurge, bool bRotate, bool bMergeKillLists )
 {
-	// progress bar
-	if ( !g_bQuiet )
-	{
-		fprintf ( stdout, "merging index '%s' into index '%s'...\n", sSrc, sDst );
-		fflush ( stdout );
-	}
-
 	// check config
 	if ( !hDst("path") )
 	{
@@ -1373,7 +1381,6 @@ extern int64_t g_iIndexerPoolStartHit;
 void sigsegv ( int sig )
 {
 	sphSafeInfo ( STDERR_FILENO, "*** Oops, indexer crashed! Please send the following report to developers." );
-	sphSafeInfo ( STDERR_FILENO, "Sphinx " SPHINX_VERSION );
 	sphSafeInfo ( STDERR_FILENO, "-------------- report begins here ---------------" );
 	sphSafeInfo ( STDERR_FILENO, "Current document: docid=%l, hits=%l", g_iIndexerCurrentDocID, g_iIndexerCurrentHits );
 	sphSafeInfo ( STDERR_FILENO, "Current batch: minid=%l, maxid=%l", g_iIndexerCurrentRangeMin, g_iIndexerCurrentRangeMax );
@@ -1416,13 +1423,11 @@ LONG WINAPI sigsegv ( EXCEPTION_POINTERS * pExc )
 {
 	const char * sFail1 = "*** Oops, indexer crashed! Please send ";
 	const char * sFail2 = " minidump file to developers.\n";
-	const char * sFailVer = "Sphinx " SPHINX_VERSION "\n";
 
 	sphBacktrace ( pExc, g_sMinidump );
 	::write ( STDERR_FILENO, sFail1, strlen(sFail1) );
 	::write ( STDERR_FILENO, g_sMinidump, strlen(g_sMinidump) );
 	::write ( STDERR_FILENO, sFail2, strlen(sFail2) );
-	::write ( STDERR_FILENO, sFailVer, strlen(sFailVer) );
 
 	CRASH_EXIT;
 }
@@ -1686,19 +1691,6 @@ int main ( int argc, char ** argv )
 		g_iMaxXmlpipe2Field = hIndexer.GetSize ( "max_xmlpipe2_field", 2*1024*1024 );
 		g_iWriteBuffer = hIndexer.GetSize ( "write_buffer", 1024*1024 );
 		g_iMaxFileFieldBuffer = Max ( 1024*1024, hIndexer.GetSize ( "max_file_field_buffer", 8*1024*1024 ) );
-
-		if ( hIndexer("on_file_field_error") )
-		{
-			const CSphString & sVal = hIndexer["on_file_field_error"];
-			if ( sVal=="ignore_field" )
-				g_eOnFileFieldError = FFE_IGNORE_FIELD;
-			else if ( sVal=="skip_document" )
-				g_eOnFileFieldError = FFE_SKIP_DOCUMENT;
-			else if ( sVal=="fail_index" )
-				g_eOnFileFieldError = FFE_FAIL_INDEX;
-			else
-				sphDie ( "unknown on_field_field_error value (must be one of ignore_field, skip_document, fail_index)" );
-		}
 
 		sphSetThrottling ( hIndexer.GetInt ( "max_iops", 0 ), hIndexer.GetSize ( "max_iosize", 0 ) );
 	}

@@ -24,10 +24,7 @@
 
 #include <mysql_version.h>
 
-#if MYSQL_VERSION_ID>=50515
-#include "sql_class.h"
-#include "sql_array.h"
-#elif MYSQL_VERSION_ID>50100
+#if MYSQL_VERSION_ID>50100
 #include "mysql_priv.h"
 #include <mysql/plugin.h>
 #else
@@ -122,22 +119,6 @@ void sphUnalignedWrite ( void * pPtr, const T & tVal )
 
 #endif
 
-#if MYSQL_VERSION_ID>=50515
-
-#define sphinx_hash_init my_hash_init
-#define sphinx_hash_free my_hash_free
-#define sphinx_hash_search my_hash_search
-#define sphinx_hash_delete my_hash_delete
-
-#else
-
-#define sphinx_hash_init hash_init
-#define sphinx_hash_free hash_free
-#define sphinx_hash_search hash_search
-#define sphinx_hash_delete hash_delete
-
-#endif
-
 /////////////////////////////////////////////////////////////////////////////
 
 // FIXME! make this all dynamic
@@ -154,7 +135,7 @@ void sphUnalignedWrite ( void * pPtr, const T & tVal )
 #define SPHINXSE_MAX_ALLOC			(16*1024*1024)
 #define SPHINXSE_MAX_KEYWORDSTATS	4096
 
-#define SPHINXSE_VERSION			"2.0.2-dev ($Revision: 2917)"
+#define SPHINXSE_VERSION			"0.9.9 ($Revision$)"
 
 // FIXME? the following is cut-n-paste from sphinx.h and searchd.cpp
 // cut-n-paste is somewhat simpler that adding dependencies however..
@@ -163,7 +144,7 @@ enum
 {
 	SPHINX_SEARCHD_PROTO	= 1,
 	SEARCHD_COMMAND_SEARCH	= 0,
-	VER_COMMAND_SEARCH		= 0x119,
+	VER_COMMAND_SEARCH		= 0x116,
 };
 
 /// search query sorting orders
@@ -229,10 +210,8 @@ enum
 	SPH_ATTR_BOOL		= 4,			///< this attr is a boolean bit field
 	SPH_ATTR_FLOAT		= 5,
 	SPH_ATTR_BIGINT		= 6,
-	SPH_ATTR_STRING		= 7,			///< string (binary; in-memory)
 
-	SPH_ATTR_UINT32SET		= 0x40000001UL,	///< this attr is multiple int32 values (0 or more)
-	SPH_ATTR_UINT64SET		= 0x40000002UL	///< this attr is multiple int64 values (0 or more)
+	SPH_ATTR_MULTI		= 0x40000000UL	///< this attr has multiple values (0 or more)
 };
 
 /// known answers
@@ -694,8 +673,8 @@ static int sphinx_init_func ( void * p )
 	if ( !sphinx_init )
 	{
 		sphinx_init = 1;
-		void ( pthread_mutex_init ( &sphinx_mutex, MY_MUTEX_INIT_FAST ) );
-		sphinx_hash_init ( &sphinx_open_tables, system_charset_info, 32, 0, 0,
+		VOID ( pthread_mutex_init ( &sphinx_mutex, MY_MUTEX_INIT_FAST ) );
+		hash_init ( &sphinx_open_tables, system_charset_info, 32, 0, 0,
 			sphinx_get_key, 0, 0 );
 
 		#if MYSQL_VERSION_ID > 50100
@@ -745,7 +724,7 @@ static int sphinx_done_func ( void * )
 		sphinx_init = 0;
 		if ( sphinx_open_tables.records )
 			error = 1;
-		sphinx_hash_free ( &sphinx_open_tables );
+		hash_free ( &sphinx_open_tables );
 		pthread_mutex_destroy ( &sphinx_mutex );
 	}
 
@@ -1150,12 +1129,12 @@ static CSphSEShare * get_share ( const char * table_name, TABLE * table )
 	{
 		// check if we already have this share
 #if MYSQL_VERSION_ID>=50120
-		pShare = (CSphSEShare*) sphinx_hash_search ( &sphinx_open_tables, (const uchar *) table_name, strlen(table_name) );
+		pShare = (CSphSEShare*) hash_search ( &sphinx_open_tables, (const uchar *) table_name, strlen(table_name) );
 #else
 #ifdef __WIN__
-		pShare = (CSphSEShare*) sphinx_hash_search ( &sphinx_open_tables, (const byte *) table_name, strlen(table_name) );
+		pShare = (CSphSEShare*) hash_search ( &sphinx_open_tables, (const byte *) table_name, strlen(table_name) );
 #else
-		pShare = (CSphSEShare*) sphinx_hash_search ( &sphinx_open_tables, table_name, strlen(table_name) );
+		pShare = (CSphSEShare*) hash_search ( &sphinx_open_tables, table_name, strlen(table_name) );
 #endif // win
 #endif // pre-5.1.20
 
@@ -1207,7 +1186,7 @@ static int free_share ( CSphSEShare * pShare )
 
 	if ( !--pShare->m_iUseCount )
 	{
-		sphinx_hash_delete ( &sphinx_open_tables, (byte *)pShare );
+		hash_delete ( &sphinx_open_tables, (byte *)pShare );
 		SafeDelete ( pShare );
 	}
 
@@ -1828,7 +1807,7 @@ int CSphSEQuery::BuildRequest ( char ** ppBuffer )
 	SPH_ENTER_METHOD();
 
 	// calc request length
-	int iReqSize = 128 + 4*m_iWeights
+	int iReqSize = 124 + 4*m_iWeights
 		+ strlen ( m_sSortBy )
 		+ strlen ( m_sQuery )
 		+ strlen ( m_sIndex )
@@ -1881,7 +1860,6 @@ int CSphSEQuery::BuildRequest ( char ** ppBuffer )
 	SendWord ( SEARCHD_COMMAND_SEARCH ); // command id
 	SendWord ( VER_COMMAND_SEARCH ); // command version
 	SendInt ( iReqSize-8 ); // packet body length
-	SendInt ( 0 ); // its a client
 
 	SendInt ( 1 ); // number of queries
 	SendInt ( m_iOffset );
@@ -2092,29 +2070,15 @@ int ha_sphinx::Connect ( const char * sHost, ushort uPort )
 		} else
 		{
 			int tmp_errno;
-			bool bError = false;
-
-#if MYSQL_VERSION_ID>=50515
-			struct addrinfo tmp_hostent, *hp;
-			tmp_errno = getaddrinfo ( sHost, NULL, &tmp_hostent, &hp );
-			if ( !tmp_errno )
-			{
-				freeaddrinfo ( hp );
-				bError = true;
-			}
-#else
 			struct hostent tmp_hostent, *hp;
 			char buff2 [ GETHOSTBYNAME_BUFF_SIZE ];
-			hp = my_gethostbyname_r ( sHost, &tmp_hostent, buff2, sizeof(buff2), &tmp_errno );
+
+			hp = my_gethostbyname_r ( sHost, &tmp_hostent,
+				buff2, sizeof(buff2), &tmp_errno );
 			if ( !hp )
 			{
 				my_gethostbyname_r_free();
-				bError = true;
-			}
-#endif
 
-			if ( bError )
-			{
 				char sError[256];
 				my_snprintf ( sError, sizeof(sError), "failed to resolve searchd host (name=%s)", sHost );
 
@@ -2122,13 +2086,9 @@ int ha_sphinx::Connect ( const char * sHost, ushort uPort )
 				SPH_RET(-1);
 			}
 
-#if MYSQL_VERSION_ID>=50515
-			memcpy ( &sin.sin_addr, hp->ai_addr, Min ( sizeof(sin.sin_addr), (size_t)hp->ai_addrlen ) );
-			freeaddrinfo ( hp );
-#else
-			memcpy ( &sin.sin_addr, hp->h_addr, Min ( sizeof(sin.sin_addr), (size_t)hp->h_length ) );
+			memcpy ( &sin.sin_addr, hp->h_addr,
+				Min ( sizeof(sin.sin_addr), (size_t)hp->h_length ) );
 			my_gethostbyname_r_free();
-#endif
 		}
 	} else
 	{
@@ -2420,23 +2380,12 @@ int ha_sphinx::index_end()
 }
 
 
-bool ha_sphinx::CheckResponcePtr ( int iLen )
+uint32 ha_sphinx::UnpackDword ()
 {
-	if ( m_pCur+iLen>m_pResponseEnd )
+	if ( m_pCur+sizeof(uint32)>m_pResponseEnd ) // NOLINT
 	{
 		m_pCur = m_pResponseEnd;
 		m_bUnpackError = true;
-		return false;
-	}
-
-	return true;
-}
-
-
-uint32 ha_sphinx::UnpackDword ()
-{
-	if ( !CheckResponcePtr ( sizeof(uint32) ) ) // NOLINT
-	{
 		return 0;
 	}
 
@@ -2452,8 +2401,10 @@ char * ha_sphinx::UnpackString ()
 	if ( !iLen )
 		return NULL;
 
-	if ( !CheckResponcePtr ( iLen ) )
+	if ( m_pCur+iLen>m_pResponseEnd )
 	{
+		m_pCur = m_pResponseEnd;
+		m_bUnpackError = true;
 		return NULL;
 	}
 
@@ -2606,15 +2557,11 @@ bool ha_sphinx::UnpackStats ( CSphSEStats * pStats )
 		m_pCur += m_bId64 ? 12 : 8; // skip id+weight
 		for ( uint32 i=0; i<m_iAttrs && m_pCur<m_pResponseEnd-sizeof(uint32); i++ ) // NOLINT
 		{
-			if ( m_dAttrs[i].m_uType==SPH_ATTR_UINT32SET || m_dAttrs[i].m_uType==SPH_ATTR_UINT64SET )
+			if ( m_dAttrs[i].m_uType & SPH_ATTR_MULTI )
 			{
 				// skip MVA list
 				uint32 uCount = UnpackDword ();
 				m_pCur += uCount*4;
-			} else if ( m_dAttrs[i].m_uType==SPH_ATTR_STRING )
-			{
-				uint32 iLen = UnpackDword();
-				m_pCur += iLen;
 			} else // skip normal value
 				m_pCur += m_dAttrs[i].m_uType==SPH_ATTR_BIGINT ? 8 : 4;
 		}
@@ -2969,21 +2916,16 @@ int ha_sphinx::get_rec ( byte * buf, const byte *, uint )
 
 	for ( uint32 i=0; i<m_iAttrs; i++ )
 	{
-		longlong iValue64 = 0;
+		longlong iValue64;
 		uint32 uValue = UnpackDword ();
 		if ( m_dAttrs[i].m_uType==SPH_ATTR_BIGINT )
 			iValue64 = ( (longlong)uValue<<32 ) | UnpackDword();
 		if ( m_dAttrs[i].m_iField<0 )
 		{
-			// skip MVA or String
-			if ( m_dAttrs[i].m_uType==SPH_ATTR_UINT32SET || m_dAttrs[i].m_uType==SPH_ATTR_UINT64SET )
-			{
+			// skip MVA
+			if ( m_dAttrs[i].m_uType & SPH_ATTR_MULTI )
 				for ( ; uValue>0 && !m_bUnpackError; uValue-- )
 					UnpackDword();
-			} else if ( m_dAttrs[i].m_uType==SPH_ATTR_STRING && CheckResponcePtr ( uValue ) )
-			{
-				m_pCur += uValue;
-			}
 			continue;
 		}
 
@@ -3011,18 +2953,7 @@ int ha_sphinx::get_rec ( byte * buf, const byte *, uint )
 				af->store ( iValue64, 0 );
 				break;
 
-			case SPH_ATTR_STRING:
-				if ( !uValue )
-					af->store ( "", 0, &my_charset_bin );
-				else if ( CheckResponcePtr ( uValue ) )
-				{
-					af->store ( m_pCur, uValue, &my_charset_bin );
-					m_pCur += uValue;
-				}
-				break;
-
-			case SPH_ATTR_UINT64SET:
-			case SPH_ATTR_UINT32SET :
+			case ( SPH_ATTR_MULTI | SPH_ATTR_INTEGER ):
 				if ( uValue<=0 )
 				{
 					// shortcut, empty MVA set
@@ -3034,32 +2965,15 @@ int ha_sphinx::get_rec ( byte * buf, const byte *, uint )
 					char sBuf[1024]; // FIXME! magic size
 					char * pCur = sBuf;
 
-					if ( m_dAttrs[i].m_uType==SPH_ATTR_UINT32SET )
+					for ( ; uValue>0 && !m_bUnpackError; uValue-- )
 					{
-						for ( ; uValue>0 && !m_bUnpackError; uValue-- )
+						uint32 uEntry = UnpackDword ();
+						if ( pCur < sBuf+sizeof(sBuf)-16 ) // 10 chars per 32bit value plus some safety bytes
 						{
-							uint32 uEntry = UnpackDword ();
-							if ( pCur < sBuf+sizeof(sBuf)-16 ) // 10 chars per 32bit value plus some safety bytes
-							{
-								snprintf ( pCur, sBuf+sizeof(sBuf)-pCur, "%u", uEntry );
-								while ( *pCur ) *pCur++;
-								if ( uValue>1 )
-									*pCur++ = ','; // non-trailing commas
-							}
-						}
-					} else
-					{
-						for ( ; uValue>0 && !m_bUnpackError; uValue-=2 )
-						{
-							uint64 uEntry = UnpackDword ();
-							uEntry = ( uEntry<<32 ) | UnpackDword();
-							if ( pCur < sBuf+sizeof(sBuf)-24 ) // 20 chars per 64bit value plus some safety bytes
-							{
-								snprintf ( pCur, sBuf+sizeof(sBuf)-pCur, "%llu", uEntry );
-								while ( *pCur ) *pCur++;
-								if ( uValue>2 )
-									*pCur++ = ','; // non-trailing commas
-							}
+							snprintf ( pCur, sBuf+sizeof(sBuf)-pCur, "%u", uEntry );
+							while ( *pCur ) *pCur++;
+							if ( uValue>1 )
+								*pCur++ = ','; // non-trailing commas
 						}
 					}
 

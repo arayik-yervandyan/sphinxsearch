@@ -147,9 +147,9 @@ function CheckSearchdLog ( $error_file, &$retval )
 }
 
 
-function StartSearchd ( $config_file, $error_file, $pidfile, &$error, $use_watchdog = false, $addr=false, $port=false )
+function StartSearchd ( $config_file, $error_file, $pidfile, &$error, $use_watchdog = false )
 {
-	global $g_locals, $windows, $action_retries, $action_wait_timeout, $sd_address, $sd_port;
+	global $g_locals, $windows, $action_retries, $action_wait_timeout;
 
 	$path = $g_locals['searchd'];
 	if ( !is_executable($path) )
@@ -215,38 +215,6 @@ function StartSearchd ( $config_file, $error_file, $pidfile, &$error, $use_watch
 //	// we've got a pid file; but lets check the log file for startup errors
 //	for ( $i=0; $i<$action_retries && !file_exists($error_file); $i++ )
 //		usleep ( $action_wait_timeout );
-
-	// lets wait when daemon is ready to accept connections
-	if ( $retval==0 )
-	{
-		if ( !$addr )
-			$addr = $sd_address;
-		if ( !$port )
-			$port = $sd_port;
-
-		$cl = new SphinxClient ();
-		$cl->SetServer ( $addr, $port );	
-		$cl->SetConnectTimeout ( 1 );
-		
-		$ok = false;
-		$start = MyMicrotime();		
-		for ( $i=0; $i<3; $i++ )
-		{
-			if ( $cl->Open() )
-			{
-				$cl->Close(); 
-				$ok = true;
-				break;
-			}
-			usleep ( 500 );
-		}
-		
-		if ( !$ok )
-		{
-			$tm = ( MyMicrotime() - $start );
-			printf ( "\nWARNING: can't connect to daemon on startup for %.1f sec\t\t\t\n", $tm );
-		}
-	}
 
 	if ( $retval==0 && !empty($error) )
 		$retval = 2; // no errors, but there were warnings
@@ -317,56 +285,6 @@ function IsModelGenMode ()
 }
 
 
-function CompareResultSetFixup ( &$set, $roundoff, $variants_match )
-{
-	global $g_ignore_weights;
-
-	if ( !is_array($set) )
-		return;
-
-	if ( $roundoff && !@$set["resarray"] ) // FIXME! support resarray too
-		foreach ( $set["attrs"] as $name=>$type )
-			if ( $type==SPH_ATTR_FLOAT )
-	{
-		foreach ( $set["matches"] as $id=>$match )
-			$set["matches"][$id]["attrs"][$name] = sprintf ( "%.{$roundoff}f",
-				$set["matches"][$id]["attrs"][$name] );
-	}
-
-	if ( $g_ignore_weights )
-	{
-		if ( isset($set["matches"]) )
-		{
-			if ( @$set["resarray"] )
-			{
-				for ( $i=0; $i<count($set); $i++ )
-					unset ( $set["matches"][$id]["weight"] );
-			} else
-			{
-				foreach ( $set["matches"] as $id=>$match )
-					unset ( $set["matches"][$id]["weight"] );
-			}
-		}
-		if ( @$set["words"] )
-			foreach ( $set["words"] as $word=>$info )
-				$set["words"][$word] = array ( "hits"=>-1, "docs"=>-1 );
-	}
-
-	//foreach ( preg_split ( "/\\W+/", "time warning status fields resarray roundoff words" ) as $key )
-	foreach ( preg_split ( "/\\W+/", "time warning status fields resarray roundoff" ) as $key )
-		unset ( $set[$key] );
-		
-	if ( $variants_match && isset ( $set["attrs"] ) )
-	{			
-		foreach ( $set["attrs"] as $k=>$v )
-		{
-			if ( $v==SPH_ATTR_MULTI64 )
-				$set["attrs"][$k] = SPH_ATTR_MULTI; 
-		}
-	}
-}
-
-	
 function ChildrenArray ( $node, $name="" )
 {
 	$res = array ();
@@ -472,8 +390,6 @@ class SphinxConfig
 	function DB_Insert ()			{ return $this->_db_insert; }
 	function DB_CustomInsert ()		{ return $this->_custom_insert; }
 	function NumAgents ()			{ return $this->_num_agents; }
-	function AddressAPI ()				{ return $this->_sd_address; }
-	function Port ()						{ return $this->_sd_port; }
 	function Requires ( $name )		{ return isset($this->_prereqs[$name]); }
 	function IsQueryTest ()			{ return strlen ( $this->_custom_test ) == 0;	}
 	function IsSphinxqlTest ()		{ return $this->_use_sphinxql; }
@@ -700,20 +616,17 @@ class SphinxConfig
 				// parse ranker
 				$ranker = 0;
 				$ranker_s = $q->getAttribute("ranker");
-
-				if ( empty($ranker_s) )
+				switch ( $ranker_s )
 				{
-					$ranker_s = "(default)";
-				} else
-				{
-					$ranker = @constant("SPH_RANK_" . strtoupper($ranker_s));
-					if ( $ranker===NULL )
-					{
+					case "":				$ranker_s = "(default)"; break;
+					case "proximity_bm25":	$ranker = SPH_RANK_PROXIMITY_BM25; break;
+					case "bm25":			$ranker = SPH_RANK_BM25; break;
+					case "none":			$ranker = SPH_RANK_NONE; break;
+					case "wordcount":		$ranker = SPH_RANK_WORDCOUNT; break;
+					default:
 						printf ( "$config_file: unknown ranker '%s'\n", $ranker_s );
 						return false;
-					}
 				}
-
 				$res["ranker"] = $ranker;
 				$res["ranker_s"] = $ranker_s;
 
@@ -895,11 +808,7 @@ class SphinxConfig
 				$query = $this->_sphqueries[$n/2]["query"];
 		
 			$query_result = array ();
-			
-			$no_time = false;
-			if ( $bench===false && ( stripos ( $query, 'show' )!==false ) && ( stripos ( $query, 'meta' )!==false ) )
-				$no_time = true;
-			
+				
 			$query_result["sphinxql"]=$query;
 			$result = mysql_wr ($query,$connection);
 			if ($result===true)
@@ -912,11 +821,7 @@ class SphinxConfig
 			{
 				$query_result["total_rows"] = mysql_num_rows($result);
 				while ($row = mysql_fetch_array($result, MYSQL_ASSOC))
-				{
-					if ( $no_time===true && array_key_exists ( 'Variable_name', $row ) && $row['Variable_name']=='time' )
-						continue;
 					$query_result["rows"][] = $row;
-				}
 				mysql_free_result($result);
 			}
 			$this->_results[] = $query_result;
@@ -1192,16 +1097,54 @@ class SphinxConfig
 	}
 
 
+	function CompareResultSetFixup ( &$set, $roundoff )
+	{
+		global $g_ignore_weights;
+
+		if ( !is_array($set) )
+			return;
+
+		if ( $roundoff && !@$set["resarray"] ) // FIXME! support resarray too
+			foreach ( $set["attrs"] as $name=>$type )
+				if ( $type==SPH_ATTR_FLOAT )
+		{
+			foreach ( $set["matches"] as $id=>$match )
+				$set["matches"][$id]["attrs"][$name] = sprintf ( "%.{$roundoff}f",
+					$set["matches"][$id]["attrs"][$name] );
+		}
+
+		if ( $g_ignore_weights )
+		{
+			if ( isset($set["matches"]) )
+			{
+				if ( @$set["resarray"] )
+				{
+					for ( $i=0; $i<count($set); $i++ )
+						unset ( $set["matches"][$id]["weight"] );
+				} else
+				{
+					foreach ( $set["matches"] as $id=>$match )
+						unset ( $set["matches"][$id]["weight"] );
+				}
+			}
+			if ( @$set["words"] )
+				foreach ( $set["words"] as $word=>$info )
+					$set["words"][$word] = array ( "hits"=>-1, "docs"=>-1 );
+		}
+
+		//foreach ( preg_split ( "/\\W+/", "time warning status fields resarray roundoff words" ) as $key )
+		foreach ( preg_split ( "/\\W+/", "time warning status fields resarray roundoff" ) as $key )
+			unset ( $set[$key] );
+	}
+
 	function CompareResultSets ( $set1, $set2 )
 	{
 		$roundoff = 0;
 		if ( isset($set1["roundoff"]) ) $roundoff = $set1["roundoff"];
 		if ( isset($set2["roundoff"]) ) $roundoff = $set2["roundoff"];
-		
-		$variants_match = $this->Requires("variant_match");
 
-		CompareResultSetFixup ( $set1, $roundoff, $variants_match );
-		CompareResultSetFixup ( $set2, $roundoff, $variants_match );
+		$this->CompareResultSetFixup ( $set1, $roundoff );
+		$this->CompareResultSetFixup ( $set2, $roundoff );
 
 		return $set1==$set2;
 	}
@@ -1219,18 +1162,22 @@ class SphinxConfig
 	}
 
 
-	/// returns false if everything is okay
-	/// returns error messages if something failed
 	function CheckVariants ( $output_path )
 	{
 		if ( !$this->Requires("variant_match") )
-			return false;
+			return true;
 		
 		$total = count ( $this->_results_model );
 		if ( $total==1 )
-			return "variant match required, but there are no variants";
+		{
+			printf ( "Variant match is required, but there are no variants.\n" );
+			return false;
+		}
 		else if ( !$this->IsQueryTest() )
-			return "variant match is not supported with custom tests";
+		{
+			printf ( "Variant match is not supported for non-query tests.\n" );
+			return false;
+		}
 
 		$failed = false;
 		$output = '';
@@ -1258,13 +1205,8 @@ class SphinxConfig
 		}
 
 		if ( $failed )
-		{
 			file_put_contents ( $output_path, $output );
-			return "variants mismatch; see $output_path for details";
-		}
-
-		// all ok, indicated by false ("no error")
-		return false;
+		return !$failed;
 	}
 
 
@@ -1361,8 +1303,7 @@ class SphinxConfig
 				SPH_ATTR_FLOAT => "float",
 				SPH_ATTR_BIGINT => "bigint",
 				SPH_ATTR_STRING => "string",
-				SPH_ATTR_MULTI => "mva",
-				SPH_ATTR_MULTI64 => "mva" ); // !COMMIT
+				SPH_ATTR_MULTI | SPH_ATTR_INTEGER => "mva" );
 
 			$n = 1;
 			$str .= "Result set attributes:\n";
@@ -2014,21 +1955,6 @@ function EraseDirContents ( $path )
 	}
 }
 
-function CopyDirContents ( $from, $to )
-{
-	$ffrom = opendir ( $from );
-	
-	if ( $ffrom && is_dir ( $to ) )
-	{
-		while ( ( $file = readdir ( $ffrom ) ) !== false )
-		{
-			if ( $file != "." && $file != ".." && !is_dir ( $file ) )
-				copy ( "$from/$file", "$to/$file" );
-		} 
-
-		closedir ( $ffrom );
-	}
-}
 
 function CheckConfig ( $config, $path )
 {
@@ -2181,8 +2107,6 @@ function RunTest ( $test_dir, $skipdemo, $usemarks )
 		$config->WriteConfig ( "config.conf", "all", $msg, $config->NumAgents () < 2 );
 
 		EraseDirContents ( $indexer_data_path );
-		if ( $config->Requires( "pre_copy_ref" ) )
-			CopyDirContents ( $test_dir . "/refdata/", "data/" );
 
 		if ( $config->IsSkipIndexer()===false && $sd_managed_searchd===false && $sd_skip_indexer===false )
 		{
@@ -2257,7 +2181,7 @@ function RunTest ( $test_dir, $skipdemo, $usemarks )
 			if ( $sd_managed_searchd )
 				$searchd_ret = 0;
 			else
-				$searchd_ret = StartSearchd ( $config_file, "error_".$agent_id.".txt", $pid_file, $error, $config->Requires ( "watchdog" ), $config->AddressAPI(), $config->Port()  );
+				$searchd_ret = StartSearchd ( $config_file, "error_".$agent_id.".txt", $pid_file, $error, $config->Requires ( "watchdog" )  );
 
 				if ( $searchd_ret == 1 )
 				{
@@ -2347,14 +2271,14 @@ function RunTest ( $test_dir, $skipdemo, $usemarks )
 	$total = $config->SubtestNo()+1;
 	if ( IsModelGenMode () )
 	{
-		$variant = $config->CheckVariants ( $report_path."_variant.txt" );
-		if ($variant===false)
+		if ( $config->CheckVariants ( $report_path."_variant.txt" ) )
 		{
 			$config->WriteModel ( $model_file );
 			printf ( "$prefix done; %d/%d subtests run\n", $config->SubtestNo(), $nsubtests );
-		} else
+		}
+		else
 		{
-			printf ( "$prefix done; %d/%d subtests: VARIANT CHECK FAILED: %s\n", $config->SubtestNo(), $nsubtests, $variant );
+			printf ( "$prefix done; %d/%d subtests: VARIANT CHECK FAILED\n", $config->SubtestNo(), $nsubtests );
 			$nfailed = $total;
 		}
 	}
