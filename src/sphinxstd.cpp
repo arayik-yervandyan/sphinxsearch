@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -15,14 +15,13 @@
 
 #include "sphinx.h"
 #include "sphinxint.h"
-#include "sphinxutils.h"
 
 #if !USE_WINDOWS
 #include <sys/time.h> // for gettimeofday
 #endif
 
 
-static int g_iThreadStackSize = 65536;
+#define THREAD_STACK_SIZE 65536
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -56,6 +55,13 @@ void sphAssert ( const char * sExpr, const char * sFile, int iLine )
 
 #undef new
 #define SPH_DEBUG_DOFREE 1 // 0 will not actually free returned blocks; helps to catch double deletes etc
+
+// for ::write
+#if USE_WINDOWS
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 const DWORD MEMORY_MAGIC_PLAIN		= 0xbbbbbbbbUL;
 const DWORD MEMORY_MAGIC_ARRAY		= 0xaaaaaaaaUL;
@@ -210,24 +216,21 @@ void sphAllocsDump ( int iFile, int iSinceID )
 {
 	g_tAllocsMutex.Lock();
 
-	sphSafeInfo ( iFile, "--- dumping allocs since %d ---\n", iSinceID );
-
-	uint64_t iTotalBytes = 0;
-	int iTotal = 0;
+	char sBuf [ 1024 ];
+	snprintf ( sBuf, sizeof(sBuf), "--- dumping allocs since %d ---\n", iSinceID );
+	write ( iFile, sBuf, strlen(sBuf) );
 
 	for ( CSphMemHeader * pHeader = g_pAllocs;
 		pHeader && pHeader->m_iAllocId > iSinceID;
 		pHeader = pHeader->m_pNext )
 	{
-		sphSafeInfo ( iFile, "alloc %d at %s(%d): %d bytes\n", pHeader->m_iAllocId,
+		snprintf ( sBuf, sizeof(sBuf), "alloc %d at %s(%d): %d bytes\n", pHeader->m_iAllocId,
 			pHeader->m_sFile, pHeader->m_iLine, (int)pHeader->m_iSize );
-
-		iTotalBytes += pHeader->m_iSize;
-		iTotal++;
+		write ( iFile, sBuf, strlen(sBuf) );
 	}
 
-	sphSafeInfo ( iFile, "total allocs %d: %d.%03d bytes", iTotal, (int)(iTotalBytes/1024), (int)(iTotalBytes%1000) );
-	sphSafeInfo ( iFile, "--- end of dump ---\n" );
+	snprintf ( sBuf, sizeof(sBuf), "--- end of dump ---\n" );
+	write ( iFile, sBuf, strlen(sBuf) );
 
 	g_tAllocsMutex.Unlock();
 }
@@ -260,7 +263,7 @@ void sphAllocsCheck ()
 
 void sphMemStatInit () {}
 void sphMemStatDone () {}
-void sphMemStatDump ( int ) {}
+void sphMemStatDump () {}
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -297,7 +300,6 @@ void operator delete [] ( void * pPtr )
 #undef new
 
 static CSphStaticMutex	g_tAllocsMutex;
-static int				g_iAllocsId		= 0;
 static int				g_iCurAllocs	= 0;
 static int64_t			g_iCurBytes		= 0;
 static int				g_iTotalAllocs	= 0;
@@ -337,7 +339,6 @@ void * sphDebugNew ( size_t iSize )
 
 	g_tAllocsMutex.Lock ();
 
-	g_iAllocsId++;
 	g_iCurAllocs++;
 	g_iCurBytes += iSize;
 	g_iTotalAllocs++;
@@ -391,7 +392,7 @@ void sphAllocsStats ()
 
 int64_t sphAllocBytes ()		{ return g_iCurBytes; }
 int sphAllocsCount ()			{ return g_iCurAllocs; }
-int sphAllocsLastID ()			{ return g_iAllocsId; }
+int sphAllocsLastID ()			{ return -1; }
 void sphAllocsDump ( int, int )	{}
 void sphAllocsCheck ()			{}
 
@@ -558,27 +559,24 @@ static const char* g_dMemCategoryName[] = {
 STATIC_ASSERT ( sizeof(g_dMemCategoryName)/sizeof(g_dMemCategoryName[0])==Memory::SPH_MEM_TOTAL, MEM_STAT_NAME_MISMATCH );
 
 // output of memory statistic's
-void sphMemStatDump ( int iFD )
+void sphMemStatDump ()
 {
-	int64_t iSize = 0;
+extern void sphInfo ( const char * sFmt, ... );
+
+	const float fMB = 1024.0f*1024.0f;
+	float fSize = 0;
 	int iCount = 0;
 	for ( int i=0; i<Memory::SPH_MEM_TOTAL; i++ )
 	{
-		iSize += (int64_t) g_dMemCategoryStat[i].m_iSize;
+		fSize += (float)g_dMemCategoryStat[i].m_iSize;
 		iCount += g_dMemCategoryStat[i].m_iCount;
 	}
-
-	sphSafeInfo ( iFD, "%-24s allocs-count=%d, mem-total=%d.%d Mb", "(total)", iCount,
-		(int)(iSize/1048576), (int)( (iSize*10/1048576)%10 ) );
+	sphInfo ( "%-24s allocs-count=%d, mem-total=%.4f Mb", "(total)", iCount, fSize/fMB );
 
 	for ( int i=0; i<Memory::SPH_MEM_TOTAL; i++ )
 		if ( g_dMemCategoryStat[i].m_iCount>0 )
-	{
-		iSize = (int64_t) g_dMemCategoryStat[i].m_iSize;
-		sphSafeInfo ( iFD, "%-24s allocs-count=%d, mem-total=%d.%d Mb",
-			g_dMemCategoryName[i], g_dMemCategoryStat[i].m_iCount,
-			(int)(iSize/1048576), (int)( (iSize*10/1048576)%10 ) );
-	}
+			sphInfo ( "%-24s allocs-count=%d, mem-total=%.4f Mb"
+				, g_dMemCategoryName[i], g_dMemCategoryStat[i].m_iCount, (float)g_dMemCategoryStat[i].m_iSize/fMB );
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -730,49 +728,31 @@ DWORD sphRand ()
 
 //////////////////////////////////////////////////////////////////////////
 
-#if !USE_WINDOWS
-CSphProcessSharedMutex::CSphProcessSharedMutex ( int iExtraSize )
+CSphProcessSharedMutex::CSphProcessSharedMutex ()
 {
+#if !USE_WINDOWS
 	m_pMutex = NULL;
 
 	pthread_mutexattr_t tAttr;
-	int iRes = pthread_mutexattr_init ( &tAttr );
-	if ( iRes )
-	{
-		m_sError.SetSprintf ( "pthread_mutexattr_init, errno=%d", iRes );
+	if ( pthread_mutexattr_init ( &tAttr ) || pthread_mutexattr_setpshared ( &tAttr, PTHREAD_PROCESS_SHARED ) )
 		return;
-	}
-	iRes = pthread_mutexattr_setpshared ( &tAttr, PTHREAD_PROCESS_SHARED );
-	if ( iRes )
-	{
-		m_sError.SetSprintf ( "pthread_mutexattr_setpshared, errno = %d", iRes );
-		return;
-	}
 
 	CSphString sError, sWarning;
-	if ( !m_pStorage.Alloc ( sizeof(pthread_mutex_t) + iExtraSize, sError, sWarning ) )
-	{
-		m_sError.SetSprintf ( "storage.alloc, error='%s', warning='%s'", sError.cstr(), sWarning.cstr() );
+	if ( !m_pStorage.Alloc ( sizeof(pthread_mutex_t), sError, sWarning ) )
 		return;
-	}
 
 	m_pMutex = (pthread_mutex_t*) m_pStorage.GetWritePtr ();
-	iRes = pthread_mutex_init ( m_pMutex, &tAttr );
-	if ( iRes )
+	if ( pthread_mutex_init ( m_pMutex, &tAttr ) )
 	{
-		m_sError.SetSprintf ( "pthread_mutex_init, errno=%d ", iRes );
 		m_pMutex = NULL;
 		m_pStorage.Reset ();
 		return;
 	}
-}
-#else
-CSphProcessSharedMutex::CSphProcessSharedMutex ( int )
-{}
 #endif
+}
 
 
-void CSphProcessSharedMutex::Lock () const
+void CSphProcessSharedMutex::Lock ()
 {
 #if !USE_WINDOWS
 	if ( m_pMutex )
@@ -781,64 +761,13 @@ void CSphProcessSharedMutex::Lock () const
 }
 
 
-void CSphProcessSharedMutex::Unlock () const
+void CSphProcessSharedMutex::Unlock ()
 {
 #if !USE_WINDOWS
 	if ( m_pMutex )
 		pthread_mutex_unlock ( m_pMutex );
 #endif
 }
-
-
-bool CSphProcessSharedMutex::TimedLock ( int tmSpin ) const
-{
-#if USE_WINDOWS
-	return false;
-#else
-	if ( !m_pMutex )
-		return false;
-
-#if defined(HAVE_PTHREAD_MUTEX_TIMEDLOCK) && defined(HAVE_CLOCK_GETTIME)
-	struct timespec tp;
-	clock_gettime ( CLOCK_REALTIME, &tp );
-
-	tp.tv_nsec += tmSpin * 1000;
-	if ( tp.tv_nsec > 1000000 )
-	{
-		int iDelta = (int)( tp.tv_nsec / 1000000 );
-		tp.tv_sec += iDelta * 1000000;
-		tp.tv_nsec -= iDelta * 1000000;
-	}
-
-	return ( pthread_mutex_timedlock ( m_pMutex, &tp )==0 );
-#else
-	int iRes = EBUSY;
-	int64_t tmTill = sphMicroTimer() + tmSpin;
-	do
-	{
-		iRes = pthread_mutex_trylock ( m_pMutex );
-		if ( iRes==EBUSY )
-			sphSleepMsec ( 0 );
-	} while ( iRes==EBUSY && sphMicroTimer()<tmTill );
-
-	if ( iRes==EBUSY )
-		iRes = pthread_mutex_trylock ( m_pMutex );
-
-	return iRes!=0;
-#endif // HAVE_PTHREAD_MUTEX_TIMEDLOCK && HAVE_CLOCK_GETTIME
-#endif // USE_WINDOWS
-}
-
-
-const char * CSphProcessSharedMutex::GetError() const
-{
-	const char * sError = NULL;
-#if !USE_WINDOWS
-	sError = m_sError.cstr();
-#endif
-	return sError;
-}
-
 
 //////////////////////////////////////////////////////////////////////////
 // THREADING FUNCTIONS
@@ -925,16 +854,16 @@ void * sphThreadInit ( bool )
 
 		if ( pthread_attr_setdetachstate ( &tDetachedAttr, PTHREAD_CREATE_DETACHED ) )
 			sphDie ( "FATAL: pthread_attr_setdetachstate( detached ) failed" );
+
+		if ( pthread_attr_setstacksize ( &tJoinableAttr, sphMyStackSize() ) )
+			sphDie ( "FATAL: pthread_attr_setstacksize( joinable ) failed" );
+
+		if ( pthread_attr_setstacksize ( &tDetachedAttr, sphMyStackSize() ) )
+			sphDie ( "FATAL: pthread_attr_setstacksize( detached ) failed" );
 #endif
 		bInit = true;
 	}
 #if !USE_WINDOWS
-	if ( pthread_attr_setstacksize ( &tJoinableAttr, sphMyStackSize() ) )
-		sphDie ( "FATAL: pthread_attr_setstacksize( joinable ) failed" );
-
-	if ( pthread_attr_setstacksize ( &tDetachedAttr, sphMyStackSize() ) )
-		sphDie ( "FATAL: pthread_attr_setstacksize( detached ) failed" );
-
 	return bDetached ? &tDetachedAttr : &tJoinableAttr;
 #else
 	return NULL;
@@ -942,17 +871,13 @@ void * sphThreadInit ( bool )
 }
 
 
+void sphThreadDone()
+{
 #if SPH_DEBUG_LEAKS || SPH_ALLOCS_PROFILER
-void sphThreadDone ( int iFD )
-{
-	sphMemStatDump ( iFD );
+	sphMemStatDump();
 	sphMemStatDone();
-}
-#else
-void sphThreadDone ( int )
-{
-}
 #endif
+}
 
 
 bool sphThreadCreate ( SphThread_t * pThread, void (*fnThread)(void*), void * pArg, bool bDetached )
@@ -1044,18 +969,11 @@ void * sphMyStack ()
 int sphMyStackSize ()
 {
 #if USE_WINDOWS
-	return g_iThreadStackSize;
+	return THREAD_STACK_SIZE;
 #else
-	return PTHREAD_STACK_MIN + g_iThreadStackSize;
+	return PTHREAD_STACK_MIN + THREAD_STACK_SIZE;
 #endif
 }
-
-void sphSetMyStackSize ( int iStackSize )
-{
-	g_iThreadStackSize = iStackSize;
-	sphThreadInit ( false );
-}
-
 
 void MemorizeStack ( void* PStack )
 {
@@ -1181,7 +1099,6 @@ bool CSphRwlock::Init ()
 	if ( !m_hWriteMutex )
 	{
 		CloseHandle ( m_hReadEvent );
-		m_hReadEvent = NULL;
 		return false;
 	}
 	return true;

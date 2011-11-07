@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -47,13 +47,7 @@ enum
 	SPH_RANK_PROXIMITY_BM25	= 0,
 	SPH_RANK_BM25			= 1,
 	SPH_RANK_NONE			= 2,
-	SPH_RANK_WORDCOUNT		= 3,
-	SPH_RANK_PROXIMITY		= 4,
-	SPH_RANK_MATCHANY		= 5,
-	SPH_RANK_FIELDMASK		= 6,
-	SPH_RANK_SPH04			= 7,
-
-	SPH_RANK_DEFAULT		= SPH_RANK_PROXIMITY_BM25
+	SPH_RANK_WORDCOUNT		= 3
 };
 
 /// known sort modes
@@ -84,8 +78,7 @@ enum
 	SPH_ATTR_FLOAT			= 5,
 	SPH_ATTR_BIGINT			= 6,
 	SPH_ATTR_STRING			= 7,
-	SPH_ATTR_MULTI			= 0x40000001UL,
-	SPH_ATTR_MULTI64		= 0x40000002UL
+	SPH_ATTR_MULTI			= 0x40000000UL
 };
 
 /// known grouping functions
@@ -155,7 +148,6 @@ typedef struct st_sphinx_excerpt_options
 	const char *			after_match;
 	const char *			chunk_separator;
 	const char *			html_strip_mode;
-	const char *			passage_boundary;
 
 	int						limit;
 	int						limit_passages;
@@ -171,7 +163,6 @@ typedef struct st_sphinx_excerpt_options
 	sphinx_bool				force_all_words;
 	sphinx_bool				load_files;
 	sphinx_bool				allow_empty;
-	sphinx_bool				emit_zones;
 } sphinx_excerpt_options;
 
 
@@ -229,7 +220,6 @@ int							sphinx_get_weight				( sphinx_result * result, int match );
 sphinx_int64_t				sphinx_get_int					( sphinx_result * result, int match, int attr );
 float						sphinx_get_float				( sphinx_result * result, int match, int attr );
 unsigned int *				sphinx_get_mva					( sphinx_result * result, int match, int attr );
-sphinx_uint64_t				sphinx_get_mva64_value			( unsigned int * mva, int i );
 const char *				sphinx_get_string				( sphinx_result * result, int match, int attr );
 
 void						sphinx_init_excerpt_options		( sphinx_excerpt_options * opts );

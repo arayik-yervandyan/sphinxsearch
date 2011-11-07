@@ -4,8 +4,8 @@
  * Java version of Sphinx searchd client (Java API)
  *
  * Copyright (c) 2007, Vladimir Fedorkov
- * Copyright (c) 2007-2011, Andrew Aksyonoff
- * Copyright (c) 2008-2011, Sphinx Technologies Inc
+ * Copyright (c) 2007-2010, Andrew Aksyonoff
+ * Copyright (c) 2008-2010, Sphinx Technologies Inc
  * All rights reserved
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,7 +19,6 @@ package org.sphx.api;
 import java.io.*;
 import java.net.*;
 import java.util.*;
-import java.net.SocketAddress.*;
 
 /** Sphinx client class */
 public class SphinxClient
@@ -74,8 +73,7 @@ public class SphinxClient
 	public final static int SPH_ATTR_FLOAT			= 5;
 	public final static int SPH_ATTR_BIGINT			= 6;
 	public final static int SPH_ATTR_STRING			= 7;
-	public final static int SPH_ATTR_MULTI			= 0x40000001;
-	public final static int SPH_ATTR_MULTI64		= 0x40000002;
+	public final static int SPH_ATTR_MULTI			= 0x40000000;
 
 	/* searchd commands */
 	private final static int SEARCHD_COMMAND_SEARCH		= 0;
@@ -87,7 +85,7 @@ public class SphinxClient
 
 	/* searchd command versions */
 	private final static int VER_MAJOR_PROTO		= 0x1;
-	private final static int VER_COMMAND_SEARCH		= 0x119;
+	private final static int VER_COMMAND_SEARCH		= 0x117;
 	private final static int VER_COMMAND_EXCERPT	= 0x102;
 	private final static int VER_COMMAND_UPDATE		= 0x102;
 	private final static int VER_COMMAND_KEYWORDS	= 0x100;
@@ -286,11 +284,9 @@ public class SphinxClient
 		Socket sock = null;
 		try
 		{
-			sock = new Socket ();
+			sock = new Socket ( _host, _port );
 			sock.setSoTimeout ( _timeout );
-			InetSocketAddress addr = new InetSocketAddress ( _host, _port );
-			sock.connect ( addr, _timeout );
-			
+
 			DataInputStream sIn = new DataInputStream ( sock.getInputStream() );
 			int version = sIn.readInt();
 			if ( version<1 )
@@ -955,8 +951,6 @@ public class SphinxClient
 		try
 		{
 			DataOutputStream req = new DataOutputStream ( reqBuf );
-			/* its a client */
-			req.writeInt(0);
 			req.writeInt ( nreqs );
 			for ( int i=0; i<nreqs; i++ )
 				req.write ( (byte[]) _reqs.get(i) );
@@ -1053,23 +1047,14 @@ public class SphinxClient
 
 						/* handle everything else as unsigned ints */
 						long val = readDword ( in );
-						if ( type==SPH_ATTR_MULTI )
+						if ( ( type & SPH_ATTR_MULTI )!=0 )
 						{
 							long[] vals = new long [ (int)val ];
 							for ( int k=0; k<val; k++ )
 								vals[k] = readDword ( in );
 
 							docInfo.attrValues.add ( attrNumber, vals );
-							
-						} else if ( type==SPH_ATTR_MULTI64 )
-						{
-							val = val / 2;
-							long[] vals = new long [ (int)val ];
-							for ( int k=0; k<val; k++ )
-								vals[k] = in.readLong ();
 
-							docInfo.attrValues.add ( attrNumber, vals );
-							
 						} else
 						{
 							docInfo.attrValues.add ( attrNumber, new Long ( val ) );
@@ -1125,8 +1110,6 @@ public class SphinxClient
 		if (!opts.containsKey("weight_order")) opts.put("weight_order", new Integer(0));
 		if (!opts.containsKey("load_files")) opts.put("load_files", new Integer(0));
 		if (!opts.containsKey("allow_empty")) opts.put("allow_empty", new Integer(0));
-		if (!opts.containsKey("query_mode")) opts.put("query_mode", new Integer(0));
-		if (!opts.containsKey("force_all_words")) opts.put("force_all_words", new Integer(0));
 
 		/* build request */
 		ByteArrayOutputStream reqBuf = new ByteArrayOutputStream();

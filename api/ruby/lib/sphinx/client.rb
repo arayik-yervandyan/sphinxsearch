@@ -57,7 +57,7 @@ module Sphinx
     # Current client-side command implementation versions
     
     # search command version
-    VER_COMMAND_SEARCH   = 0x119
+    VER_COMMAND_SEARCH   = 0x117
     # excerpt command version
     VER_COMMAND_EXCERPT  = 0x102
     # update command version
@@ -150,8 +150,7 @@ module Sphinx
 	# string
 	SPH_ATTR_STRING		= 7
     # this attr has multiple values (0 or more)
-	SPH_ATTR_MULTI			= 0x40000001
-	SPH_ATTR_MULTI64		= 0x40000002
+    SPH_ATTR_MULTI     = 0x40000000
     
     # Known grouping functions
   
@@ -767,16 +766,10 @@ module Sphinx
                 else
                   # handle everything else as unsigned ints
                   val = response.get_int
-                  if attrs[a]==SPH_ATTR_MULTI
+                  if (attrs[a] & SPH_ATTR_MULTI) != 0
                     r['attrs'][a] = []
                     1.upto(val) do
                       r['attrs'][a] << response.get_int
-                    end
-                  elsif attrs[a]==SPH_ATTR_MULTI64
-                    r['attrs'][a] = []
-					val = val/2
-                    1.upto(val) do
-                      r['attrs'][a] << response.get_int64
                     end
                   else
                     r['attrs'][a] = val
@@ -1017,13 +1010,9 @@ module Sphinx
       # Connect to searchd server.
       def Connect
         begin
-          if @host[0,1]=='/'
-            sock = UNIXSocket.new(@host)
-          else
-            sock = TCPSocket.new(@host, @port)
-          end
-        rescue => err
-          @error = "connection to #{@host}:#{@port} failed (error=#{err})"
+          sock = TCPSocket.new(@host, @port)
+        rescue
+          @error = "connection to #{@host}:#{@port} failed"
           raise SphinxConnectError, @error
         end
         
@@ -1108,9 +1097,9 @@ module Sphinx
         command_ver = Sphinx::Client.const_get('VER_COMMAND_' + cmd)
         
         sock = self.Connect
-        len = request.to_s.length + (additional != nil ? 8 : 0)
+        len = request.to_s.length + (additional != nil ? 4 : 0)
         header = [command_id, command_ver, len].pack('nnN')
-        header << [0, additional].pack('NN') if additional != nil
+        header << [additional].pack('N') if additional != nil
         sock.send(header + request.to_s, 0)
         response = self.GetResponse(sock, command_ver)
         return Response.new(response)

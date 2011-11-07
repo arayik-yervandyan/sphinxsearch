@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -23,6 +23,21 @@
 // PACKED HIT MACROS
 //////////////////////////////////////////////////////////////////////////
 
+/// pack hit
+#define HIT_PACK(_field,_pos)	( ((_field)<<24) | ((_pos)&0x7fffffUL) )
+
+/// extract in-field position from packed hit
+#define HIT2POS(_hit)			((_hit)&0x7fffffUL)
+
+/// extract field number from packed hit
+#define HIT2FIELD(_hit)			((_hit)>>24)
+
+/// prepare hit for LCS counting
+#define HIT2LCS(_hit)			(_hit & 0xff7fffffUL)
+
+/// field end flag
+#define HIT_FIELD_END			0x800000UL
+
 //////////////////////////////////////////////////////////////////////////
 
 /// term modifiers
@@ -31,8 +46,7 @@ enum TermPosFilter_e
 	TERM_POS_FIELD_LIMIT = 1,
 	TERM_POS_FIELD_START,
 	TERM_POS_FIELD_END,
-	TERM_POS_FIELD_STARTEND,
-	TERM_POS_ZONES
+	TERM_POS_FIELD_STARTEND
 };
 
 
@@ -46,8 +60,6 @@ public:
 	SphWordID_t		m_iWordID;		///< word ID, from dictionary
 	int				m_iTermPos;
 	int				m_iAtomPos;		///< word position, from query
-	bool			m_bExpanded;	///< added by prefix expansion
-	bool			m_bExcluded;	///< excluded by the query (rval to operator NOT)
 
 	// setup by QwordSetup()
 	int				m_iDocs;		///< document count, from wordlist
@@ -55,42 +67,33 @@ public:
 	bool			m_bHasHitlist;	///< hitlist presence flag
 
 	// iterator state
-	CSphSmallBitvec m_dQwordFields;	///< current match fields
+	DWORD			m_uFields;		///< current match fields
 	DWORD			m_uMatchHits;	///< current match hits count
 	SphOffset_t		m_iHitlistPos;	///< current position in hitlist, from doclist
-
-protected:
-	bool			m_bAllFieldsKnown; ///< whether the all match fields is known, or only low 32.
 
 public:
 	ISphQword ()
 		: m_iWordID ( 0 )
 		, m_iTermPos ( 0 )
 		, m_iAtomPos ( 0 )
-		, m_bExpanded ( false )
-		, m_bExcluded ( false )
 		, m_iDocs ( 0 )
 		, m_iHits ( 0 )
 		, m_bHasHitlist ( true )
+		, m_uFields ( 0 )
 		, m_uMatchHits ( 0 )
 		, m_iHitlistPos ( 0 )
-		, m_bAllFieldsKnown ( false )
-	{
-		m_dQwordFields.Unset();
-	}
+	{}
 	virtual ~ISphQword () {}
 
 	virtual const CSphMatch &	GetNextDoc ( DWORD * pInlineDocinfo ) = 0;
 	virtual void				SeekHitlist ( SphOffset_t uOff ) = 0;
-	virtual Hitpos_t			GetNextHit () = 0;
-	virtual void				CollectHitMask ();
+	virtual DWORD				GetNextHit () = 0;
 
 	virtual void Reset ()
 	{
 		m_iDocs = 0;
 		m_iHits = 0;
-		m_dQwordFields.Unset();
-		m_bAllFieldsKnown = false;
+		m_uFields = 0;
 		m_uMatchHits = 0;
 		m_iHitlistPos = 0;
 	}
@@ -99,7 +102,6 @@ public:
 
 /// term setup, searcher view
 class CSphQueryNodeCache;
-class ISphZoneCheck;
 class ISphQwordSetup : ISphNoncopyable
 {
 public:
@@ -113,7 +115,6 @@ public:
 	CSphString *			m_pWarning;
 	CSphQueryContext *		m_pCtx;
 	CSphQueryNodeCache *	m_pNodeCache;
-	mutable ISphZoneCheck *	m_pZoneChecker;
 
 	ISphQwordSetup ()
 		: m_pDict ( NULL )
@@ -124,12 +125,10 @@ public:
 		, m_iMaxTimer ( 0 )
 		, m_pWarning ( NULL )
 		, m_pCtx ( NULL )
-		, m_pNodeCache ( NULL )
-		, m_pZoneChecker ( NULL )
 	{}
 	virtual ~ISphQwordSetup () {}
 
-	virtual ISphQword *					QwordSpawn ( const XQKeyword_t & tWord ) const = 0;
+	virtual ISphQword *					QwordSpawn ( const XQKeyword_t & ) const = 0;
 	virtual bool						QwordSetup ( ISphQword * pQword ) const = 0;
 };
 
@@ -141,12 +140,12 @@ class ISphRanker
 public:
 	virtual						~ISphRanker () {}
 	virtual CSphMatch *			GetMatchesBuffer() = 0;
-	virtual int					GetMatches () = 0;
+	virtual int					GetMatches ( int iFields, const int * pWeights ) = 0;
 	virtual void				Reset ( const ISphQwordSetup & tSetup ) = 0;
 };
 
 /// factory
-ISphRanker * sphCreateRanker ( const XQQuery_t & tXQ, const CSphQuery * pQuery, CSphQueryResult * pResult, const ISphQwordSetup & tTermSetup, const CSphQueryContext & tCtx );
+ISphRanker * sphCreateRanker ( const XQNode_t * pRoot, ESphRankMode eRankMode, CSphQueryResult * pResult, const ISphQwordSetup & tTermSetup );
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -155,11 +154,6 @@ struct SphHitMark_t
 {
 	DWORD	m_uPosition;
 	DWORD	m_uSpan;
-
-	bool operator == ( const SphHitMark_t & rhs ) const
-	{
-		return m_uPosition==rhs.m_uPosition && m_uSpan==rhs.m_uSpan;
-	}
 };
 
 /// hit marker, used for snippets generation
@@ -175,6 +169,9 @@ public:
 	void					Mark ( CSphVector<SphHitMark_t> & );
 	static CSphHitMarker *	Create ( const XQNode_t * pRoot, const ISphQwordSetup & tSetup );
 };
+
+/// factory for parsed query trees
+ISphRanker * sphCreateRanker ( const XQNode_t * pRoot, ESphRankMode eRankMode, CSphQueryResult * pResult, const ISphQwordSetup & tTermSetup );
 
 //////////////////////////////////////////////////////////////////////////
 

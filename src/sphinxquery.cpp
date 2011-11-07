@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -33,14 +33,13 @@ public:
 					~XQParser_t () {}
 
 public:
-	bool			Parse ( XQQuery_t & tQuery, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict, int iStopwordStep );
+	bool			Parse ( XQQuery_t & tQuery, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict );
 
-	bool			Error ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) );
-	void			Warning ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) );
+	bool			Error ( const char * sTemplate, ... );
+	void			Warning ( const char * sTemplate, ... );
 
-	bool			AddField ( CSphSmallBitvec & dFields, const char * szField, int iLen );
-	bool			ParseFields ( CSphSmallBitvec & uFields, int & iMaxFieldPos );
-	int				ParseZone ( const char * pZone );
+	bool			AddField ( DWORD & uFields, const char * szField, int iLen );
+	bool			ParseFields ( DWORD & uFields, int & iMaxFieldPos );
 
 	bool			IsSpecial ( char c );
 	int				GetToken ( YYSTYPE * lvalp );
@@ -48,17 +47,11 @@ public:
 	void			AddQuery ( XQNode_t * pNode );
 	XQNode_t *		AddKeyword ( const char * sKeyword, DWORD uStar = STAR_NONE );
 	XQNode_t *		AddKeyword ( XQNode_t * pLeft, XQNode_t * pRight );
-	XQNode_t *		AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pRight, int iOpArg=0 );
+	XQNode_t *		AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pRight );
 
 	void			Cleanup ();
 	XQNode_t *		SweepNulls ( XQNode_t * pNode );
 	bool			FixupNots ( XQNode_t * pNode );
-
-public:
-	const CSphVector<int> & GetZoneVec ( int iZoneVec ) const
-	{
-		return m_dZoneVecs[iZoneVec];
-	}
 
 public:
 	XQQuery_t *				m_pParsed;
@@ -88,11 +81,7 @@ public:
 
 	bool					m_bQuoted;
 
-	bool					m_bEmptyStopword;
-
 	CSphVector<CSphString>	m_dIntTokens;
-
-	CSphVector < CSphVector<int> >	m_dZoneVecs;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -112,13 +101,13 @@ void yyerror ( XQParser_t * pParser, const char * sMessage )
 
 //////////////////////////////////////////////////////////////////////////
 
-void XQNode_t::SetFieldSpec ( const CSphSmallBitvec& uMask, int iMaxPos )
+void XQNode_t::SetFieldSpec ( DWORD uMask, int iMaxPos )
 {
 	// set it, if we do not yet have one
 	if ( !m_bFieldSpec )
 	{
 		m_bFieldSpec = true;
-		m_dFieldMask = uMask;
+		m_uFieldMask = uMask;
 		m_iFieldMaxPos = iMaxPos;
 	}
 
@@ -128,33 +117,9 @@ void XQNode_t::SetFieldSpec ( const CSphSmallBitvec& uMask, int iMaxPos )
 		m_dChildren[i]->SetFieldSpec ( uMask, iMaxPos );
 }
 
-void XQNode_t::SetZoneSpec ( const CSphVector<int> & dZones )
-{
-	// set it, if we do not yet have one
-	if ( !m_dZones.GetLength() )
-		m_dZones = dZones;
-
-	// some of the children might not yet have a spec, even if the node itself has
-	ARRAY_FOREACH ( i, m_dChildren )
-		m_dChildren[i]->SetZoneSpec ( dZones );
-}
-
-void XQNode_t::CopySpecs ( const XQNode_t * pSpecs )
-{
-	if ( !pSpecs )
-		return;
-
-	if ( pSpecs->m_bFieldSpec )
-		SetFieldSpec ( pSpecs->m_dFieldMask, pSpecs->m_iFieldMaxPos );
-
-	if ( pSpecs->m_dZones.GetLength() )
-		SetZoneSpec ( pSpecs->m_dZones );
-}
-
-
 void XQNode_t::ClearFieldMask ()
 {
-	m_dFieldMask.Set();
+	m_uFieldMask = 0xFFFFFFFFUL;
 
 	ARRAY_FOREACH ( i, m_dChildren )
 		m_dChildren[i]->ClearFieldMask();
@@ -239,7 +204,6 @@ XQParser_t::XQParser_t ()
 	, m_bStopOnInvalid ( true )
 	, m_bWasBlended ( false )
 	, m_bQuoted ( false )
-	, m_bEmptyStopword ( false )
 {
 }
 
@@ -304,7 +268,7 @@ bool XQParser_t::IsSpecial ( char c )
 
 
 /// lookup field and add it into mask
-bool XQParser_t::AddField ( CSphSmallBitvec & dFields, const char * szField, int iLen )
+bool XQParser_t::AddField ( DWORD & uFields, const char * szField, int iLen )
 {
 	CSphString sField;
 	sField.SetBinary ( szField, iLen );
@@ -318,10 +282,10 @@ bool XQParser_t::AddField ( CSphSmallBitvec & dFields, const char * szField, int
 			Warning ( "no field '%s' found in schema", sField.cstr () );
 	} else
 	{
-		if ( iField>=SPH_MAX_FIELDS )
-			return Error ( " max %d fields allowed", SPH_MAX_FIELDS );
+		if ( iField>=32 )
+			return Error ( " max 32 fields allowed" );
 
-		dFields.Set(iField);
+		uFields |= 1 << iField;
 	}
 
 	return true;
@@ -329,9 +293,9 @@ bool XQParser_t::AddField ( CSphSmallBitvec & dFields, const char * szField, int
 
 
 /// parse fields block
-bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos )
+bool XQParser_t::ParseFields ( DWORD & uFields, int & iMaxFieldPos )
 {
-	dFields.Unset();
+	uFields = 0;
 	iMaxFieldPos = 0;
 
 	const char * pPtr = m_pTokenizer->GetBufferPtr ();
@@ -353,7 +317,7 @@ bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos )
 	} else if ( *pPtr=='*' )
 	{
 		// handle @*
-		dFields.Set();
+		uFields = 0xFFFFFFFF;
 		m_pTokenizer->SetBufferPtr ( pPtr+1 );
 		return true;
 
@@ -380,12 +344,12 @@ bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos )
 			pPtr++;
 
 		assert ( pPtr-pFieldStart>0 );
-		if ( !AddField ( dFields, pFieldStart, pPtr-pFieldStart ) )
+		if ( !AddField ( uFields, pFieldStart, pPtr-pFieldStart ) )
 			return false;
 
 		m_pTokenizer->SetBufferPtr ( pPtr );
-		if ( bNegate && ( !dFields.TestAll() ) )
-			dFields.Negate();
+		if ( bNegate && uFields )
+			uFields = ~uFields;
 
 	} else
 	{
@@ -408,13 +372,11 @@ bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos )
 			// separator found
 			if ( pFieldStart==NULL )
 			{
-				CSphString sContext;
-				sContext.SetBinary ( pPtr, (int)( pLastPtr-pPtr ) );
-				return Error ( "invalid field block operator syntax near '%s'", sContext.cstr() ? sContext.cstr() : "" );
+				return Error ( "separator without preceding field name in field block operator", *pPtr );
 
 			} else if ( *pPtr==',' )
 			{
-				if ( !AddField ( dFields, pFieldStart, pPtr-pFieldStart ) )
+				if ( !AddField ( uFields, pFieldStart, pPtr-pFieldStart ) )
 					return false;
 
 				pFieldStart = NULL;
@@ -422,12 +384,12 @@ bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos )
 
 			} else if ( *pPtr==')' )
 			{
-				if ( !AddField ( dFields, pFieldStart, pPtr-pFieldStart ) )
+				if ( !AddField ( uFields, pFieldStart, pPtr-pFieldStart ) )
 					return false;
 
 				m_pTokenizer->SetBufferPtr ( ++pPtr );
-				if ( bNegate && ( !dFields.TestAll() ) )
-					dFields.Negate();
+				if ( bNegate && uFields )
+					uFields = ~uFields;
 
 				bOK = true;
 				break;
@@ -462,95 +424,6 @@ bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos )
 }
 
 
-/// helper find-or-add (make it generic and move to sphinxstd?)
-static int GetZoneIndex ( XQQuery_t * pQuery, const CSphString & sZone )
-{
-	ARRAY_FOREACH ( i, pQuery->m_dZones )
-		if ( pQuery->m_dZones[i]==sZone )
-			return i;
-
-	pQuery->m_dZones.Add ( sZone );
-	return pQuery->m_dZones.GetLength()-1;
-}
-
-
-/// parse zone
-int XQParser_t::ParseZone ( const char * pZone )
-{
-	const char * p = pZone;
-
-	// case one, just a single zone name
-	if ( sphIsAlpha ( *pZone ) )
-	{
-		// find zone name
-		while ( sphIsAlpha(*p) )
-			p++;
-		m_pTokenizer->SetBufferPtr ( p );
-
-		// extract and lowercase it
-		CSphString sZone;
-		sZone.SetBinary ( pZone, p-pZone );
-		sZone.ToLower();
-
-		// register it in zones list
-		int iZone = GetZoneIndex ( m_pParsed, sZone );
-
-		// create new 1-zone vector
-		m_dZoneVecs.Add().Add ( iZone );
-		return m_dZoneVecs.GetLength()-1;
-	}
-
-	// case two, zone block
-	// it must follow strict (name1,name2,...) syntax
-	if ( *pZone=='(' )
-	{
-		// create new zone vector
-		CSphVector<int> & dZones = m_dZoneVecs.Add();
-		p = ++pZone;
-
-		// scan names
-		for ( ;; )
-		{
-			// syntax error, name expected!
-			if ( !sphIsAlpha(*p) )
-			{
-				Error ( "unexpected character '%c' in zone block operator", *p );
-				return -1;
-			}
-
-			// scan next name
-			while ( sphIsAlpha(*p) )
-				p++;
-
-			// extract and lowercase it
-			CSphString sZone;
-			sZone.SetBinary ( pZone, p-pZone );
-			sZone.ToLower();
-
-			// register it in zones list
-			dZones.Add ( GetZoneIndex ( m_pParsed, sZone ) );
-
-			// must be either followed by comma, or closing paren
-			// everything else will cause syntax error
-			if ( *p==')' )
-			{
-				m_pTokenizer->SetBufferPtr ( p+1 );
-				break;
-			}
-
-			if ( *p==',' )
-				pZone = ++p;
-		}
-
-		return m_dZoneVecs.GetLength()-1;
-	}
-
-	// unhandled case
-	Error ( "internal error, unhandled case in ParseZone()" );
-	return -1;
-}
-
-
 /// a lexer of my own
 int XQParser_t::GetToken ( YYSTYPE * lvalp )
 {
@@ -576,58 +449,42 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 		const char * sToken = p;
 		while ( p<sEnd && isdigit ( *(BYTE*)p ) ) p++;
 
-		static const int NUMBER_BUF_LEN = 10; // max strlen of int32
-
-		if ( p>sToken && p-sToken<NUMBER_BUF_LEN && ( *p=='\0' || isspace ( *(BYTE*)p ) || IsSpecial(*p) ) )
+		if ( p>sToken && ( *p=='\0' || isspace ( *(BYTE*)p ) || IsSpecial(*p) ) )
 		{
-			if ( m_pTokenizer->GetToken() && m_pTokenizer->TokenIsBlended() ) // number with blended should be tokenized as usual
+			// got a number followed by a whitespace or special, handle it
+			char sNumberBuf[16];
+
+			int iNumberLen = Min ( (int)sizeof(sNumberBuf)-1, int(p-sToken) );
+			memcpy ( sNumberBuf, sToken, iNumberLen );
+			sNumberBuf[iNumberLen] = '\0';
+			m_tPendingToken.tInt.iValue = atoi ( sNumberBuf );
+
+			// check if it can be used as a keyword too
+			m_pTokenizer->SetBuffer ( (BYTE*)sNumberBuf, iNumberLen );
+			sToken = (const char*) m_pTokenizer->GetToken();
+			m_pTokenizer->SetBuffer ( m_sQuery, m_iQueryLen );
+			m_pTokenizer->SetBufferPtr ( p );
+
+			m_tPendingToken.tInt.iStrIndex = -1;
+			if ( sToken )
 			{
-				m_pTokenizer->SkipBlended();
-				m_pTokenizer->SetBufferPtr ( m_pLastTokenStart );
-			} else
-			{
-				// got not a very long number followed by a whitespace or special, handle it
-				char sNumberBuf[NUMBER_BUF_LEN];
-
-				int iNumberLen = Min ( (int)sizeof(sNumberBuf)-1, int(p-sToken) );
-				memcpy ( sNumberBuf, sToken, iNumberLen );
-				sNumberBuf[iNumberLen] = '\0';
-				m_tPendingToken.tInt.iValue = atoi ( sNumberBuf );
-
-				// check if it can be used as a keyword too
-				m_pTokenizer->SetBuffer ( (BYTE*)sNumberBuf, iNumberLen );
-				sToken = (const char*) m_pTokenizer->GetToken();
-				m_pTokenizer->SetBuffer ( m_sQuery, m_iQueryLen );
-				m_pTokenizer->SetBufferPtr ( p );
-
-				m_tPendingToken.tInt.iStrIndex = -1;
-				if ( sToken )
-				{
-					m_dIntTokens.Add ( sToken );
-					if ( m_pDict->GetWordID ( (BYTE*)sToken ) )
-						m_tPendingToken.tInt.iStrIndex = m_dIntTokens.GetLength()-1;
-					else
-						m_dIntTokens.Pop();
-					m_iAtomPos++;
-				}
-
-				m_iPendingNulls = 0;
-				m_iPendingType = TOK_INT;
-				break;
+				m_dIntTokens.Add ( sToken );
+				if ( m_pDict->GetWordID ( (BYTE*)sToken ) )
+					m_tPendingToken.tInt.iStrIndex = m_dIntTokens.GetLength()-1;
+				else
+					m_dIntTokens.Pop();
+				m_iAtomPos++;
 			}
+
+			m_iPendingNulls = 0;
+			m_iPendingType = TOK_INT;
+			break;
 		}
 
-		// not a number, long number, or number not followed by a whitespace, so fallback to regular tokenizing
+		// not a number, or not followed by a whitespace, so fallback to regular tokenizing
 		sToken = (const char *) m_pTokenizer->GetToken ();
 		if ( !sToken )
-		{
-			m_iPendingNulls = m_pTokenizer->GetOvershortCount ();
-			if ( !m_iPendingNulls )
-				return 0;
-			m_iPendingNulls = 0;
-			lvalp->pNode = AddKeyword ( NULL );
-			return TOK_KEYWORD;
-		}
+			return 0;
 
 		// now let's do some token post-processing
 		m_bWasBlended = m_pTokenizer->TokenIsBlended();
@@ -653,40 +510,6 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 			break;
 		}
 
-		// handle SENTENCE
-		if ( sToken && p && !m_pTokenizer->m_bPhrase && !strcasecmp ( sToken, "sentence" ) && !strncmp ( p, "SENTENCE", 8 ) )
-		{
-			// we just lexed our next token
-			m_iPendingType = TOK_SENTENCE;
-			m_iAtomPos -= 1;
-			break;
-		}
-
-		// handle PARAGRAPH
-		if ( sToken && p && !m_pTokenizer->m_bPhrase && !strcasecmp ( sToken, "paragraph" ) && !strncmp ( p, "PARAGRAPH", 9 ) )
-		{
-			// we just lexed our next token
-			m_iPendingType = TOK_PARAGRAPH;
-			m_iAtomPos -= 1;
-			break;
-		}
-
-		// handle ZONE
-		if ( sToken && p && !m_pTokenizer->m_bPhrase && !strncmp ( p, "ZONE:", 5 )
-			&& ( sphIsAlpha(p[5]) || p[5]=='(' ) )
-		{
-			// ParseZone() will update tokenizer buffer ptr as needed
-			int iVec = ParseZone ( p+5 );
-			if ( iVec<0 )
-				return -1;
-
-			// we just lexed our next token
-			m_iPendingType = TOK_ZONE;
-			m_tPendingToken.iZoneVec = iVec;
-			m_iAtomPos -= 1;
-			break;
-		}
-
 		// handle specials
 		if ( m_pTokenizer->WasTokenSpecial() )
 		{
@@ -697,11 +520,11 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 			if ( sToken[0]=='@' )
 			{
 				// parse fields operator
-				if ( !ParseFields ( m_tPendingToken.tFieldLimit.dMask, m_tPendingToken.tFieldLimit.iMaxPos ) )
+				if ( !ParseFields ( m_tPendingToken.tFieldLimit.uMask, m_tPendingToken.tFieldLimit.iMaxPos ) )
 					return -1;
 
-				if ( m_pSchema->m_dFields.GetLength()!=SPH_MAX_FIELDS )
-					m_tPendingToken.tFieldLimit.dMask.LimitBits ( m_pSchema->m_dFields.GetLength() );
+				if ( m_pSchema->m_dFields.GetLength()!=32 )
+					m_tPendingToken.tFieldLimit.uMask &= ( 1UL<<m_pSchema->m_dFields.GetLength() )-1;
 
 				m_iPendingType = TOK_FIELDLIMIT;
 				break;
@@ -738,12 +561,7 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 		sTmp[MAX_BYTES-1] = '\0';
 
 		if ( !m_pDict->GetWordID ( sTmp ) )
-		{
 			sToken = NULL;
-			// stopwords with step=0 must not affect pos
-			if ( m_bEmptyStopword )
-				m_iAtomPos--;
-		}
 
 		// information about stars is lost after this point, so was have to save it now
 		DWORD uStarPosition = STAR_NONE;
@@ -814,7 +632,7 @@ XQNode_t * XQParser_t::AddKeyword ( XQNode_t * pLeft, XQNode_t * pRight )
 }
 
 
-XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pRight, int iOpArg )
+XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pRight )
 {
 	/////////
 	// unary
@@ -837,11 +655,12 @@ XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pR
 
 	// left spec always tries to infect the nodes to the right, only brackets can stop it
 	// eg. '@title hello' vs 'world'
-	pRight->CopySpecs ( pLeft );
+	if ( pLeft->m_bFieldSpec )
+		pRight->SetFieldSpec ( pLeft->m_uFieldMask, pLeft->m_iFieldMaxPos );
 
 	// build a new node
 	XQNode_t * pResult = NULL;
-	if ( pLeft->m_dChildren.GetLength() && pLeft->GetOp()==eOp && pLeft->m_iOpArg==iOpArg )
+	if ( pLeft->m_dChildren.GetLength() && pLeft->GetOp()==eOp )
 	{
 		pLeft->m_dChildren.Add ( pRight );
 		pResult = pLeft;
@@ -849,7 +668,6 @@ XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pR
 	{
 		XQNode_t * pNode = new XQNode_t();
 		pNode->SetOp ( eOp, pLeft, pRight );
-		pNode->m_iOpArg = iOpArg;
 		m_dSpawned.Add ( pNode );
 		pResult = pNode;
 	}
@@ -859,7 +677,7 @@ XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pR
 	if ( pRight->m_bFieldSpec )
 	{
 		pResult->m_bFieldSpec = true;
-		pResult->m_dFieldMask = pRight->m_dFieldMask;
+		pResult->m_uFieldMask = pRight->m_uFieldMask;
 		pResult->m_iFieldMaxPos = pRight->m_iFieldMaxPos;
 	}
 
@@ -995,7 +813,7 @@ static void DeleteNodesWOFields ( XQNode_t * pNode )
 
 	for ( int i = 0; i < pNode->m_dChildren.GetLength (); )
 	{
-		if ( pNode->m_dChildren[i]->m_dFieldMask.TestAll() )
+		if ( pNode->m_dChildren[i]->m_uFieldMask==0 )
 		{
 			// this should be a leaf node
 			assert ( pNode->m_dChildren[i]->m_dChildren.GetLength()==0 );
@@ -1008,28 +826,6 @@ static void DeleteNodesWOFields ( XQNode_t * pNode )
 			i++;
 		}
 	}
-}
-
-
-static bool CheckQuorum ( XQNode_t * pNode, CSphString * pError )
-{
-	assert ( pError );
-	if ( !pNode )
-		return true;
-
-	if ( pNode->GetOp()==SPH_QUERY_QUORUM && pNode->m_iOpArg<=0 )
-	{
-		pError->SetSprintf ( "quorum threshold too low (%d)", pNode->m_iOpArg );
-		return false;
-	}
-
-	bool bValid = true;
-	ARRAY_FOREACH_COND ( i, pNode->m_dChildren, bValid )
-	{
-		bValid &= CheckQuorum ( pNode->m_dChildren[i], pError );
-	}
-
-	return bValid;
 }
 
 
@@ -1049,14 +845,11 @@ static void FixupDegenerates ( XQNode_t * pNode )
 }
 
 
-bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict, int iStopwordStep )
+bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict )
 {
 	CSphScopedPtr<ISphTokenizer> pMyTokenizer ( pTokenizer->Clone ( true ) );
 	pMyTokenizer->AddSpecials ( "()|-!@~\"/^$<" );
 	pMyTokenizer->EnableQueryParserMode ( true );
-
-	// most outcomes are errors
-	SafeDelete ( tParsed.m_pRoot );
 
 	// check for relaxed syntax
 	const char * OPTION_RELAXED = "@@relaxed";
@@ -1082,7 +875,6 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTok
 	m_iPendingType = 0;
 	m_pRoot = NULL;
 	m_bEmpty = true;
-	m_bEmptyStopword = ( iStopwordStep==0 );
 
 	m_pTokenizer->SetBuffer ( m_sQuery, m_iQueryLen );
 	int iRes = yyparse ( this );
@@ -1094,18 +886,12 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTok
 	}
 
 	DeleteNodesWOFields ( m_pRoot );
-	m_pRoot = SweepNulls ( m_pRoot );
 	FixupDegenerates ( m_pRoot );
+	m_pRoot = SweepNulls ( m_pRoot );
 
 	if ( !FixupNots ( m_pRoot ) )
 	{
 		Cleanup ();
-		return false;
-	}
-
-	if ( !CheckQuorum ( m_pRoot, &m_pParsed->m_sParseError ) )
-	{
-		Cleanup();
 		return false;
 	}
 
@@ -1116,9 +902,12 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTok
 		return false;
 	}
 
-	// all ok; might want to create a dummy node to indicate that
 	m_dSpawned.Reset();
-	tParsed.m_pRoot = m_pRoot ? m_pRoot : new XQNode_t ();
+	if ( m_pRoot )
+	{
+		SafeDelete ( tParsed.m_pRoot );
+		tParsed.m_pRoot = m_pRoot;
+	}
 	return true;
 }
 
@@ -1172,10 +961,10 @@ static void xqDump ( XQNode_t * pNode, const CSphSchema & tSch, int iIndent )
 #endif
 
 
-bool sphParseExtendedQuery ( XQQuery_t & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict, int iStopwordStep )
+bool sphParseExtendedQuery ( XQQuery_t & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict )
 {
 	XQParser_t qp;
-	bool bRes = qp.Parse ( tParsed, sQuery, pTokenizer, pSchema, pDict, iStopwordStep );
+	bool bRes = qp.Parse ( tParsed, sQuery, pTokenizer, pSchema, pDict );
 
 #ifndef NDEBUG
 	if ( bRes && tParsed.m_pRoot )
@@ -1208,7 +997,7 @@ static bool IsAppropriate ( XQNode_t * pTree )
 	return !( pTree->m_dWords.GetLength()==1 && pTree->GetOp()!=SPH_QUERY_NOT );
 }
 
-typedef CSphOrderedHash < DWORD, uint64_t, IdentityHash_fn, 128 > CDwordHash;
+typedef CSphOrderedHash < DWORD, uint64_t, IdentityHash_fn, 128, 117 > CDwordHash;
 
 // stores the pair of a tree, and the bitmask of common nodes
 // which contains the tree.
@@ -1306,7 +1095,7 @@ public:
 
 // for pairs of values builds and stores the association "key -> list of values"
 class CAssociations_t
-	: public CSphOrderedHash < Associations_t, uint64_t, IdentityHash_fn, 128 >
+	: public CSphOrderedHash < Associations_t, uint64_t, IdentityHash_fn, 128, 117 >
 {
 	int		m_iBits;			// number of non-unique associations
 public:
@@ -1501,7 +1290,7 @@ private:
 		if ( m_eOp==pTree->GetOp() )
 		{
 			// pBranch is for common subset of children, pOtherChildren is for the rest.
-			CSphOrderedHash < XQNode_t*, int, IdentityHash_fn, 64 > hBranches;
+			CSphOrderedHash < XQNode_t*, int, IdentityHash_fn, 64, 13 > hBranches;
 			XQNode_t * pOtherChildren = NULL;
 			int iBit;
 			int iOptimizations = 0;
@@ -1595,11 +1384,11 @@ public:
 	{}
 
 	// actual method for processing tree and reveal (extract) common subtrees
-	void Transform ( int iXQ, const XQQuery_t * pXQ )
+	void transform ( const CSphVector<XQNode_t*> & dTrees )
 	{
 		// collect all non-unique nodes
-		for ( int i=0; i<iXQ; i++ )
-			if ( !BuildAssociations ( pXQ[i].m_pRoot ) )
+		ARRAY_FOREACH ( i, dTrees )
+			if ( !BuildAssociations ( dTrees[i] ) )
 				return;
 
 		// count and order all non-unique nodes
@@ -1607,8 +1396,8 @@ public:
 			return;
 
 		// create and collect bitmask for every node
-		for ( int i=0; i<iXQ; i++ )
-			BuildBitmasks ( pXQ[i].m_pRoot );
+		ARRAY_FOREACH ( i, dTrees )
+			BuildBitmasks ( dTrees[i] );
 
 		// intersect all bitmasks one-by-one, and also intersect all intersections
 		CalcIntersections();
@@ -1617,8 +1406,8 @@ public:
 		MakeQueries();
 
 		// ... and finally - process all our trees.
-		for ( int i=0; i<iXQ; i++ )
-			Reorganize ( pXQ[i].m_pRoot );
+		ARRAY_FOREACH ( i, dTrees )
+			Reorganize ( dTrees[i] );
 	}
 };
 
@@ -1655,7 +1444,7 @@ struct MarkedNode_t
 	}
 };
 
-typedef CSphOrderedHash < MarkedNode_t, uint64_t, IdentityHash_fn, 128 > CSubtreeHash;
+typedef CSphOrderedHash < MarkedNode_t, uint64_t, IdentityHash_fn, 128, 117 > CSubtreeHash;
 
 /// check hashes, then check subtrees, then flag
 static void FlagCommonSubtrees ( XQNode_t * pTree, CSubtreeHash & hSubTrees, bool bFlag=true, bool bMarkIt=true )
@@ -1705,20 +1494,20 @@ static void SignCommonSubtrees ( XQNode_t * pTree, CSubtreeHash & hSubTrees )
 }
 
 
-int sphMarkCommonSubtrees ( int iXQ, const XQQuery_t * pXQ )
+int sphMarkCommonSubtrees ( const CSphVector<XQNode_t*> & dTrees )
 {
-	if ( iXQ<=0 || !pXQ )
+	if ( !dTrees.GetLength() )
 		return 0;
 
 	{ // Optional reorganize tree to extract common parts
-		RevealCommon_t ( SPH_QUERY_AND ).Transform ( iXQ, pXQ );
-		RevealCommon_t ( SPH_QUERY_OR ).Transform ( iXQ, pXQ );
+		RevealCommon_t ( SPH_QUERY_AND ).transform ( dTrees );
+		RevealCommon_t ( SPH_QUERY_OR ).transform ( dTrees );
 	}
 
 	// flag common subtrees and refcount them
 	CSubtreeHash hSubtrees;
-	for ( int i=0; i<iXQ; i++ )
-		FlagCommonSubtrees ( pXQ[i].m_pRoot, hSubtrees );
+	ARRAY_FOREACH ( i, dTrees )
+		FlagCommonSubtrees ( dTrees[i], hSubtrees );
 
 	// number marked subtrees and assign them order numbers.
 	int iOrder = 0;
@@ -1728,8 +1517,8 @@ int sphMarkCommonSubtrees ( int iXQ, const XQQuery_t * pXQ )
 			hSubtrees.IterateGet().m_iOrder = iOrder++;
 
 	// copy the flags and orders to original trees
-	for ( int i=0; i<iXQ; i++ )
-		SignCommonSubtrees ( pXQ[i].m_pRoot, hSubtrees );
+	ARRAY_FOREACH ( i, dTrees )
+		SignCommonSubtrees ( dTrees[i], hSubtrees );
 
 	return iOrder;
 }

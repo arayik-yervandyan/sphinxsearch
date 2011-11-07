@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -36,16 +36,12 @@ struct XQKeyword_t
 	bool				m_bFieldStart;	///< must occur at very start
 	bool				m_bFieldEnd;	///< must occur at very end
 	DWORD				m_uStarPosition;
-	bool				m_bExpanded;	///< added by prefix expansion
-	bool				m_bExcluded;	///< excluded by query (rval to operator NOT)
 
 	XQKeyword_t ()
 		: m_iAtomPos ( -1 )
 		, m_bFieldStart ( false )
 		, m_bFieldEnd ( false )
 		, m_uStarPosition ( STAR_NONE )
-		, m_bExpanded ( false )
-		, m_bExcluded ( false )
 	{}
 
 	XQKeyword_t ( const char * sWord, int iPos )
@@ -54,8 +50,6 @@ struct XQKeyword_t
 		, m_bFieldStart ( false )
 		, m_bFieldEnd ( false )
 		, m_uStarPosition ( STAR_NONE )
-		, m_bExpanded ( false )
-		, m_bExcluded ( false )
 	{}
 };
 
@@ -71,9 +65,7 @@ enum XQOperator_e
 	SPH_QUERY_PHRASE,
 	SPH_QUERY_PROXIMITY,
 	SPH_QUERY_QUORUM,
-	SPH_QUERY_NEAR,
-	SPH_QUERY_SENTENCE,
-	SPH_QUERY_PARAGRAPH
+	SPH_QUERY_NEAR
 };
 
 
@@ -96,16 +88,13 @@ public:
 	CSphVector<XQNode_t*>	m_dChildren;	///< non-plain node children
 
 	bool					m_bFieldSpec;	///< whether field spec was already explicitly set
-	CSphSmallBitvec			m_dFieldMask;	///< fields mask (spec part)
+	DWORD					m_uFieldMask;	///< fields mask (spec part)
 	int						m_iFieldMaxPos;	///< max position within field (spec part)
-
-	CSphVector<int>			m_dZones;		///< zone indexes in per-query zones list
 
 	CSphVector<XQKeyword_t>	m_dWords;		///< query words (plain node)
 	int						m_iOpArg;		///< operator argument (proximity distance, quorum count)
 	int						m_iAtomPos;		///< atom position override (currently only used within expanded nodes)
 	bool					m_bVirtuallyPlain;	///< "virtually plain" flag (currently only used by expanded nodes)
-	bool					m_bNotWeighted;	///< this our expanded but empty word's node
 
 public:
 	/// ctor
@@ -116,14 +105,11 @@ public:
 		, m_iCounter ( 0 )
 		, m_iMagicHash ( 0 )
 		, m_bFieldSpec ( false )
+		, m_uFieldMask ( 0xFFFFFFFFUL )
 		, m_iFieldMaxPos ( 0 )
-		, m_iOpArg ( 0 )
 		, m_iAtomPos ( -1 )
 		, m_bVirtuallyPlain ( false )
-		, m_bNotWeighted ( false )
-	{
-		m_dFieldMask.Set();
-	}
+	{}
 
 	/// dtor
 	~XQNode_t ()
@@ -140,13 +126,7 @@ public:
 	}
 
 	/// setup field limits
-	void SetFieldSpec ( const CSphSmallBitvec& uMask, int iMaxPos );
-
-	/// setup zone limits
-	void SetZoneSpec ( const CSphVector<int> & dZones );
-
-	/// copy field/zone limits from another node
-	void CopySpecs ( const XQNode_t * pSpecs );
+	void SetFieldSpec ( DWORD uMask, int iMaxPos );
 
 	/// unconditionally clear field mask
 	void ClearFieldMask ();
@@ -217,16 +197,14 @@ public:
 /// extended query
 struct XQQuery_t : public ISphNoncopyable
 {
-	CSphString				m_sParseError;
-	CSphString				m_sParseWarning;
-
-	CSphVector<CSphString>	m_dZones;
-	XQNode_t *				m_pRoot;
+	CSphString	m_sParseError;
+	CSphString	m_sParseWarning;
+	XQNode_t *	m_pRoot;
 
 	/// ctor
 	XQQuery_t ()
 	{
-		m_pRoot = NULL;
+		m_pRoot = new XQNode_t ();
 	}
 
 	/// dtor
@@ -241,10 +219,10 @@ struct XQQuery_t : public ISphNoncopyable
 /// parses the query and returns the resulting tree
 /// return false and fills tQuery.m_sParseError on error
 /// WARNING, parsed tree might be NULL (eg. if query was empty)
-bool	sphParseExtendedQuery ( XQQuery_t & tQuery, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict, int iStopwordStep );
+bool	sphParseExtendedQuery ( XQQuery_t & tQuery, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict );
 
 /// analyse vector of trees and tag common parts of them (to cache them later)
-int		sphMarkCommonSubtrees ( int iXQ, const XQQuery_t * pXQ );
+int		sphMarkCommonSubtrees ( const CSphVector<XQNode_t*> & dTrees );
 
 #endif // _sphinxquery_
 

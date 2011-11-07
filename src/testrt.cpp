@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -33,7 +33,7 @@ void SetupIndexing ( CSphSource_MySQL * pSrc, const CSphSourceParams_MySQL & tPa
 		sphDie ( "setup failed" );
 	if ( !pSrc->Connect ( sError ) )
 		sphDie ( "connect failed: %s", sError.cstr() );
-	if ( !pSrc->IterateStart ( sError ) )
+	if ( !pSrc->IterateHitsStart ( sError ) )
 		sphDie ( "iterate-start failed: %s", sError.cstr() );
 }
 
@@ -71,7 +71,6 @@ void DoSearch ( CSphIndex * pIndex )
 void DoIndexing ( CSphSource * pSrc, ISphRtIndex * pIndex )
 {
 	CSphString sError;
-	CSphVector<DWORD> dMvas;
 
 	int64_t tmStart = sphMicroTimer ();
 	int64_t tmAvgCommit = 0;
@@ -79,14 +78,11 @@ void DoIndexing ( CSphSource * pSrc, ISphRtIndex * pIndex )
 	int iCommits = 0;
 	for ( ;; )
 	{
-		if ( !pSrc->IterateDocument ( sError ) )
-			sphDie ( "iterate-document failed: %s", sError.cstr() );
-		ISphHits * pHitsNext = pSrc->IterateHits ( sError );
-		if ( !sError.IsEmpty() )
-			sphDie ( "iterate-hits failed: %s", sError.cstr() );
+		if ( !pSrc->IterateHitsNext ( sError ) )
+			sphDie ( "iterate-next failed: %s", sError.cstr() );
 
 		if ( pSrc->m_tDocInfo.m_iDocID )
-			pIndex->AddDocument ( pHitsNext, pSrc->m_tDocInfo, NULL, dMvas, sError );
+			pIndex->AddDocument ( pSrc->m_dHits, pSrc->m_tDocInfo, NULL, sError );
 
 		if ( ( pSrc->GetStats().m_iTotalDocuments % COMMIT_STEP )==0 || !pSrc->m_tDocInfo.m_iDocID )
 		{
@@ -176,11 +172,11 @@ int main ()
 	CSphDictSettings tDictSettings;
 
 	ISphTokenizer * pTok = sphCreateUTF8Tokenizer();
-	CSphDict * pDict = sphCreateDictionaryCRC ( tDictSettings, pTok, sError, "rt1" );
+	CSphDict * pDict = sphCreateDictionaryCRC ( tDictSettings, pTok, sError );
 	CSphSource * pSrc = SpawnSource ( "SELECT id, channel_id, UNIX_TIMESTAMP(published) published, title, UNCOMPRESS(content) content FROM posting WHERE id<=10000 AND id%2=0", pTok, pDict );
 
 	ISphTokenizer * pTok2 = sphCreateUTF8Tokenizer();
-	CSphDict * pDict2 = sphCreateDictionaryCRC ( tDictSettings, pTok, sError, "rt2" );
+	CSphDict * pDict2 = sphCreateDictionaryCRC ( tDictSettings, pTok, sError );
 	CSphSource * pSrc2 = SpawnSource ( "SELECT id, channel_id, UNIX_TIMESTAMP(published) published, title, UNCOMPRESS(content) content FROM posting WHERE id<=10000 AND id%2=1", pTok2, pDict2 );
 
 	CSphSchema tSrcSchema;
@@ -193,11 +189,10 @@ int main ()
 		tSchema.AddAttr ( tSrcSchema.GetAttr(i), false );
 
 	CSphConfigSection tRTConfig;
-	sphRTInit();
-	sphRTConfigure ( tRTConfig, true );
-	SmallStringHash_T< CSphIndex * > dTemp;
-	sphReplayBinlog ( dTemp, 0 );
-	ISphRtIndex * pIndex = sphCreateIndexRT ( tSchema, "testrt", 32*1024*1024, "data/dump", false );
+	sphRTInit ( tRTConfig );
+	CSphVector< ISphRtIndex * > dTemp;
+	sphReplayBinlog ( dTemp );
+	ISphRtIndex * pIndex = sphCreateIndexRT ( tSchema, "testrt", 32*1024*1024, "data/dump" );
 	pIndex->SetTokenizer ( pTok ); // index will own this pair from now on
 	pIndex->SetDictionary ( pDict );
 	if ( !pIndex->Prealloc ( false, false, sError ) )

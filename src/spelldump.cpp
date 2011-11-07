@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -976,7 +976,7 @@ struct WordLess
 	}
 };
 
-typedef CSphOrderedHash < CSphVector<MapInfo_t>, CSphString, CSphStrHashFunc, 100000 > WordMap_t;
+typedef CSphOrderedHash < CSphVector<MapInfo_t>, CSphString, CSphStrHashFunc, 100000, 13 > WordMap_t;
 
 static void EmitResult ( WordMap_t & tMap , const CSphString & sFrom, const CSphString & sTo, char cRuleA = 0, char cRuleB = 0 )
 {

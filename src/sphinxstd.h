@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -27,10 +27,6 @@ typedef int __declspec("SAL_nokernel") __declspec("SAL_nodriver") __prefast_flag
 
 #if defined(_MSC_VER) && (_MSC_VER<1400)
 #define vsnprintf _vsnprintf
-#endif
-
-#ifndef __GNUC__
-#define __attribute__(x)
 #endif
 
 #if HAVE_CONFIG_H
@@ -95,7 +91,7 @@ typedef int __declspec("SAL_nokernel") __declspec("SAL_nodriver") __prefast_flag
 
 #if USE_ODBC
 // UnixODBC compatible DWORD
-#if defined(__alpha) || defined(__sparcv9) || defined(__LP64__) || (defined(__HOS_AIX__) && defined(_LP64)) || defined(__APPLE__)
+#if defined(__alpha) || defined(__sparcv9) || defined(__LP64__) || (defined(__HOS_AIX__) && defined(_LP64))
 typedef unsigned int		DWORD;
 #else
 typedef unsigned long		DWORD;
@@ -154,13 +150,8 @@ typedef unsigned long long uint64_t;
 #define UINT64_FMT "%" PRIu64
 #define INT64_FMT "%" PRIi64
 
-#ifndef UINT64_MAX
 #define UINT64_MAX U64C(0xffffffffffffffff)
-#endif
-
-#ifndef INT64_MAX
 #define INT64_MAX I64C(0x7fffffffffffffff)
-#endif
 
 STATIC_SIZE_ASSERT ( uint64_t, 8 );
 STATIC_SIZE_ASSERT ( int64_t, 8 );
@@ -198,7 +189,7 @@ void			sphAllocsStats ();
 /// check all existing allocs; raises assertion failure in cases of errors
 void			sphAllocsCheck ();
 
-void			sphMemStatDump ( int iFD );
+void			sphMemStatDump ();
 
 void			sphMemStatMMapAdd ( int64_t iSize );
 void			sphMemStatMMapDel ( int64_t iSize );
@@ -231,7 +222,7 @@ inline int sphBitCount ( DWORD n )
 typedef			bool ( *SphDieCallback_t ) ( const char * );
 
 /// crash with an error message
-void			sphDie ( const char * sMessage, ... ) __attribute__ ( ( format ( printf, 1, 2 ) ) );
+void			sphDie ( const char * sMessage, ... );
 
 /// setup a callback function to call from sphDie() before exit
 /// if callback returns false, sphDie() will not log to stdout
@@ -446,9 +437,6 @@ void sphHeapSort ( T * pData, int iCount, U COMP, V ACC )
 template < typename T, typename U, typename V >
 void sphSort ( T * pData, int iCount, U COMP, V ACC )
 {
-	if ( iCount<2 )
-		return;
-
 	typedef T * P;
 	P st0[32], st1[32], a, b, i, j;
 	typename V::MEDIAN_TYPE x;
@@ -549,11 +537,6 @@ struct SphMemberFunctor_T
 
 	explicit			SphMemberFunctor_T ( T CLASS::* pMember )	: m_pMember ( pMember ) {}
 	const T &			operator () ( const CLASS & arg ) const		{ return (&arg)->*m_pMember; }
-
-	inline bool IsLess ( const CLASS & a, const CLASS & b ) const
-	{
-		return (&a)->*m_pMember < (&b)->*m_pMember;
-	}
 };
 
 
@@ -900,15 +883,6 @@ public:
 		Swap ( m_pData, rhs.m_pData );
 	}
 
-	/// leak
-	T * LeakData ()
-	{
-		T * pData = m_pData;
-		m_pData = NULL;
-		Reset();
-		return pData;
-	}
-
 	/// generic binary search
 	/// assumes that the array is sorted in ascending order
 	template < typename U, typename PRED >
@@ -940,23 +914,6 @@ public:
 			m_pData[i] = rhs;
 	}
 
-	/// insert into a middle
-	void Insert ( int iIndex, const T & tValue )
-	{
-		if ( iIndex==m_iLength )
-		{
-			Add ( tValue );
-			return;
-		}
-
-		if ( m_iLength>=m_iLimit )
-			Reserve ( m_iLength+1 );
-
-		memmove ( m_pData+iIndex+1, m_pData+iIndex, ( m_iLength++-iIndex ) * sizeof tValue );
-		memset ( m_pData+iIndex, 0, sizeof tValue );
-		m_pData[iIndex] = tValue;
-	}
-
 protected:
 	int		m_iLength;		///< entries actually used
 	int		m_iLimit;		///< entries allocated
@@ -969,16 +926,6 @@ protected:
 
 #define ARRAY_FOREACH_COND(_index,_array,_cond) \
 	for ( int _index=0; _index<_array.GetLength() && (_cond); _index++ )
-
-#define ARRAY_ANY(_res,_array,_cond) \
-	false; \
-	for ( int _any=0; _any<_array.GetLength() && !_res; _any++ ) \
-		_res |= ( _cond ); \
-
-#define ARRAY_ALL(_res,_array,_cond) \
-	true; \
-	for ( int _all=0; _all<_array.GetLength() && _res; _all++ ) \
-		_res &= ( _cond ); \
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -1028,64 +975,11 @@ class CSphTightVector : public CSphVector < T, CSphTightVectorPolicy<T> >
 {
 };
 
-//////////////////////////////////////////////////////////////////////////
-
-/// dynamically allocated fixed-size vector
-template < typename T >
-class CSphFixedVector : public ISphNoncopyable
-{
-protected:
-	T *			m_pData;
-	int			m_iSize;
-
-public:
-	explicit CSphFixedVector ( int iSize )
-		: m_iSize ( iSize )
-	{
-		assert ( iSize>=0 );
-		m_pData = ( iSize>0 ) ? new T [ iSize ] : NULL;
-	}
-
-	~CSphFixedVector ()
-	{
-		SafeDeleteArray ( m_pData );
-	}
-
-	T & operator [] ( int iIndex ) const
-	{
-		assert ( iIndex>=0 && iIndex<m_iSize );
-		return m_pData[iIndex];
-	}
-
-	T * Begin () const
-	{
-		return m_pData;
-	}
-
-	T & Last () const
-	{
-		return (*this) [ m_iSize-1 ];
-	}
-
-	void Reset ( int iSize )
-	{
-		SafeDeleteArray ( m_pData );
-		assert ( iSize>=0 );
-		m_pData = ( iSize>0 ) ? new T [ iSize ] : NULL;
-		m_iSize = iSize;
-	}
-
-	int GetLength() const
-	{
-		return m_iSize;
-	}
-};
-
-//////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
 
 /// simple dynamic hash
 /// keeps the order, so Iterate() return the entries in the order they was inserted
-template < typename T, typename KEY, typename HASHFUNC, int LENGTH >
+template < typename T, typename KEY, typename HASHFUNC, int LENGTH, int STEP >
 class CSphOrderedHash
 {
 protected:
@@ -1161,7 +1055,7 @@ public:
 
 	/// add new entry
 	/// returns true on success
-	/// returns false if this key is already hashed
+	/// returns false if this key is alredy hashed
 	bool Add ( const T & tValue, const KEY & tKey )
 	{
 		unsigned int uHash = ( (unsigned int) HASHFUNC::Hash ( tKey ) ) % LENGTH;
@@ -1245,10 +1139,6 @@ public:
 		else
 			m_pLastByOrder = pToDelete->m_pPrevByOrder;
 
-		// step the iterator one item back - to gracefully hold deletion in iteration cycle
-		if ( pToDelete==m_pIterator )
-			m_pIterator = pToDelete->m_pPrevByOrder;
-
 		SafeDelete ( pToDelete );
 		--m_iLength;
 
@@ -1277,37 +1167,16 @@ public:
 		return pEntry->m_tValue;
 	}
 
-	/// get pointer to key storage
-	const KEY * GetKeyPtr ( const KEY & tKey ) const
-	{
-		HashEntry_t * pEntry = FindByKey ( tKey );
-		return pEntry ? &pEntry->m_tKey : NULL;
-	}
-
 	/// copying
-	const CSphOrderedHash<T,KEY,HASHFUNC,LENGTH> & operator = ( const CSphOrderedHash<T,KEY,HASHFUNC,LENGTH> & rhs )
+	const CSphOrderedHash<T,KEY,HASHFUNC,LENGTH,STEP> & operator = ( const CSphOrderedHash<T,KEY,HASHFUNC,LENGTH,STEP> & rhs )
 	{
-		if ( this!=&rhs )
-		{
-			Reset ();
+		Reset ();
 
-			rhs.IterateStart ();
-			while ( rhs.IterateNext() )
-				Add ( rhs.IterateGet(), rhs.IterateGetKey() );
-		}
+		rhs.IterateStart ();
+		while ( rhs.IterateNext() )
+			Add ( rhs.IterateGet(), rhs.IterateGetKey() );
+
 		return *this;
-	}
-
-	/// copyint ctor
-	CSphOrderedHash<T,KEY,HASHFUNC,LENGTH> ( const CSphOrderedHash<T,KEY,HASHFUNC,LENGTH> & rhs )
-		: m_pFirstByOrder ( NULL )
-		, m_pLastByOrder ( NULL )
-		, m_iLength ( 0 )
-		, m_pIterator ( NULL )
-	{
-		for ( int i=0; i<LENGTH; i++ )
-			m_dHash[i] = NULL;
-		*this = rhs;
 	}
 
 	/// length query
@@ -1321,13 +1190,6 @@ public:
 	void IterateStart () const
 	{
 		m_pIterator = NULL;
-	}
-
-	/// start iterating from key element
-	bool IterateStart ( const KEY & tKey ) const
-	{
-		m_pIterator = FindByKey ( tKey );
-		return m_pIterator!=NULL;
 	}
 
 	/// go to next existing entry
@@ -1427,26 +1289,24 @@ public:
 		return m_sValue;
 	}
 
-	inline bool operator == ( const char * t ) const
+	bool operator == ( const CSphString & t ) const
 	{
-		if ( !t || !m_sValue )
-			return ( !t && !m_sValue );
+		return strcmp ( m_sValue, t.m_sValue )==0;
+	}
+
+	bool operator == ( const char * t ) const
+	{
 		return strcmp ( m_sValue, t )==0;
 	}
 
-	inline bool operator == ( const CSphString & t ) const
+	bool operator != ( const CSphString & t ) const
 	{
-		return operator==( t.cstr() );
-	}
-
-	inline bool operator != ( const CSphString & t ) const
-	{
-		return !operator==( t );
+		return strcmp ( m_sValue, t.m_sValue )!=0;
 	}
 
 	bool operator != ( const char * t ) const
 	{
-		return !operator==( t );
+		return strcmp ( m_sValue, t )!=0;
 	}
 
 	CSphString ( const char * sString ) // NOLINT
@@ -1466,8 +1326,6 @@ public:
 
 	const CSphString & operator = ( const CSphString & rhs )
 	{
-		if ( m_sValue==rhs.m_sValue )
-			return *this;
 		SafeDeleteArray ( m_sValue );
 		if ( rhs.m_sValue )
 		{
@@ -1514,7 +1372,7 @@ public:
 		memset ( m_sValue, 0, 1+SAFETY_GAP+iLen );
 	}
 
-	const CSphString & SetSprintf ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) )
+	const CSphString & SetSprintf ( const char * sTemplate, ... )
 	{
 		char sBuf[1024];
 		va_list ap;
@@ -1597,22 +1455,6 @@ public:
 	int Length () const
 	{
 		return m_sValue ? (int)strlen(m_sValue) : 0;
-	}
-
-	char * Leak ()
-	{
-		char * pBuf = m_sValue;
-		m_sValue = NULL;
-		return pBuf;
-	}
-
-	bool operator < ( const CSphString & b ) const
-	{
-		if ( !m_sValue && !b.m_sValue )
-			return false;
-		if ( !m_sValue || !b.m_sValue )
-			return !m_sValue;
-		return strcmp ( m_sValue, b.m_sValue ) < 0;
 	}
 };
 
@@ -1699,7 +1541,6 @@ public:
 	}
 };
 
-
 /////////////////////////////////////////////////////////////////////////////
 
 /// string hash function
@@ -1710,7 +1551,7 @@ struct CSphStrHashFunc
 
 /// small hash with string keys
 template < typename T >
-class SmallStringHash_T : public CSphOrderedHash < T, CSphString, CSphStrHashFunc, 256 > {};
+class SmallStringHash_T : public CSphOrderedHash < T, CSphString, CSphStrHashFunc, 256, 13 > {};
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -1771,7 +1612,7 @@ protected:
 //////////////////////////////////////////////////////////////////////////
 
 extern bool g_bHeadProcess;
-void sphWarn ( const char *, ... ) __attribute__ ( ( format ( printf, 1, 2 ) ) );
+void sphWarn ( const char *, ... );
 
 /// in-memory buffer shared between processes
 template < typename T > class CSphSharedBuffer
@@ -1800,15 +1641,15 @@ public:
 public:
 	/// allocate storage
 #if USE_WINDOWS
-	bool Alloc ( int64_t iEntries, CSphString & sError, CSphString & )
+	bool Alloc ( DWORD iEntries, CSphString & sError, CSphString & )
 #else
-	bool Alloc ( int64_t iEntries, CSphString & sError, CSphString & sWarning )
+	bool Alloc ( DWORD iEntries, CSphString & sError, CSphString & sWarning )
 #endif
 	{
 		assert ( !m_pData );
 
 		int64_t uCheck = sizeof(T);
-		uCheck *= iEntries;
+		uCheck *= (int64_t)iEntries;
 
 		m_iLength = (size_t)uCheck;
 		if ( uCheck!=(int64_t)m_iLength )
@@ -1819,7 +1660,7 @@ public:
 		}
 
 #if USE_WINDOWS
-		m_pData = new T [ (size_t)iEntries ];
+		m_pData = new T [ iEntries ];
 #else
 		m_pData = (T *) mmap ( NULL, m_iLength, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0 );
 		if ( m_pData==MAP_FAILED )
@@ -1843,7 +1684,7 @@ public:
 #endif // USE_WINDOWS
 
 		assert ( m_pData );
-		m_iEntries = (size_t)iEntries;
+		m_iEntries = iEntries;
 		return true;
 	}
 
@@ -1900,9 +1741,9 @@ public:
 
 public:
 	/// accessor
-	inline const T & operator [] ( int64_t iIndex ) const
+	inline const T & operator [] ( DWORD iIndex ) const
 	{
-		assert ( iIndex>=0 && iIndex<(int64_t)m_iEntries );
+		assert ( iIndex>=0 && iIndex<m_iEntries );
 		return m_pData[iIndex];
 	}
 
@@ -1925,7 +1766,7 @@ public:
 	}
 
 	/// get length in entries
-	size_t GetNumEntries () const
+	DWORD GetNumEntries () const
 	{
 		return m_iEntries;
 	}
@@ -1933,7 +1774,7 @@ public:
 protected:
 	T *					m_pData;	///< data storage
 	size_t				m_iLength;	///< data length, bytes
-	size_t				m_iEntries;	///< data length, entries
+	DWORD				m_iEntries;	///< data length, entries
 	bool				m_bMlock;	///< whether to lock data in RAM
 };
 
@@ -1943,59 +1784,16 @@ protected:
 class CSphProcessSharedMutex
 {
 public:
-	explicit CSphProcessSharedMutex ( int iExtraSize=0 );
-	void	Lock () const;
-	void	Unlock () const;
-	bool	TimedLock ( int tmSpin ) const; // wait at least tmSpin microseconds the lock will available
-	const char * GetError () const;
+	CSphProcessSharedMutex ();
+	void	Lock ();
+	void	Unlock ();
 
 protected:
 #if !USE_WINDOWS
 	CSphSharedBuffer<BYTE>		m_pStorage;
 	pthread_mutex_t *			m_pMutex;
-	CSphString					m_sError;
 #endif
 };
-
-
-#if !USE_WINDOWS
-/// process-shared mutex variable that survives fork
-template < typename T > class CSphProcessSharedVariable : protected CSphProcessSharedMutex, public ISphNoncopyable
-{
-public:
-
-	explicit CSphProcessSharedVariable ( const T& tInitValue )
-		: CSphProcessSharedMutex ( sizeof(T) )
-		, m_pValue ( NULL )
-	{
-		if ( m_pMutex )
-		{
-			m_pValue = reinterpret_cast<T*> ( m_pStorage.GetWritePtr () + sizeof ( pthread_mutex_t ) );
-			*m_pValue = tInitValue;
-		}
-	}
-	T ReadValue() const
-	{
-		if ( !m_pValue )
-			return 0;
-		Lock();
-		T val = *m_pValue;
-		Unlock();
-		return val;
-	}
-	void WriteValue ( const T& tNewValue )
-	{
-		if ( !m_pValue )
-			return;
-		Lock();
-		*m_pValue = tNewValue;
-		Unlock();
-	}
-
-protected:
-	T *		m_pValue;
-};
-#endif // #if !USE_WINDOWS
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -2012,7 +1810,7 @@ typedef pthread_key_t SphThreadKey_t;
 void * sphThreadInit ( bool bDetached=false );
 
 /// my threading deinitialize routine
-void sphThreadDone ( int iFD );
+void sphThreadDone();
 
 /// my create thread wrapper
 bool sphThreadCreate ( SphThread_t * pThread, void (*fnThread)(void*), void * pArg, bool bDetached=false );
@@ -2037,9 +1835,6 @@ void * sphMyStack ();
 
 /// get the size of my thread's stack
 int sphMyStackSize ();
-
-/// set the size of my thread's stack
-void sphSetMyStackSize ( int iStackSize );
 
 /// store the address in the TLS
 void MemorizeStack ( void* PStack );
@@ -2082,7 +1877,11 @@ class CSphStaticMutex : public CSphMutex
 public:
 	CSphStaticMutex()
 	{
-		Verify ( Init() );
+#ifndef NDEBUG
+		assert ( Init() );
+#else
+		Init();
+#endif
 	}
 
 	~CSphStaticMutex()
@@ -2114,218 +1913,6 @@ private:
 #else
 	pthread_rwlock_t	m_tLock;
 #endif
-};
-
-// small bitvector of 256 elements.
-class CSphSmallBitvec
-{
-public:
-	static const int iTOTALBITS = 256;
-
-private:
-	static const int iELEMBITS = sizeof(DWORD) * 8;
-	static const int iBYTESIZE = iTOTALBITS / 8;
-	static const int IELEMENTS = iTOTALBITS / iELEMBITS;
-	static const DWORD uALLBITS = ~(0UL);
-	STATIC_ASSERT ( IELEMENTS>=1, 8_BITS_MINIMAL_SIZE_OF_VECTOR );
-
-public:
-	DWORD m_dFieldsMask[IELEMENTS];
-
-public:
-	// no custom cstr and d-tor - to be usable from inside unions
-	// deep copy for it is ok - so, no explicit copying constructor and operator=
-
-	// old-fashion layer to work with DWORD (32-bit) mask.
-	// all bits above 32 assumed to be unset.
-	void Assign32 ( DWORD uMask )
-	{
-		Unset();
-		m_dFieldsMask[0] = uMask;
-	}
-
-	DWORD GetMask32 () const
-	{
-		return (DWORD) ( m_dFieldsMask[0] & 0xFFFFFFFFUL );
-	}
-
-	// set n-th bit, or all
-	void Set ( int iIdx=-1 )
-	{
-		assert ( iIdx < iTOTALBITS );
-		if ( iIdx<0 )
-			for ( int i=0; i<IELEMENTS; i++ )
-				m_dFieldsMask[i] = uALLBITS;
-		else
-			m_dFieldsMask[iIdx/iELEMBITS] |= 1UL << ( iIdx & ( iELEMBITS-1 ) );
-	}
-
-	// unset n-th bit, or all
-	void Unset ( int iIdx=-1 )
-	{
-		assert ( iIdx < iTOTALBITS );
-		if ( iIdx<0 )
-			for ( int i=0; i<IELEMENTS; i++ )
-				m_dFieldsMask[i] = 0UL;
-		else
-			m_dFieldsMask[iIdx/iELEMBITS] &= ~(1UL << ( iIdx & ( iELEMBITS-1 ) ));
-	}
-
-	// test if n-th bit is set
-	bool Test ( int iIdx ) const
-	{
-		assert ( iIdx>=0 && iIdx<iTOTALBITS );
-		return ( m_dFieldsMask[iIdx/iELEMBITS] & ( 1UL << ( iIdx & ( iELEMBITS-1 ) ) ) )!=0;
-	}
-
-	// test the given mask (with &-operator)
-	bool Test ( const CSphSmallBitvec& dParam ) const
-	{
-		for ( int i=0; i<IELEMENTS; i++ )
-			if ( m_dFieldsMask[i] & dParam.m_dFieldsMask[i] )
-				return true;
-		return false;
-	}
-
-	// test if all bits are set or unset
-	bool TestAll ( bool bSet=false ) const
-	{
-		DWORD uTest = bSet?uALLBITS:0;
-		for ( int i=0; i<IELEMENTS; i++ )
-			if ( m_dFieldsMask[i]!=uTest )
-				return false;
-		return true;
-	}
-
-	friend CSphSmallBitvec operator & ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond );
-	friend CSphSmallBitvec operator | ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond );
-	friend bool operator == ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond );
-	CSphSmallBitvec& operator |= ( const CSphSmallBitvec& dSecond )
-	{
-		if ( &dSecond!=this )
-			for ( int i=0; i<IELEMENTS; i++ )
-				m_dFieldsMask[i] |= dSecond.m_dFieldsMask[i];
-		return *this;
-	}
-
-	// cut out all the bits over given number
-	void LimitBits ( int iBits )
-	{
-		if ( iBits>=iTOTALBITS )
-			return;
-
-		int iMaskPos = iBits / iELEMBITS;
-		DWORD uMask = ( 1UL << ( iBits % iELEMBITS ) ) - 1;
-		m_dFieldsMask[iMaskPos++] &= uMask;
-		for ( ; iMaskPos < IELEMENTS; iMaskPos++ )
-			m_dFieldsMask[iMaskPos] = 0UL;
-	}
-
-	void Negate()
-	{
-		for ( int i=0; i<IELEMENTS; i++ )
-			m_dFieldsMask[i] = ~m_dFieldsMask[i];
-	}
-};
-
-#if USE_WINDOWS
-#pragma warning(push,1)
-#pragma warning(disable:4701)
-#endif
-
-inline CSphSmallBitvec operator & ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond )
-{
-	if ( &dFirst==&dSecond )
-		return dFirst;
-
-	CSphSmallBitvec dResult;
-	for ( int i=0; i<CSphSmallBitvec::IELEMENTS; i++ )
-			dResult.m_dFieldsMask[i] = dFirst.m_dFieldsMask[i] & dSecond.m_dFieldsMask[i];
-	return dResult;
-}
-
-inline CSphSmallBitvec operator | ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond )
-{
-	if ( &dFirst==&dSecond )
-		return dFirst;
-
-	CSphSmallBitvec dResult;
-	for ( int i=0; i<CSphSmallBitvec::IELEMENTS; i++ )
-		dResult.m_dFieldsMask[i] = dFirst.m_dFieldsMask[i] | dSecond.m_dFieldsMask[i];
-	return dResult;
-}
-
-inline bool operator == ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond )
-{
-	if ( &dFirst==&dSecond )
-		return true;
-
-	return !memcmp ( &dFirst.m_dFieldsMask, &dSecond.m_dFieldsMask, CSphSmallBitvec::iBYTESIZE );
-}
-
-inline bool operator != ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond )
-{
-	return !( dFirst==dSecond );
-}
-
-#if USE_WINDOWS
-#pragma warning(pop)
-#endif
-
-//////////////////////////////////////////////////////////////////////////
-
-/// generic dynamic bitvector
-/// with a preallocated part for small-size cases, and a dynamic route for big-size ones
-class CSphBitvec
-{
-protected:
-	DWORD *		m_pData;
-	DWORD		m_uStatic[4];
-	int			m_iElements;
-
-public:
-	CSphBitvec ()
-		: m_pData ( NULL )
-		, m_iElements ( 0 )
-	{}
-
-	~CSphBitvec ()
-	{
-		if ( m_pData && m_pData!=m_uStatic )
-			SafeDeleteArray ( m_pData );
-	}
-
-	void Init ( int iElements )
-	{
-		assert ( iElements>0 );
-		m_iElements = iElements;
-		if ( iElements > int(sizeof(m_uStatic)*8) )
-		{
-			int iSize = (m_iElements+31)/32;
-			m_pData = new DWORD [ iSize ];
-			memset ( m_pData, 0, sizeof(DWORD)*iSize );
-		} else
-		{
-			m_pData = m_uStatic;
-			for ( int i=0; i<int(sizeof(m_uStatic)/sizeof(m_uStatic[0])); i++ )
-				m_uStatic[i] = 0;
-		}
-	}
-
-	bool BitGet ( int iIndex ) const
-	{
-		assert ( m_pData );
-		assert ( iIndex>=0 );
-		assert ( iIndex<m_iElements );
-		return ( m_pData [ iIndex>>5 ] & ( 1UL<<( iIndex&31 ) ) )!=0; // NOLINT
-	}
-
-	void BitSet ( int iIndex )
-	{
-		assert ( iIndex>=0 );
-		assert ( iIndex<m_iElements );
-		m_pData [ iIndex>>5 ] |= ( 1UL<<( iIndex&31 ) ); // NOLINT
-	}
 };
 
 #endif // _sphinxstd_

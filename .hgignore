@@ -15,4 +15,3 @@ glob:test/*/report.txt
 glob:codeblocks/*.depend
 glob:codeblocks/*.layout
 glob:*/sphinxversion.h
-glob:*.pyc

@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -14,7 +14,6 @@
 //
 
 #include "sphinxfilter.h"
-#include "sphinxint.h"
 
 #if USE_WINDOWS
 #pragma warning(disable:4250) // inheritance via dominance is our intent
@@ -227,15 +226,6 @@ struct Filter_IdValues: public IFilter_Values
 		return EvalValues ( tMatch.m_iDocID );
 	}
 
-	bool EvalBlockValues ( SphAttr_t uBlockMin, SphAttr_t uBlockMax ) const
-	{
-		// is any of our values inside the block?
-		for ( int i = 0; i < m_iValueCount; i++ )
-			if ( (SphDocID_t)GetValue(i)>=(SphDocID_t)uBlockMin && (SphDocID_t)GetValue(i)<=(SphDocID_t)uBlockMax )
-				return true;
-		return false;
-	}
-
 	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo ) const
 	{
 		const SphAttr_t uBlockMin = DOCINFO2ID ( pMinDocinfo );
@@ -256,14 +246,6 @@ struct Filter_IdRange: public IFilter_Range
 	{
 		const SphDocID_t uID = tMatch.m_iDocID;
 		return uID>=(SphDocID_t)m_uMinValue && uID<=(SphDocID_t)m_uMaxValue;
-	}
-
-	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo ) const
-	{
-		const SphDocID_t uBlockMin = DOCINFO2ID ( pMinDocinfo );
-		const SphDocID_t uBlockMax = DOCINFO2ID ( pMaxDocinfo );
-
-		return (!( (SphDocID_t)m_uMaxValue<uBlockMin || (SphDocID_t)m_uMinValue>uBlockMax ));
 	}
 
 	Filter_IdRange ()
@@ -302,25 +284,18 @@ struct Filter_WeightRange: public IFilter_Range
 };
 
 // MVA
-template < bool IS_MVA64 >
+
 struct Filter_MVAValues: public IFilter_MVA, IFilter_Values
 {
-	virtual bool Eval ( const CSphMatch & tMatch ) const
-	{
-		const DWORD * pMva, * pMvaMax;
-		if ( !LoadMVA ( tMatch, &pMva, &pMvaMax ) )
-			return false;
-
-		return MvaEval ( pMva, pMvaMax );
-	}
-
-	bool MvaEval ( const DWORD * pMva, const DWORD * pMvaMax ) const;
+	virtual bool Eval ( const CSphMatch & tMatch ) const;
 };
 
-
-template<>
-bool Filter_MVAValues<false>::MvaEval ( const DWORD * pMva, const DWORD * pMvaMax ) const
+bool Filter_MVAValues::Eval ( const CSphMatch & tMatch ) const
 {
+	const DWORD * pMva, * pMvaMax;
+	if ( !LoadMVA ( tMatch, &pMva, &pMvaMax ) )
+		return false;
+
 	const SphAttr_t * pFilter = m_pValues;
 	const SphAttr_t * pFilterMax = pFilter + m_iValueCount;
 
@@ -343,55 +318,17 @@ bool Filter_MVAValues<false>::MvaEval ( const DWORD * pMva, const DWORD * pMvaMa
 	return false;
 }
 
-
-template<>
-bool Filter_MVAValues<true>::MvaEval ( const DWORD * pMva, const DWORD * pMvaMax ) const
-{
-	const SphAttr_t * pFilter = m_pValues;
-	const SphAttr_t * pFilterMax = pFilter + m_iValueCount;
-
-	const uint64_t * L = (const uint64_t *)pMva;
-	const uint64_t * R = (const uint64_t *)( pMvaMax - 2 );
-	for ( ; pFilter < pFilterMax; pFilter++ )
-	{
-		uint64_t uFilter = *pFilter;
-		while ( L<=R )
-		{
-			const uint64_t * pVal = L + (R - L) / 2;
-			uint64_t uMva = MVA_UPSIZE ( (const DWORD *)pVal );
-
-			if ( uFilter > uMva )
-				L = pVal + 1;
-			else if ( uFilter < uMva )
-				R = pVal - 1;
-			else
-				return true;
-		}
-		R = (const uint64_t *)( pMvaMax - 2 );
-	}
-	return false;
-}
-
-
-template < bool IS_MVA64 >
 struct Filter_MVARange: public IFilter_MVA, IFilter_Range
 {
-	virtual bool Eval ( const CSphMatch & tMatch ) const
-	{
-		const DWORD * pMva, * pMvaMax;
-		if ( !LoadMVA ( tMatch, &pMva, &pMvaMax ) )
-			return false;
-
-		return MvaEval ( pMva, pMvaMax );
-	}
-
-	bool MvaEval ( const DWORD * pMva, const DWORD * pMvaMax ) const;
+	virtual bool Eval ( const CSphMatch & tMatch ) const;
 };
 
-
-template<>
-bool Filter_MVARange<false>::MvaEval ( const DWORD * pMva, const DWORD * pMvaMax ) const
+bool Filter_MVARange::Eval ( const CSphMatch & tMatch ) const
 {
+	const DWORD * pMva, * pMvaMax;
+	if ( !LoadMVA ( tMatch, &pMva, &pMvaMax ) )
+		return false;
+
 	const DWORD * L = pMva;
 	const DWORD * R = pMvaMax - 1;
 
@@ -409,33 +346,6 @@ bool Filter_MVARange<false>::MvaEval ( const DWORD * pMva, const DWORD * pMvaMax
 		return false;
 	return *L<=m_uMaxValue;
 }
-
-
-template<>
-bool Filter_MVARange<true>::MvaEval ( const DWORD * pMva, const DWORD * pMvaMax ) const
-{
-	const uint64_t * L = (const uint64_t *)pMva;
-	const uint64_t * R = (const uint64_t *)( pMvaMax - 2 );
-
-	while ( L<=R )
-	{
-		const uint64_t * pVal = L + (R - L) / 2;
-		uint64_t uMva = MVA_UPSIZE ( (const DWORD *)pVal );
-
-		if ( (uint64_t)m_uMinValue>uMva )
-			L = pVal + 1;
-		else if ( (uint64_t)m_uMinValue < uMva )
-			R = pVal - 1;
-		else
-			return true;
-	}
-	if ( L==(const uint64_t *)pMvaMax )
-		return false;
-
-	uint64_t uMvaL = MVA_UPSIZE ( (const DWORD *)L );
-	return uMvaL<=(uint64_t)m_uMaxValue;
-}
-
 
 // and
 
@@ -481,13 +391,6 @@ struct Filter_And: public ISphFilter
 	{
 		m_bUsesAttrs = false;
 	}
-
-
-	virtual void SetMVAStorage ( const DWORD * pMva )
-	{
-		ARRAY_FOREACH ( i, m_dFilters )
-			m_dFilters[i]->SetMVAStorage ( pMva );
-	}
 };
 
 // not
@@ -518,11 +421,6 @@ struct Filter_Not: public ISphFilter
 		// if block passes through the filter we can't just negate the
 		// result since it's imprecise at this point
 		return true;
-	}
-
-	virtual void SetMVAStorage ( const DWORD * pMva )
-	{
-		m_pFilter->SetMVAStorage ( pMva );
 	}
 };
 
@@ -584,25 +482,16 @@ static inline ISphFilter * ReportError ( CSphString & sError, const char * sMess
 }
 
 
-static ISphFilter * CreateFilter ( ESphAttr eAttrType, ESphFilter eFilterType, CSphString & sError )
+static ISphFilter * CreateFilter ( DWORD eAttrType, ESphFilter eFilterType, CSphString & sError )
 {
 	// MVA
-	if ( eAttrType==SPH_ATTR_UINT32SET || eAttrType==SPH_ATTR_UINT64SET )
+	if ( eAttrType & SPH_ATTR_MULTI )
 	{
 		switch ( eFilterType )
 		{
-		case SPH_FILTER_VALUES:
-			if ( eAttrType==SPH_ATTR_UINT64SET )
-				return new Filter_MVAValues<true>();
-			else
-				return new Filter_MVAValues<false>();
-
-		case SPH_FILTER_RANGE:
-			if ( eAttrType==SPH_ATTR_UINT64SET )
-				return new Filter_MVARange<true>();
-			else
-				return new Filter_MVARange<false>();
-		default:				return ReportError ( sError, "unsupported filter type '%s' on MVA column", eFilterType );
+			case SPH_FILTER_VALUES:	return new Filter_MVAValues;
+			case SPH_FILTER_RANGE:	return new Filter_MVARange;
+			default:				return ReportError ( sError, "unsupported filter type '%s' on MVA column", eFilterType );
 		}
 	}
 

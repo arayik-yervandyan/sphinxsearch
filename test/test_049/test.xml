@@ -1,8 +1,6 @@
 <test>
 <name>multi-index queries vs index weights</name>
 
-<requires> <variant_match /> </requires>
-
 <config>
 indexer
 {
@@ -67,10 +65,7 @@ source src_c
 	<sql_settings/>
 
 	sql_query = SELECT id, mva as a, text FROM test_table WHERE idx = 'c';
-<Dynamic>	
-	<Variant>sql_attr_multi = uint a from field</Variant>
-	<Variant>sql_attr_multi = bigint a from field</Variant>
-</Dynamic>	
+	sql_attr_multi = uint a from field
 }
 
 index a

@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -15,7 +15,6 @@
 
 #include "sphinx.h"
 #include "sphinxutils.h"
-#include "sphinxint.h"
 #include <time.h>
 
 
@@ -256,8 +255,8 @@ int main ( int argc, char ** argv )
 		tQuery.m_sQuery = sQuery;
 		CSphQueryResult * pResult = NULL;
 
-		CSphIndex * pIndex = sphCreateIndexPhrase ( NULL, hIndex["path"].cstr() );
-		pIndex->SetEnableStar ( hIndex.GetInt("enable_star")!=0 );
+		CSphIndex * pIndex = sphCreateIndexPhrase ( hIndex["path"].cstr() );
+		pIndex->m_bEnableStar = ( hIndex.GetInt("enable_star")!=0 );
 		pIndex->SetWordlistPreload ( hIndex.GetInt("ondisk_dict")==0 );
 
 		CSphString sWarning;
@@ -357,7 +356,7 @@ int main ( int argc, char ** argv )
 					const CSphColumnInfo & tAttr = pResult->m_tSchema.GetAttr(j);
 					fprintf ( stdout, ", %s=", tAttr.m_sName.cstr() );
 
-					if ( tAttr.m_eAttrType==SPH_ATTR_UINT32SET || tAttr.m_eAttrType==SPH_ATTR_UINT64SET )
+					if ( tAttr.m_eAttrType & SPH_ATTR_MULTI )
 					{
 						fprintf ( stdout, "(" );
 						SphAttr_t iIndex = tMatch.GetAttr ( tAttr.m_tLocator );
@@ -365,19 +364,8 @@ int main ( int argc, char ** argv )
 						{
 							const DWORD * pValues = pResult->m_pMva + iIndex;
 							int iValues = *pValues++;
-							if ( tAttr.m_eAttrType==SPH_ATTR_UINT64SET )
-							{
-								assert ( ( iValues%2 )==0 );
-								for ( int k=0; k<iValues; k+=2, pValues+=2 )
-								{
-									uint64_t uMva = MVA_UPSIZE ( pValues );
-									fprintf ( stdout, k ? ","UINT64_FMT : UINT64_FMT, uMva );
-								}
-							} else
-							{
-								for ( int k=0; k<iValues; k++ )
-									fprintf ( stdout, k ? ",%u" : "%u", *pValues++ );
-							}
+							for ( int k=0; k<iValues; k++ )
+								fprintf ( stdout, k ? ",%u" : "%u", *pValues++ );
 						}
 						fprintf ( stdout, ")" );
 
@@ -447,12 +435,11 @@ int main ( int argc, char ** argv )
 		int iWord = 1;
 		while ( pResult->m_hWordStats.IterateNext() )
 		{
-			const CSphQueryResultMeta::WordStat_t & tStat = pResult->m_hWordStats.IterateGet();
 			fprintf ( stdout, "%d. '%s': %d documents, %d hits\n",
 				iWord,
 				pResult->m_hWordStats.IterateGetKey().cstr(),
-				tStat.m_iDocs,
-				tStat.m_iHits );
+				pResult->m_hWordStats.IterateGet().m_iDocs,
+				pResult->m_hWordStats.IterateGet().m_iHits );
 			iWord++;
 		}
 		fprintf ( stdout, "\n" );

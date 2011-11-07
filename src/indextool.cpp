@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -16,14 +16,13 @@
 #include "sphinx.h"
 #include "sphinxutils.h"
 #include "sphinxint.h"
-#include "sphinxrt.h"
 #include <time.h>
 
 
 void StripStdin ( const char * sIndexAttrs, const char * sRemoveElements )
 {
 	CSphString sError;
-	CSphHTMLStripper tStripper ( true );
+	CSphHTMLStripper tStripper;
 	if ( !tStripper.SetIndexedAttrs ( sIndexAttrs, sError )
 		|| !tStripper.SetRemovedElements ( sRemoveElements, sError ) )
 			sphDie ( "failed to configure stripper: %s", sError.cstr() );
@@ -58,7 +57,6 @@ int main ( int argc, char ** argv )
 			"\n"
 			"Commands are:\n"
 			"--dumpheader <FILENAME.sph>\tdump index header by file name\n"
-			"--dumpconfig <FILENAME.sph>\tdump index header in config format by file name\n"
 			"--dumpheader <INDEXNAME>\tdump index header by index name\n"
 			"--dumpdocids <INDEXNAME>\tdump docids by index name\n"
 			"--dumphitlist <INDEXNAME> <KEYWORD>\n"
@@ -95,7 +93,6 @@ int main ( int argc, char ** argv )
 	{
 		CMD_NOTHING,
 		CMD_DUMPHEADER,
-		CMD_DUMPCONFIG,
 		CMD_DUMPDOCIDS,
 		CMD_DUMPHITLIST,
 		CMD_CHECK,
@@ -113,7 +110,6 @@ int main ( int argc, char ** argv )
 		if ( (i+1)>=argc )			break;
 		OPT ( "-c", "--config" )	sOptConfig = argv[++i];
 		OPT1 ( "--dumpheader" )		{ eCommand = CMD_DUMPHEADER; sDumpHeader = argv[++i]; }
-		OPT1 ( "--dumpconfig" )		{ eCommand = CMD_DUMPCONFIG; sDumpHeader = argv[++i]; }
 		OPT1 ( "--dumpdocids" )		{ eCommand = CMD_DUMPDOCIDS; sIndex = argv[++i]; }
 		OPT1 ( "--check" )			{ eCommand = CMD_CHECK; sIndex = argv[++i]; }
 		OPT1 ( "--htmlstrip" )		{ eCommand = CMD_STRIP; sIndex = argv[++i]; }
@@ -165,14 +161,7 @@ int main ( int argc, char ** argv )
 
 	CSphConfigParser cp;
 	CSphConfig & hConf = cp.m_tConf;
-	for ( ;; )
-	{
-		if ( ( eCommand==CMD_DUMPHEADER || eCommand==CMD_DUMPCONFIG ) && sDumpHeader.Ends ( ".sph" ) )
-			break;
-
-		sphLoadConfig ( sOptConfig, false, cp );
-		break;
-	}
+	sphLoadConfig ( sOptConfig, false, cp );
 
 	///////////
 	// action!
@@ -193,26 +182,9 @@ int main ( int argc, char ** argv )
 			sphDie ( "index '%s': missing 'path' in config'\n", sIndex.cstr() );
 
 		// preload that index
-		CSphString sError;
-		if ( hConf["index"][sIndex]("type") && hConf["index"][sIndex]["type"]=="rt" )
-		{
-			CSphSchema tSchema;
-			bool bDictKeywords = false;
-			if ( hConf["index"][sIndex].Exists ( "dict" ) )
-				bDictKeywords = ( hConf["index"][sIndex]["dict"]=="keywords" );
-
-			if ( sphRTSchemaConfigure ( hConf["index"][sIndex], &tSchema, &sError ) )
-				pIndex = sphCreateIndexRT ( tSchema, sIndex.cstr(), 32*1024*1024, hConf["index"][sIndex]["path"].cstr(), bDictKeywords );
-		} else
-		{
-			pIndex = sphCreateIndexPhrase ( sIndex.cstr(), hConf["index"][sIndex]["path"].cstr() );
-		}
-
+		pIndex = sphCreateIndexPhrase ( hConf["index"][sIndex]["path"].cstr() );
 		if ( !pIndex )
-			sphDie ( "index '%s': failed to create (%s)", sIndex.cstr(), sError.cstr() );
-
-		// don't need any long load operations
-		pIndex->SetWordlistPreload ( false );
+			sphDie ( "index '%s': failed to create", sIndex.cstr() );
 
 		CSphString sWarn;
 		if ( !pIndex->Prealloc ( false, bStripPath, sWarn ) )
@@ -231,9 +203,8 @@ int main ( int argc, char ** argv )
 			sphDie ( "nothing to do; specify a command (run indextool w/o switches for help)" );
 
 		case CMD_DUMPHEADER:
-		case CMD_DUMPCONFIG:
 		{
-			if ( hConf("index") && hConf["index"](sDumpHeader) )
+			if ( hConf["index"](sDumpHeader) )
 			{
 				fprintf ( stdout, "dumping header for index '%s'...\n", sDumpHeader.cstr() );
 
@@ -244,8 +215,8 @@ int main ( int argc, char ** argv )
 			}
 
 			fprintf ( stdout, "dumping header file '%s'...\n", sDumpHeader.cstr() );
-			CSphIndex * pIndex = sphCreateIndexPhrase ( NULL, "" );
-			pIndex->DebugDumpHeader ( stdout, sDumpHeader.cstr(), eCommand==CMD_DUMPCONFIG );
+			CSphIndex * pIndex = sphCreateIndexPhrase ( "" );
+			pIndex->DebugDumpHeader ( stdout, sDumpHeader.cstr() );
 			break;
 		}
 
@@ -507,7 +478,7 @@ void DoOptimization ( const CSphString & sIndex, const CSphConfig & hConf )
 		// attrs
 		const int iNumTypes = 5;
 		const char * sTypes[iNumTypes] = { "rt_attr_uint", "rt_attr_bigint", "rt_attr_float", "rt_attr_timestamp", "rt_attr_string" };
-		const ESphAttr iTypes[iNumTypes] = { SPH_ATTR_INTEGER, SPH_ATTR_BIGINT, SPH_ATTR_FLOAT, SPH_ATTR_TIMESTAMP, SPH_ATTR_STRING };
+		const int iTypes[iNumTypes] = { SPH_ATTR_INTEGER, SPH_ATTR_BIGINT, SPH_ATTR_FLOAT, SPH_ATTR_TIMESTAMP, SPH_ATTR_STRING };
 
 		for ( int iType=0; iType<iNumTypes; iType++ )
 		{
