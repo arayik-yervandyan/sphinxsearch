@@ -3179,6 +3179,8 @@ void CSphTokenizerTraits<IS_UTF8>::SetBufferPtr ( const char * sNewPtr )
 	m_pCur = Min ( m_pBufferMax, Max ( m_pBuffer, (BYTE*)sNewPtr ) );
 	m_iAccum = 0;
 	m_pAccum = m_sAccum;
+	m_pTokenStart = m_pTokenEnd = NULL;
+	m_pBlendStart = m_pBlendEnd = NULL;
 }
 
 
@@ -3723,6 +3725,9 @@ BYTE * CSphTokenizerTraits<IS_UTF8>::GetTokenSyn ()
 
 			iLastFolded = iFolded;
 
+			if ( m_iAccum==0 )
+				m_pTokenStart = pCur;
+
 			// handle specials at the very word start
 			if ( ( iFolded & FLAG_CODEPOINT_SPECIAL ) && m_iAccum==0 )
 			{
@@ -3794,7 +3799,7 @@ BYTE * CSphTokenizerTraits<IS_UTF8>::GetTokenSyn ()
 			// refine synonyms range
 			#define LOC_RETURN_SYNONYM(_idx) \
 			{ \
-				m_pTokenEnd = pCur; \
+				m_pTokenEnd = m_iAccum ? pCur : m_pCur; \
 				if ( bJustSpecial || ( iFolded & FLAG_CODEPOINT_SPECIAL )!=0 ) m_pCur = pCur; \
 				strncpy ( (char*)m_sAccum, m_dSynonyms[_idx].m_sTo.cstr(), sizeof(m_sAccum) ); \
 				m_iLastTokenLen = m_dSynonyms[_idx].m_iToLen; \
@@ -4141,6 +4146,8 @@ void CSphTokenizer_SBCS::SetBuffer ( BYTE * sBuffer, int iLength )
 	m_pBuffer = sBuffer;
 	m_pBufferMax = sBuffer + iLength;
 	m_pCur = sBuffer;
+	m_pTokenStart = m_pTokenEnd = NULL;
+	m_pBlendStart = m_pBlendEnd = NULL;
 
 	m_iOvershortCount = 0;
 	m_bBoundary = m_bTokenBoundary = false;
@@ -4386,6 +4393,8 @@ void CSphTokenizer_UTF8::SetBuffer ( BYTE * sBuffer, int iLength )
 	m_pBuffer = sBuffer;
 	m_pBufferMax = sBuffer + iLength;
 	m_pCur = sBuffer;
+	m_pTokenStart = m_pTokenEnd = NULL;
+	m_pBlendStart = m_pBlendEnd = NULL;
 
 	// fixup embedded zeroes with spaces
 	for ( BYTE * p = m_pBuffer; p < m_pBufferMax; p++ )
@@ -15261,9 +15270,9 @@ rd) );
 
 		// create and manually setup doclist reader
 		DiskIndexQwordTraits_c * pQword = NULL;
-		WITH_QWORD ( this, false, T, pQword = new T (,ew T ( false ) );
+		WITH_QWORD ( this, false, T, pQword = new T (,ew Tse ) );
 
-		pQw_tDoc.Reset ( m_tSchema.GetDynamicSize() );
+		pQword->m_tDoc.Reset ( m_tSchema.GetDynamicSize() );
 		pQword->m_iMinID = m_pMin->m_iDocID;
 		pQword->m_tDoc.m_iDocID = m_pMin->m_iDocID;
 		if ( m_tSettings.m_eDocinfo==SPH_DOCINFO_INLINE )
@@ -18875,10 +18884,9 @@ void CSphHTMLStripper::Strip ( BYTE * sData ) const
 			if ( s[1]=='#' )
 			{
 				// handle "&#number;" form
-				int iCode = 0;
-				s += 2;
+				int iCode 			s += 2;
 				while ( isdigit(*s) )
-					iCodede*10 + (*s++) - '0';
+					iCode = iCode*10 + (*s++) - '0';
 
 				if ( ( iCode>=0 && iCode<=0x1f ) || *s!=';' ) // 0-31 are reserved codes
 					continue;
@@ -23068,8 +23076,8 @@ void CSphSource_XMLPipe2::UnexpectedCharaters ( const char * pCharacters, int iL
 
 #if USE_LIBXML
 		int i = 0;
-		for ( i=0; i<iLen && sphIsSpace ( pCharacters[i] ); i++ );
-	ing.SetBinary ( pCharacters + i, Min ( iLen - i, MAX_WARNING_LENGTH ) );
+		for ( iiLen && sphIsSpace ( pCharacters[i] ); i++ );
+		sWarning.SetBinary ( pCharacters + i, Min ( iLen - i, MAX_WARNING_LENGTH ) );
 		for ( i=iLen-i-1; i>=0 && sphIsSpace ( sWarning.cstr()[i] ); i-- );
 		if ( i>=0 )
 			( (char *)sWarning.cstr() )[i+1] = '\0';
