@@ -5813,7 +5813,10 @@ void CSphReader::GetBytes ( void * pData, int iSize )
 		{
 			UpdateCache ();
 			if ( !m_iBuffUsed )
+			{
+				memset ( pData, 0, iSize );
 				return; // unexpected io failure
+			}
 		}
 	}
 
@@ -5833,7 +5836,7 @@ void CSphReader::GetBytes ( void * pData, int iSize )
 		UpdateCache ();
 		if ( m_iBuffPos+iSize>m_iBuffUsed )
 		{
-			memset ( pOut, 0, iSize ); // unexpected io failure
+			memset ( pData, 0, iSize ); // unexpected io failure
 			return;
 		}
 	}
@@ -5955,7 +5958,7 @@ const CSphReader & CSphReader::operator = ( const CSphReader & rhs )
 
 DWORD CSphReader::GetDword ()
 {
-	DWORD uRes;
+	DWORD uRes = 0;
 	GetBytes ( &uRes, sizeof(DWORD) );
 	return uRes;
 }
@@ -5963,7 +5966,7 @@ DWORD CSphReader::GetDword ()
 
 SphOffset_t CSphReader::GetOffset ()
 {
-	SphOffset_t uRes;
+	SphOffset_t uRes = 0;
 	GetBytes ( &uRes, sizeof(SphOffset_t) );
 	return uRes;
 }
@@ -7127,7 +7130,7 @@ CSphIndex::CSphIndex ( const char * sIndexName, const char * sFilename )
 	, m_bKeepFilesOpen ( false )
 	, m_bPreloadWordlist ( true )
 	, m_bStripperInited ( true )
-    , m_bEnableStar ( false )
+	, m_bEnableStar ( false )
 	, m_bId32to64 ( false )
 	, m_pTokenizer ( NULL )
 	, m_pDict ( NULL )
@@ -15270,7 +15273,7 @@ rd) );
 
 		// create and manually setup doclist reader
 		DiskIndexQwordTraits_c * pQword = NULL;
-		WITH_QWORD ( this, false, T, pQword = new T (,ew Tse ) );
+		WIRD ( this, false, T, pQword = new T ( false, false ) );
 
 		pQword->m_tDoc.Reset ( m_tSchema.GetDynamicSize() );
 		pQword->m_iMinID = m_pMin->m_iDocID;
@@ -18882,9 +18885,9 @@ void CSphHTMLStripper::Strip ( BYTE * sData ) const
 		if ( *s=='&' )
 		{
 			if ( s[1]=='#' )
-			{
-				// handle "&#number;" form
-				int iCode 			s += 2;
+			// handle "&#number;" form
+				int iCode = 0;
+				s += 2;
 				while ( isdigit(*s) )
 					iCode = iCode*10 + (*s++) - '0';
 
@@ -23071,12 +23074,11 @@ void CSphSource_XMLPipe2::UnexpectedCharaters ( const char * pCharacters, int iL
 		sWarning.SetBinary ( pCharacters, Min ( iLen, MAX_WARNING_LENGTH ) );
 		sphWarn ( "source '%s': unexpected string '%s' (line=%d, pos=%d) %s",
 			m_tSchema.m_sName.cstr(), sWarning.cstr (",
-			(int)XML_GetCurrentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ), szComment );
-#endif
+			(int)XML_GetCurrentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ), szComment dif
 
 #if USE_LIBXML
 		int i = 0;
-		for ( iiLen && sphIsSpace ( pCharacters[i] ); i++ );
+		for ( i=0; i<iLen && sphIsSpace ( pCharacters[i] ); i++ );
 		sWarning.SetBinary ( pCharacters + i, Min ( iLen - i, MAX_WARNING_LENGTH ) );
 		for ( i=iLen-i-1; i>=0 && sphIsSpace ( sWarning.cstr()[i] ); i-- );
 		if ( i>=0 )
