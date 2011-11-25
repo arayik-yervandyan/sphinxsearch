@@ -3179,6 +3179,8 @@ void CSphTokenizerTraits<IS_UTF8>::SetBufferPtr ( const char * sNewPtr )
 	m_pCur = Min ( m_pBufferMax, Max ( m_pBuffer, (BYTE*)sNewPtr ) );
 	m_iAccum = 0;
 	m_pAccum = m_sAccum;
+	m_pTokenStart = m_pTokenEnd = NULL;
+	m_pBlendStart = m_pBlendEnd = NULL;
 }
 
 
@@ -3723,6 +3725,9 @@ BYTE * CSphTokenizerTraits<IS_UTF8>::GetTokenSyn ()
 
 			iLastFolded = iFolded;
 
+			if ( m_iAccum==0 )
+				m_pTokenStart = pCur;
+
 			// handle specials at the very word start
 			if ( ( iFolded & FLAG_CODEPOINT_SPECIAL ) && m_iAccum==0 )
 			{
@@ -3794,7 +3799,7 @@ BYTE * CSphTokenizerTraits<IS_UTF8>::GetTokenSyn ()
 			// refine synonyms range
 			#define LOC_RETURN_SYNONYM(_idx) \
 			{ \
-				m_pTokenEnd = pCur; \
+				m_pTokenEnd = m_iAccum ? pCur : m_pCur; \
 				if ( bJustSpecial || ( iFolded & FLAG_CODEPOINT_SPECIAL )!=0 ) m_pCur = pCur; \
 				strncpy ( (char*)m_sAccum, m_dSynonyms[_idx].m_sTo.cstr(), sizeof(m_sAccum) ); \
 				m_iLastTokenLen = m_dSynonyms[_idx].m_iToLen; \
@@ -4141,6 +4146,8 @@ void CSphTokenizer_SBCS::SetBuffer ( BYTE * sBuffer, int iLength )
 	m_pBuffer = sBuffer;
 	m_pBufferMax = sBuffer + iLength;
 	m_pCur = sBuffer;
+	m_pTokenStart = m_pTokenEnd = NULL;
+	m_pBlendStart = m_pBlendEnd = NULL;
 
 	m_iOvershortCount = 0;
 	m_bBoundary = m_bTokenBoundary = false;
@@ -4386,6 +4393,8 @@ void CSphTokenizer_UTF8::SetBuffer ( BYTE * sBuffer, int iLength )
 	m_pBuffer = sBuffer;
 	m_pBufferMax = sBuffer + iLength;
 	m_pCur = sBuffer;
+	m_pTokenStart = m_pTokenEnd = NULL;
+	m_pBlendStart = m_pBlendEnd = NULL;
 
 	// fixup embedded zeroes with spaces
 	for ( BYTE * p = m_pBuffer; p < m_pBufferMax; p++ )
@@ -5804,7 +5813,10 @@ void CSphReader::GetBytes ( void * pData, int iSize )
 		{
 			UpdateCache ();
 			if ( !m_iBuffUsed )
+			{
+				memset ( pData, 0, iSize );
 				return; // unexpected io failure
+			}
 		}
 	}
 
@@ -5824,7 +5836,7 @@ void CSphReader::GetBytes ( void * pData, int iSize )
 		UpdateCache ();
 		if ( m_iBuffPos+iSize>m_iBuffUsed )
 		{
-			memset ( pOut, 0, iSize ); // unexpected io failure
+			memset ( pData, 0, iSize ); // unexpected io failure
 			return;
 		}
 	}
@@ -5946,7 +5958,7 @@ const CSphReader & CSphReader::operator = ( const CSphReader & rhs )
 
 DWORD CSphReader::GetDword ()
 {
-	DWORD uRes;
+	DWORD uRes = 0;
 	GetBytes ( &uRes, sizeof(DWORD) );
 	return uRes;
 }
@@ -5954,7 +5966,7 @@ DWORD CSphReader::GetDword ()
 
 SphOffset_t CSphReader::GetOffset ()
 {
-	SphOffset_t uRes;
+	SphOffset_t uRes = 0;
 	GetBytes ( &uRes, sizeof(SphOffset_t) );
 	return uRes;
 }
@@ -7105,7 +7117,6 @@ const char * sphArenaInit ( int iMaxBytes )
 
 CSphIndex::CSphIndex ( const char * sIndexName, const char * sFilename )
 	: m_iTID ( 0 )
-	, m_bEnableStar ( false )
 	, m_bExpandKeywords ( false )
 	, m_iExpansionLimit ( 0 )
 	, m_pProgress ( NULL )
@@ -7119,6 +7130,7 @@ CSphIndex::CSphIndex ( const char * sIndexName, const char * sFilename )
 	, m_bKeepFilesOpen ( false )
 	, m_bPreloadWordlist ( true )
 	, m_bStripperInited ( true )
+	, m_bEnableStar ( false )
 	, m_bId32to64 ( false )
 	, m_pTokenizer ( NULL )
 	, m_pDict ( NULL )
@@ -15086,7 +15098,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 				LOC_FAIL(( fp, "invalid word hint (pos="INT64_FMT", word=%s, hint=%d)",
 					iDictPos, sWord, iHint ))if ( iDocs<=0 || iHits<=0 || iHits<iDocs )
 				LOC_FAIL(( fp, "invalid docs/hits (pos="INT64_FMT", word=%s, docs="INT64_FMT", hits="INT64_FMT")",
-					(int64_t)iDictPos, sWord, iDocs, iHits ));
+					(int64_t)iDictPos, sWord, (int64_t)iDocs, (int64_t)iHits ));
 
 			memcpy ( sLastWord, sWord, sizeof(sLastWord) );
 rd) );
@@ -15107,7 +15119,7 @@ rd) );
 					(int64_t)iDictPos, (uint64_t)uNewWordi
 			if ( iDocs<=0 || iHits<=0 || iHits<iDocs )
 				LOC_FAIL(( fp, "invalid docs/hits (pos="INT64_FMT", wordid="UINT64_FMT", docs="INT64_FMT", hits="INT64_FMT")",
-					(int64_t)iDictPos, (uint64_t)uNewWordid, iDocs, iHits ));
+					(int64_t)iDictPos, (uint64_t)uNewWordid, (int64_t)iDocs, (int64_t)iHits ));
 		}ts ));
 
 		// update stats, add checkpoint
@@ -15261,9 +15273,9 @@ rd) );
 
 		// create and manually setup doclist reader
 		DiskIndexQwordTraits_c * pQword = NULL;
-		WITH_QWORD ( this, false, T, pQword = new T (,ew T ( false ) );
+		WIRD ( this, false, T, pQword = new T ( false, false ) );
 
-		pQw_tDoc.Reset ( m_tSchema.GetDynamicSize() );
+		pQword->m_tDoc.Reset ( m_tSchema.GetDynamicSize() );
 		pQword->m_iMinID = m_pMin->m_iDocID;
 		pQword->m_tDoc.m_iDocID = m_pMin->m_iDocID;
 		if ( m_tSettings.m_eDocinfo==SPH_DOCINFO_INLINE )
@@ -15606,7 +15618,7 @@ rd) );
 							if ( uCur<=uPrev )
 							{
 								LOC_FAIL(( fp, "unsorted MVA values (row=%u, mvaattr=%d, docid expected="DOCID_FMT", got="DOCID_FMT", val[%u]=%u, val[%u]=%u)",
-									uRow, iItem, uLastID, uMvaID, ( iItem>=iMva64 ? uVal-2 : uVal-1 ), uPrev, uVal, uCur ));
+									uRow, iItem, uLastID, uMvaID, ( iItem>=iMva64 ? uVal-2 : uVal-1 ), (unsigned int)uPrev, uVal, (unsigned int)uCur ));
 								bIsMvaCorrect = false;
 							}
 
@@ -18873,12 +18885,11 @@ void CSphHTMLStripper::Strip ( BYTE * sData ) const
 		if ( *s=='&' )
 		{
 			if ( s[1]=='#' )
-			{
-				// handle "&#number;" form
+			// handle "&#number;" form
 				int iCode = 0;
 				s += 2;
 				while ( isdigit(*s) )
-					iCodede*10 + (*s++) - '0';
+					iCode = iCode*10 + (*s++) - '0';
 
 				if ( ( iCode>=0 && iCode<=0x1f ) || *s!=';' ) // 0-31 are reserved codes
 					continue;
@@ -23063,13 +23074,12 @@ void CSphSource_XMLPipe2::UnexpectedCharaters ( const char * pCharacters, int iL
 		sWarning.SetBinary ( pCharacters, Min ( iLen, MAX_WARNING_LENGTH ) );
 		sphWarn ( "source '%s': unexpected string '%s' (line=%d, pos=%d) %s",
 			m_tSchema.m_sName.cstr(), sWarning.cstr (",
-			(int)XML_GetCurrentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ), szComment );
-#endif
+			(int)XML_GetCurrentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ), szComment dif
 
 #if USE_LIBXML
 		int i = 0;
 		for ( i=0; i<iLen && sphIsSpace ( pCharacters[i] ); i++ );
-	ing.SetBinary ( pCharacters + i, Min ( iLen - i, MAX_WARNING_LENGTH ) );
+		sWarning.SetBinary ( pCharacters + i, Min ( iLen - i, MAX_WARNING_LENGTH ) );
 		for ( i=iLen-i-1; i>=0 && sphIsSpace ( sWarning.cstr()[i] ); i-- );
 		if ( i>=0 )
 			( (char *)sWarning.cstr() )[i+1] = '\0';
