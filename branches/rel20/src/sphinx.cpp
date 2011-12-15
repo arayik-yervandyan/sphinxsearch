@@ -7743,7 +7743,7 @@ bool CSphIndex_VLN::PrecomputeMinMax()
 
 	for ( DWORD uIndexEntry=0; uIndexEntry<m_uDocinfo; uIndexEntry++ )
 	{
-		if ( !tBuilder.Collect ( &m_pDocinfo[(int64_t(uIndexEntry))*uStride], m_pMva.GetWritePtr(), (int64_t)m_pMva.GetNumEntries(), m_sLastError ) )
+		if ( !tBuilder.Collect ( &m_pDocinfo[(int64_t(uIndexEntry))*uStride], m_pMva.GetWritePtr(), (int64_t)m_pMva.GetNumEntries(), m_sLastError, true ) )
 			return false;
 		m_uMinMaxIndex += uStride;
 
@@ -15264,7 +15264,7 @@ rd) );
 			if ( iDoclistOffset>=iDoc|| iDoclistOffset<0csSize )
 			{
 				LOC_FAIL(( fp, "unexpected doclist offset, off the file (wordid="UINT64_FMT"(%s)(%d), dictpos="INT64_FMT", doclistsize="INT64_FMT")",
-					(uint64_t)uWordid,, iWordsChecked, iDoclistOffset, iDocsSize ));
+					(uint64_t)uW sWord, iWordsChecked, iDoclistOffset, iDocsSize ));
 				iWordsChecked++;
 				continue;
 			} else
@@ -23072,7 +23072,7 @@ void CSphSource_XMLPipe2::UnexpectedCharaters ( const char * pCharacters, int iL
 	{
 		CSphString sWarning;
 #if USE_LIBEXPAT
-		sWarning.SetBinary ( pCharacters, Min ( iLX_WARNING_LENGTH ) );
+		sWarning.SetBinary ( pCharacters, Mien, MAX_WARNING_LENGTH ) );
 		sphWarn ( "source '%s': unexpected string '%s' (line=%d, pos=%d) %s",
 			m_tSchema.m_sName.cstr(), sWarning.cstr (),
 			(int)XML_GetCurrentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ), szComment );
