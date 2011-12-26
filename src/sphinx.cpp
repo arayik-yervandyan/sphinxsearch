@@ -2338,6 +2338,7 @@ protected:
 	bool				CheckEof ();
 	int					HexDigit ( int c );
 	int					ParseCharsetCode ();
+	bool				AddRange ( const CSphRemapRange & tRange, CSphVector<CSphRemapRange> & dRanges );
 };
 
 
@@ -2429,6 +2430,20 @@ int CSphCharsetDefinitionParser::ParseCharsetCode ()
 	return iCode;
 }
 
+bool CSphCharsetDefinitionParser::AddRange ( const CSphRemapRange & tRange, CSphVector<CSphRemapRange> & dRanges )
+{
+	if ( tRange.m_iRemapStart>=0x20 )
+	{
+		dRanges.Add ( tRange );
+		return true;
+	}
+
+	CSphString sError;
+	sError.SetSprintf ( "dest range (U+0x%x) below U+0x20, not allowed", tRange.m_iRemapStart );
+	Error ( sError.cstr() );
+	return false;
+}
+
 
 bool CSphCharsetDefinitionParser::Parse ( const char * sConfig, CSphVector<CSphRemapRange> & dRanges )
 {
@@ -2456,7 +2471,9 @@ bool CSphCharsetDefinitionParser::Parse ( const char * sConfig, CSphVector<CSphR
 		if ( !*m_pCurrent || *m_pCurrent==',' )
 		{
 			// stray char
-			dRanges.Add ( CSphRemapRange ( iStart, iStart, iStart ) );
+			if ( !AddRange ( CSphRemapRange ( iStart, iStart, iStart ), dRanges ) )
+				return false;
+
 			if ( IsEof () )
 				break;
 			m_pCurrent++;
@@ -2471,7 +2488,8 @@ bool CSphCharsetDefinitionParser::Parse ( const char * sConfig, CSphVector<CSphR
 			int iDest = ParseCharsetCode ();
 			if ( iDest<0 )
 				return false;
-			dRanges.Add ( CSphRemapRange ( iStart, iStart, iDest ) );
+			if ( !AddRange ( CSphRemapRange ( iStart, iStart, iDest ), dRanges ) )
+				return false;
 
 			// it's either end of line now, or must be followed by comma
 			if ( *m_pCurrent )
@@ -2502,7 +2520,9 @@ bool CSphCharsetDefinitionParser::Parse ( const char * sConfig, CSphVector<CSphR
 		// stray range?
 		if ( !*m_pCurrent || *m_pCurrent==',' )
 		{
-			dRanges.Add ( CSphRemapRange ( iStart, iEnd, iStart ) );
+			if ( !AddRange ( CSphRemapRange ( iStart, iEnd, iStart ), dRanges ) )
+				return false;
+
 			if ( IsEof () )
 				break;
 			m_pCurrent++;
@@ -2514,8 +2534,10 @@ bool CSphCharsetDefinitionParser::Parse ( const char * sConfig, CSphVector<CSphR
 		{
 			for ( int i=iStart; i<iEnd; i+=2 )
 			{
-				dRanges.Add ( CSphRemapRange ( i, i, i+1 ) );
-				dRanges.Add ( CSphRemapRange ( i+1, i+1, i+1 ) );
+				if ( !AddRange ( CSphRemapRange ( i, i, i+1 ), dRanges ) )
+					return false;
+				if ( !AddRange ( CSphRemapRange ( i+1, i+1, i+1 ), dRanges ) )
+					return false;
 			}
 
 			// skip "/2", expect ","
@@ -2569,7 +2591,9 @@ bool CSphCharsetDefinitionParser::Parse ( const char * sConfig, CSphVector<CSphR
 		}
 
 		// remapped ok
-		dRanges.Add ( CSphRemapRange ( iStart, iEnd, iRemapStart ) );
+		if ( !AddRange ( CSphRemapRange ( iStart, iEnd, iRemapStart ), dRanges ) )
+			return false;
+
 		if ( IsEof () )
 			break;
 		if ( *m_pCurrent!=',' )
@@ -15249,7 +15273,7 @@ rd) );
 		{
 			// finish reading the entire entry
 			uWordid = uWordid + iDeltaWord;
-			iDoclistOffset = iDoclistOffset + rdDict.UnzipOffset();
+			iDoclistOffset = iDoclistOffset ct.UnzipOffset();
 			iDictDocs = rdDict.UnzipInt();
 			iDictHits = rdDict.UnzipInt();
 		}
@@ -15261,10 +15285,10 @@ rd) );
 				LOC_FAIL(( fp, "unexpected doclist offset (wordid="UINT64_FMT"(%s)(%d), dictpos="INT64_FMT", doclistpos="INT64_FMT")",
 					(uint64_t)uWordid, sWord, iWordsChecked, iDoclistOffset, (int64_t)rdDocs.GetPos() ));
 
-			if ( iDoclistOffset>=iDoc|| iDoclistOffset<0csSize )
+			if ( iDoclistOffset>=iDocsSize || iDoclistOffset<0 )
 			{
 				LOC_FAIL(( fp, "unexpected doclist offset, off the file (wordid="UINT64_FMT"(%s)(%d), dictpos="INT64_FMT", doclistsize="INT64_FMT")",
-					(uint64_t)uW sWord, iWordsChecked, iDoclistOffset, iDocsSize ));
+					(uint64_t)uWordid, sWord, iWordsChecked, iDoclistOffset, iDocsSize ));
 				iWordsChecked++;
 				continue;
 			} else
@@ -18838,7 +18862,7 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"AElig", 198}
 	};
 
-	const int MIN_WORD_LENGTH		= 2;
+	const int MIN_WNGTH		= 2;
 	const int MAX_WORD_LENGTH		= 8;
 	const int MAX_HASH_VALUE		= 420;
 
@@ -18865,7 +18889,7 @@ void CSphHTMLStripper::Strip ( BYTE * sData ) const
 	{
 		/////////////////////////////////////
 		// scan until eof, or tag, or entity
-		///////////////////////////////
+		/////////////////////////////////////
 
 		while ( *s && *s!='<' && *s!='&' )
 		{
@@ -19706,11 +19730,17 @@ bool CSphSource_Document::BuildZoneHits ( SphDocID_t uDocid, BYTE * sWord )
 		{
 			BYTE * pZone = (BYTE*) m_pTokenizer->GetBufferPtr();
 			BYTE * pEnd = pZone;
-			while ( *pEnd!=MAGIC_CODE_ZONE )
+			while ( *pEnd && *pEnd!=MAGIC_CODE_ZONE )
+			{
 				pEnd++;
-			*pEnd = '\0';
-			m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( pZone-1 ), m_tState.m_iHitPos );
-			m_pTokenizer->SetBufferPtr ( (const char*) pEnd+1 );
+			}
+
+			if ( *pEnd && *pEnd==MAGIC_CODE_ZONE )
+			{
+				*pEnd = '\0';
+				m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( pZone-1 ), m_tState.m_iHitPos );
+				m_pTokenizer->SetBufferPtr ( (const char*) pEnd+1 );
+			}
 		}
 
 		m_tState.m_iBuildLastStep = 1;
@@ -23041,7 +23071,7 @@ void CSphSource_XMLPipe2::EndElement ( const char * szName )
 			if ( m_iCurField!=-1 )
 			{
 				assert ( m_pCurDocument );
-				m_pCurDocument->m_dFields [m_iCurField].SetBinary ( (char*)m_pFieldBuffer, m_iFieldBufferLen );
+				m_pCurDocument->m_dFields [m_iCu].SetBinary ( (char*)m_pFieldBuffer, m_iFieldBufferLen );
 			}
 			if ( m_iCurAttr!=-1 )
 			{
@@ -23072,7 +23102,7 @@ void CSphSource_XMLPipe2::UnexpectedCharaters ( const char * pCharacters, int iL
 	{
 		CSphString sWarning;
 #if USE_LIBEXPAT
-		sWarning.SetBinary ( pCharacters, Mien, MAX_WARNING_LENGTH ) );
+		sWarning.SetBinary ( pCharacters, Min ( iLen, MAX_WARNING_LENGTH ) );
 		sphWarn ( "source '%s': unexpected string '%s' (line=%d, pos=%d) %s",
 			m_tSchema.m_sName.cstr(), sWarning.cstr (),
 			(int)XML_GetCurrentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ), szComment );
