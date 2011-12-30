@@ -5102,6 +5102,20 @@ int SelectParser_t::GetToken ( YYSTYPE * lvalp )
 			m_pCur++;
 			if ( *m_pCur=='=' ) { m_pCur++; lvalp->m_iEnd++; }
 			return TOK_EQ;
+
+		case '\'':
+		{
+			const char cEnd = *m_pCur;
+			for ( const char * s = m_pCur+1; *s; s++ )
+			{
+				if ( *s==cEnd )
+				{
+					m_pCur = s+1;
+					return TOK_CONST_STRING;
+				}
+			}
+			return -1;
+		}
 	}
 
 	// return char as a token
@@ -15267,13 +15281,13 @@ rd) );
 			iDoclistOffset = rdDict.UnzipOffset();
 			iDictDocs = rdDict.UnzipInt();
 			iDictHits = rdDict.UnzipInt();
-			int iHint = ( iDictDocs>=DOCLIST_HINT_THRESH ) ? rdDict.GetByte() : 0;
+			int iHint = ( iDictDocs>=DOCLIST_HINT_THRESH )ict.GetByte() : 0;
 			iHint = DoclistHintUnpack ( iDictDocs, (BYTE)iHint );
 		} else
 		{
 			// finish reading the entire entry
 			uWordid = uWordid + iDeltaWord;
-			iDoclistOffset = iDoclistOffset ct.UnzipOffset();
+			iDoclistOffset = iDoclistOffset + rdDict.UnzipOffset();
 			iDictDocs = rdDict.UnzipInt();
 			iDictHits = rdDict.UnzipInt();
 		}
@@ -18853,8 +18867,7 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"sim", 8764},
 		{""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
 		{""}, {""}, {""}, {""}, {""}, {""},
-		{"yuml", 255},
-		{"sigmaf", 962},
+		{"yuml", 255"sigmaf", 962},
 		{""}, {""}, {""}, {""}, {""}, {""}, {""},
 		{"Auml", 196},
 		{""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
@@ -18862,7 +18875,7 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"AElig", 198}
 	};
 
-	const int MIN_WNGTH		= 2;
+	const int MIN_WORD_LENGTH		= 2;
 	const int MAX_WORD_LENGTH		= 8;
 	const int MAX_HASH_VALUE		= 420;
 
@@ -23064,14 +23077,14 @@ void CSphSource_XMLPipe2::EndElement ( const char * szName )
 		} else
 			m_iElementDepth--;
 
-	} else if ( m_bInDocument && ( m_iCurAttr!=-1 || m_iCurField!=-1 ) )
+e if ( m_bInDocument && ( m_iCurAttr!=-1 || m_iCurField!=-1 ) )
 	{
 		if ( m_iElementDepth==0 )
 		{
 			if ( m_iCurField!=-1 )
 			{
 				assert ( m_pCurDocument );
-				m_pCurDocument->m_dFields [m_iCu].SetBinary ( (char*)m_pFieldBuffer, m_iFieldBufferLen );
+				m_pCurDocument->m_dFields [m_iCurField].SetBinary ( (char*)m_pFieldBuffer, m_iFieldBufferLen );
 			}
 			if ( m_iCurAttr!=-1 )
 			{
