@@ -19419,10 +19419,6 @@ const CSphSourceStats & CSphSource::GetStats ()
 
 bool CSphSource::SetStripHTML ( const char * sExtractAttrs, const char * sRemoveElements, bool bDetectParagraphs, const char * sZones, CSphString & sError )
 {
-	m_bStripHTML = ( sExtractAttrs!=NULL );
-	if ( !m_bStripHTML )
-		return false;
-
 	if ( !m_pStripper->SetIndexedAttrs ( sExtractAttrs, sError ) )
 		return false;
 
@@ -19435,6 +19431,7 @@ bool CSphSource::SetStripHTML ( const char * sExtractAttrs, const char * sRemove
 	if ( !m_pStripper->SetZones ( sZones, sError ) )
 		return false;
 
+	m_bStripHTML = true;
 	return true;
 }
 
