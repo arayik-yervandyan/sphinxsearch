@@ -14571,7 +14571,7 @@ XQNode_t * sphExpandXQNode ( XQNode_t * pNode, ExpansionContext_t & tCtx )
 		// skip leading wildcards
 		// (in case we got here on non-infixed index path)
 		const char * sWildcard = sPrefix;
-		while ( IsWild(*sPrefix) )
+		while ( IsWild ( *sPrefix ) )
 		{
 			sPrefix++;
 			sWildcard++;
@@ -15324,7 +15324,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 			const int iNewWordLen = strlen(sWord);
 
 			if ( iNewWordLen==0 )
-				LOC_FAIL(( fp, "emptyin dictionary (pos="INT64_FMT")",
+				LOC_FAIL(( fp, "emrd in dictionary (pos="INT64_FMT")",
 					iDictPos ));
 
 			if ( iLastWordLen && iNewWordLen )
@@ -17671,7 +17671,7 @@ void InfixBuilder_c<SIZE>::AddWord ( const BYTE * pWord, int iCheckpoint )
 		do
 		{
 			uHash = (uHash >> 8) ^ g_dSphinxCRC32 [ (uHash ^ *s) & 0xff ];
-			*pKey++ = *s++; 
+			*pKey++ = *s++;
 		} while ( ( *s & 0xC0 )==0x80 );
 
 		while ( s<sMax )
@@ -17680,7 +17680,7 @@ void InfixBuilder_c<SIZE>::AddWord ( const BYTE * pWord, int iCheckpoint )
 			do
 			{
 				uHash = (uHash >> 8) ^ g_dSphinxCRC32 [ (uHash ^ *s) & 0xff ];
-				*pKey++ = *s++; 
+				*pKey++ = *s++;
 			} while ( ( *s & 0xC0 )==0x80 );
 
 			InfixIntvec_t * pVal = LookupEntry ( sKey, uHash );
@@ -17698,7 +17698,7 @@ struct InfixHashCmp_fn
 {
 	InfixHashEntry_t<SIZE> * m_pBase;
 
-	InfixHashCmp_fn ( InfixHashEntry_t<SIZE> * pBase )
+	explicit InfixHashCmp_fn ( InfixHashEntry_t<SIZE> * pBase )
 		: m_pBase ( pBase )
 	{}
 
@@ -17759,7 +17759,7 @@ void InfixBuilder_c<SIZE>::SaveEntries ( CSphWriter & wrDict )
 	InfixHashCmp_fn<SIZE> fnCmp ( m_dArena.Begin() );
 	dIndex.Sort ( fnCmp );
 
-	const int iMaxChars = 1+sizeof(Infix_t<SIZE>);
+	const int iMaxChars = 1+sizeof ( Infix_t<SIZE> );
 	const BYTE * sLast[iMaxChars];
 	InfixIntvec_t * pLast[iMaxChars];
 	for ( int i=0; i<iMaxChars; i++ )
@@ -17822,7 +17822,7 @@ void InfixBuilder_c<SIZE>::SaveEntries ( CSphWriter & wrDict )
 				}
 				iKeepChars = (int)( sCur-(const BYTE*)sKey );
 
-				assert ( iKeepChars>=0 && iKeepChars<16);
+				assert ( iKeepChars>=0 && iKeepChars<16 );
 				assert ( iChars-iKeepChars>=0 );
 				assert ( iChars-iKeepChars<16 );
 
@@ -17833,7 +17833,7 @@ void InfixBuilder_c<SIZE>::SaveEntries ( CSphWriter & wrDict )
 			} else
 			{
 				// UTF-8 path
-				const BYTE * sKeyMax = sCur; // track max matching sPrev prefix in [sKey,sKeyMax) 
+				const BYTE * sKeyMax = sCur; // track max matching sPrev prefix in [sKey,sKeyMax)
 				while ( sCur<sMax && *sCur && *sCur==*sPrev )
 				{
 					// current byte matches, move the pointer
@@ -17851,7 +17851,7 @@ void InfixBuilder_c<SIZE>::SaveEntries ( CSphWriter & wrDict )
 					}
 				}
 
-				assert ( iKeepChars>=0 && iKeepChars<16);
+				assert ( iKeepChars>=0 && iKeepChars<16 );
 				assert ( iChars-iKeepChars>=0 );
 				assert ( iChars-iKeepChars<16 );
 
@@ -18834,6 +18834,9 @@ private:
 	SmallStringHash_T<int>	m_hKeywords;
 	CSphVector<BYTE>		m_dPackedKeywords;
 
+	CSphString				m_sWarning;
+	int						m_iKeywordsOverrun;
+
 public:
 	explicit CRtDictKeywords ( CSphDict * pBase )
 		: m_pBase ( pBase )
@@ -18889,9 +18892,26 @@ public:
 
 	SphWordID_t AddKeyword ( const BYTE * pWord )
 	{
-		int iLen = strlen ( (const char *)pWord );
 		CSphString sWord;
-		sWord.SetBinary ( (const char *)pWord, iLen );
+		int iLen = strlen ( (const char *)pWord );
+		// fix of very long word (zones)
+		if ( iLen>=( SPH_MAX_WORD_LEN*3 ) )
+		{
+			int iClippedLen = SPH_MAX_WORD_LEN*3;
+			sWord.SetBinary ( (const char *)pWord, iClippedLen );
+			if ( m_iKeywordsOverrun )
+			{
+				m_sWarning.SetSprintf ( "word overrun buffer, clipped!!! clipped='%s', length=%d(%d)", sWord.cstr(), iClippedLen, iLen );
+			} else
+			{
+				m_sWarning.SetSprintf ( ", clipped='%s', length=%d(%d)", sWord.cstr(), iClippedLen, iLen );
+			}
+			iLen = iClippedLen;
+			m_iKeywordsOverrun++;
+		} else
+		{
+			sWord.SetBinary ( (const char *)pWord, iLen );
+		}
 
 		int * pOff = m_hKeywords ( sWord );
 		if ( pOff )
@@ -18899,7 +18919,6 @@ public:
 			return *pOff;
 		}
 
-		assert ( iLen<255 );
 		int iOff = m_dPackedKeywords.GetLength();
 		m_dPackedKeywords.Resize ( iOff+iLen+1 );
 		m_dPackedKeywords[iOff] = (BYTE)( iLen & 0xFF );
@@ -18919,6 +18938,8 @@ public:
 	virtual const CSphSavedFile & GetWordformsFileInfo () { return m_pBase->GetWordformsFileInfo(); }
 	virtual const CSphMultiformContainer * GetMultiWordforms () const { return m_pBase->GetMultiWordforms(); }
 	virtual bool IsStopWord ( const BYTE * pWord ) const { return m_pBase->IsStopWord ( pWord ); }
+	virtual const char * GetLastWarning() const { return m_iKeywordsOverrun ? m_sWarning.cstr() : NULL; }
+	virtual void ResetWarning () { m_iKeywordsOverrun = 0; }
 };
 
 ISphRtDictWraper * sphCreateRtKeywordsDictionaryWrapper ( CSphDict * pBase )
@@ -23067,7 +23088,7 @@ CSphSource_XMLPipe2::CSphSource_XMLPipe2 ( BYTE * dInitialBuf, int iBufLen, cons
 	assert ( m_iBufferSize > iBufLen );
 
 	m_pBuffer = new BYTE [m_iBufferSize];
-	m_iFieldBufferMax = Max ( iFieldBufferMax, 65536 );
+	m_iufferMax = Max ( iFieldBufferMax, 65536 );
 	m_pFieldBuffer = new BYTE [ m_iFieldBufferMax ];
 
 	if ( iBufLen )
@@ -23107,7 +23128,8 @@ void CSphSource_XMLPipe2::Disconnect ()
 	if ( m_pParser )
 	{
 		xmlFreeTextReader ( m_pParser );
-		m_pParser = NU
+		m_pParser = NULL;
+	}
 #endif
 
 	m_tHits.m_dData.Reset();
@@ -24978,7 +25000,7 @@ static inline void AddExpansion ( CSphVector<CSphNamedInt> & dExpanded, const Ke
 		tRes.m_iValue = tCtx.m_iDocs + 1;
 }
 
-								 
+
 void CWordlist::GetPrefixedWords ( const char * sPrefix, int iPrefixLen, const char * sWildcard, CSphVector<CSphNamedInt> & dExpanded, BYTE * pDictBuf, int iFD ) const
 {
 	assert ( sPrefix && *sPrefix && iPrefixLen>0 );
@@ -25403,7 +25425,7 @@ void sphDictBuildInfixes ( const char * sPath )
 	if ( !pDict )
 		sphDie ( "infix upgrade: %s", sError.cstr() );
 
-	CSphWriter wrHeader;	
+	CSphWriter wrHeader;
 	sFilename.SetSprintf ( "%s.sph.infix", sPath );
 	if ( !wrHeader.OpenFile ( sFilename, sError ) )
 		sphDie ( "infix upgrade: %s", sError.cstr() );
