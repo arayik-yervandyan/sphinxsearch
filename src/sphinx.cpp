@@ -17820,7 +17820,7 @@ void InfixBuilder_c<SIZE>::SaveEntries ( CSphWriter & wrDict )
 					sCur++;
 					sPrev++;
 				}
-				iKeepChars = (int)( sCur-(const BYTE*)sKey );
+				iKeepChars = (int)( sCur- ( const BYTE* ) sKey );
 
 				assert ( iKeepChars>=0 && iKeepChars<16 );
 				assert ( iChars-iKeepChars>=0 );
@@ -23088,7 +23088,7 @@ CSphSource_XMLPipe2::CSphSource_XMLPipe2 ( BYTE * dInitialBuf, int iBufLen, cons
 	assert ( m_iBufferSize > iBufLen );
 
 	m_pBuffer = new BYTE [m_iBufferSize];
-	m_iufferMax = Max ( iFieldBufferMax, 65536 );
+eldBufferMax = Max ( iFieldBufferMax, 65536 );
 	m_pFieldBuffer = new BYTE [ m_iFieldBufferMax ];
 
 	if ( iBufLen )
@@ -25195,7 +25195,7 @@ CSphQueryResultMeta::CSphQueryResultMeta ()
 }
 
 
-void CSphQueryResultMeta::AddStat ( const CSphString & sWord, int iDocs, int iHits, bool bExpanded )
+void CSphQueryResultMeta::AddStat ( const CSphString & sWord, int64_t iDocs, int64_t iHits, bool bExpanded )
 {
 	CSphString sFixed;
 	const CSphString * pFixed = &sWord;
