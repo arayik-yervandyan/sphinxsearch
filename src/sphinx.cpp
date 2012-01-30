@@ -6489,32 +6489,6 @@ CSphIndexSettings::CSphIndexSettings ()
 }
 
 //////////////////////////////////////////////////////////////////////////
-// PROCESS-SHARED MUTEX
-//////////////////////////////////////////////////////////////////////////
-
-/// scoped mutex lock
-template < typename T >
-class CSphScopedLock : ISphNoncopyable
-{
-public:
-	/// lock on creation
-	explicit CSphScopedLock ( T & tMutex )
-		: m_tMutexRef ( tMutex )
-	{
-		m_tMutexRef.Lock();
-	}
-
-	/// unlock on going out of scope
-	~CSphScopedLock ()
-	{
-		m_tMutexRef.Unlock ();
-	}
-
-protected:
-	T &	m_tMutexRef;
-};
-
-//////////////////////////////////////////////////////////////////////////
 // GLOBAL MVA STORAGE ARENA
 //////////////////////////////////////////////////////////////////////////
 
@@ -15287,10 +15261,9 @@ rd) );
 		{
 			// finish reading the entire entry
 			uWordid = uWordid + iDeltaWord;
-			iDoclistOffset = iDoclistOffset + rdDict.UnzipOffset();
+			iDoclistOffset = iDoclistOffset +fset = rdDict.UnzipOffset();
 			iDictDocs = rdDict.UnzipInt();
-			iDictHits = rdDict.UnzipInt();
-		}
+			iDictHits = rdDict.UnzipInt}
 
 		// check whether the offset is as expected
 		if ( iDoclistOffset!=rdDocs.GetPos() )
@@ -18870,9 +18843,9 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"yuml", 255},
 		{"sigmaf", 962},
 		{""}, {""}, {""}, {""}, {""}, {""}, {""},
-		{"Auml", 196},
+		{"Auml", 196, 8764},
 		{""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
-		{""}, {""}, {""}, {""},
+		{""}, {""}, {""},
 		{"AElig", 198}
 	};
 
