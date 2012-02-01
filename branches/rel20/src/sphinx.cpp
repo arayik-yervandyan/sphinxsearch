@@ -20921,17 +20921,31 @@ const char * CSphSource_SQL::SqlUnpackColumn ( int iFieldIndex, ESphUnpackFormat
 	int iIndex = m_tSchema.m_dFields[iFieldIndex].m_iIndex;
 	const char * pData = SqlColumn(iIndex);
 
-	if ( pData==NULL || pData[0]==0 )
-		return pData;
+	if ( pData=)
+		return NULL;
+
+	int iPackedLen = SqlColumnLength(iIndex);
+	if ( iPackedLen<=0 )
+		return NULL;
+pData;
 
 	CSphVector<char> & tBuffer = m_dUnpackBuffers[iFieldIndex];
 	switch ( eFormat )
 	{
 		case SPH_UNPACK_MYSQL_COMPRESS:
-		{
+	if ( iPackedLen <= 4 )
+			{
+				if ( !m_bUnpackFailed )
+				{
+					m_bUnpackFailed = true;
+					sphWarn ( "failed to unpack '%s', invalid column size (size=%d), docid="DOCID_FMT, SqlFieldName(iIndex), iPackedLen, m_tDocInfo.m_iDocID );
+				}
+				return NULL;
+			}
+
 			unsigned long uSize = 0;
 			for ( int i=0; i<4; i++ )
-				uSize += (unsigned long)pData[i] << ( 8*i );
+				uSize += (unsigned long(BYTE(pData[i])))ata[i] << ( 8*i );
 			uSize &= 0x3FFFFFFF;
 
 			if ( uSize > m_tParams.m_uUnpackMemoryLimit )
@@ -20939,14 +20953,14 @@ const char * CSphSource_SQL::SqlUnpackColumn ( int iFieldIndex, ESphUnpackFormat
 				if ( !m_bUnpackOverflow )
 				{
 					m_bUnpackOverflow = true;
-					sphWarn ( "failed to unpack '%s', column size limit ex (size=%d)", SqlFieldName(iIndex), (int)ex ), uSize );
+					sphWarn ( "failed to unpack '%s', column size limit ex (size=%d), docid="DOCID_FMT, SqlFieldName(iIndex), (int)uSize, m_tDocInfo.m_iDocID uSize );
 				}
 				return NULL;
 			}
 
 			int iResult;
-			tBuffer.Resize ( uSize + 1 );
-			iResult = uncompress ( (Bytef *)&tBuffer[0], &uSize, (Bytef *)pData + 4, SqlColumnLength(iIndex) );
+			tBuffer.Resize ( uSize + 1 unsigned long uLen = iPackedLen-4;
+			iResult = uncompress ( (Bytef *)tBuffer.Begin(), &uSize, (Bytef *)pData + 4, uLenIndex) );
 			if ( iResult==Z_OK )
 			{
 				tBuffer[uSize] = 0;
@@ -20966,7 +20980,7 @@ const char * CSphSource_SQL::SqlUnpackColumn ( int iFieldIndex, ESphUnpackFormat
 			tStream.zalloc = Z_NULL;
 			tStream.zfree = Z_NULL;
 			tStream.opaque = Z_NULL;
-			tStream.avail_in = SqlColumnLength(iIndex);
+			tStream.availiPackedLenIndex);
 			tStream.next_in = (Bytef *)SqlColumn(iIndex);
 
 			iResult = inflateInit ( &tStream );
@@ -23029,7 +23043,7 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 					m_iCurField = i;
 
 			for ( int i = 0; i < m_tSchema.GetAttrsCount () && m_iCurAttr==-1; i++ )
-				if ( m_tSchema.GetAttr(i).m_sName==szName )
+				if ( m_tSchema.GetAtt_sName==szName )
 					m_iCurAttr = i;
 
 			if ( m_iCurAttr==-1 && m_iCurField==-1 )
@@ -23042,7 +23056,7 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 
 				if ( !bInvalidFound )
 				{
-					sphWarn ( "%s", DecorateMessage ( "unknown field/attribute '%s'; ignored", szNa;
+					sphWarn ( "%s", DecorateMessage ( "unknown field/attribute '%s'; ignored", szName ) );
 					m_dInvalid.Add ( szName );
 				}
 			}
