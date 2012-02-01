@@ -20945,7 +20945,7 @@ pData;
 
 			unsigned long uSize = 0;
 			for ( int i=0; i<4; i++ )
-				uSize += (unsigned long(BYTE(pData[i])))ata[i] << ( 8*i );
+				uSize += ((unsigned long)((BYTE)pData[i]))ata[i] << ( 8*i );
 			uSize &= 0x3FFFFFFF;
 
 			if ( uSize > m_tParams.m_uUnpackMemoryLimit )
@@ -23043,7 +23043,7 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 					m_iCurField = i;
 
 			for ( int i = 0; i < m_tSchema.GetAttrsCount () && m_iCurAttr==-1; i++ )
-				if ( m_tSchema.GetAtt_sName==szName )
+				if ( m_tSchema.GetA.m_sName==szName )
 					m_iCurAttr = i;
 
 			if ( m_iCurAttr==-1 && m_iCurField==-1 )
