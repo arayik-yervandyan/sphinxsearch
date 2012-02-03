@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2012, Andrew Aksyonoff
+// Copyright (c) 2008-2012, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -6532,32 +6532,6 @@ CSphIndexSettings::CSphIndexSettings ()
 	, m_eHitless			( SPH_HITLESS_NONE )
 {
 }
-
-//////////////////////////////////////////////////////////////////////////
-// PROCESS-SHARED MUTEX
-//////////////////////////////////////////////////////////////////////////
-
-/// scoped mutex lock
-template < typename T >
-class CSphScopedLock : ISphNoncopyable
-{
-public:
-	/// lock on creation
-	explicit CSphScopedLock ( T & tMutex )
-		: m_tMutexRef ( tMutex )
-	{
-		m_tMutexRef.Lock();
-	}
-
-	/// unlock on going out of scope
-	~CSphScopedLock ()
-	{
-		m_tMutexRef.Unlock ();
-	}
-
-protected:
-	T &	m_tMutexRef;
-};
 
 //////////////////////////////////////////////////////////////////////////
 // GLOBAL MVA STORAGE ARENA
@@ -20665,6 +20639,17 @@ bool CSphSource_Document::BuildZoneHits ( SphDocID_t uDocid, BYTE * sWord )
 }
 
 
+// track blended start and reset on not blended token
+static int TrackBlendedStart ( const ISphTokenizer * pTokenizer, int iBlendedHitsStart, int iHitsCount )
+{
+	iBlendedHitsStart = ( ( pTokenizer->TokenIsBlended() || pTokenizer->TokenIsBlendedPart() ) ? iBlendedHitsStart : -1 );
+	if ( pTokenizer->TokenIsBlended() )
+		iBlendedHitsStart = iHitsCount;
+
+	return iBlendedHitsStart;
+}
+
+
 #define BUILD_SUBSTRING_HITS_COUNT 4
 
 void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload, ESphWordpart eWordpart, bool bSkipEndMarker )
@@ -20685,10 +20670,15 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 	else
 		iIterHitCount += ( ( m_iMinInfixLen+SPH_MAX_WORD_LEN ) * ( SPH_MAX_WORD_LEN-m_iMinInfixLen ) / 2 );
 
+	// FIELDEND_MASK at blended token stream should be set for HEAD token too
+	int iBlendedHitsStart = -1;
+
 	// index all infixes
 	while ( ( m_iMaxHits==0 || m_tHits.m_dData.GetLength()+iIterHitCount<m_iMaxHits )
 		&& ( sWord = m_pTokenizer->GetToken() )!=NULL )
 	{
+		iBlendedHitsStart = TrackBlendedStart ( m_pTokenizer, iBlendedHitsStart, m_tHits.Length() );
+
 		if ( !bPayload )
 		{
 			HITMAN::AddPos ( &m_tState.m_iHitPos, m_tState.m_iBuildLastStep + m_pTokenizer->GetOvershortCount()*m_iOvershortStep );
@@ -20789,6 +20779,18 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 
 		for ( ; pHit>=m_tHits.First() && pHit->m_iWordPos==uRefPos; pHit-- )
 			HITMAN::SetEndMarker ( &pHit->m_iWordPos );
+
+		// mark blended HEAD as trailing too
+		if ( iBlendedHitsStart>=0 )
+		{
+			assert ( iBlendedHitsStart>=0 && iBlendedHitsStart<m_tHits.Length() );
+			pHit = const_cast < CSphWordHit * > ( m_tHits.First()+iBlendedHitsStart );
+			uRefPos = pHit->m_iWordPos;
+
+			const CSphWordHit * pEnd = m_tHits.First()+m_tHits.Length();
+			for ( ; pHit<pEnd && pHit->m_iWordPos==uRefPos; pHit++ )
+				HITMAN::SetEndMarker ( &pHit->m_iWordPos );
+		}
 	}
 }
 
@@ -20806,10 +20808,15 @@ void CSphSource_Document::BuildRegularHits ( SphDocID_t uDocid, bool bPayload, b
 	BYTE * sWord = NULL;
 	BYTE sBuf [ 16+3*SPH_MAX_WORD_LEN ];
 
+	// FIELDEND_MASK at blended token stream should be set for HEAD token too
+	int iBlendedHitsStart = -1;
+
 	// index words only
 	while ( ( m_iMaxHits==0 || m_tHits.m_dData.GetLength()+BUILD_REGULAR_HITS_COUNT<m_iMaxHits )
 		&& ( sWord = m_pTokenizer->GetToken() )!=NULL )
 	{
+		iBlendedHitsStart = TrackBlendedStart ( m_pTokenizer, iBlendedHitsStart, m_tHits.Length() );
+
 		if ( !bPayload )
 		{
 			HITMAN::AddPos ( &m_tState.m_iHitPos, m_tState.m_iBuildLastStep + m_pTokenizer->GetOvershortCount()*m_iOvershortStep );
@@ -20854,6 +20861,14 @@ void CSphSource_Document::BuildRegularHits ( SphDocID_t uDocid, bool bPayload, b
 	{
 		CSphWordHit * pHit = const_cast < CSphWordHit * > ( m_tHits.Last() );
 		HITMAN::SetEndMarker ( &pHit->m_iWordPos );
+
+		// mark blended HEAD as trailing too
+		if ( iBlendedHitsStart>=0 )
+		{
+			assert ( iBlendedHitsStart>=0 && iBlendedHitsStart<m_tHits.Length() );
+			CSphWordHit * pBlendedHit = const_cast < CSphWordHit * > ( m_tHits.First() + iBlendedHitsStart );
+			HITMAN::SetEndMarker ( &pBlendedHit->m_iWordPos );
+		}
 	}
 }
 
@@ -21811,17 +21826,31 @@ const char * CSphSource_SQL::SqlUnpackColumn ( int iFieldIndex, ESphUnpackFormat
 	int iIndex = m_tSchema.m_dFields[iFieldIndex].m_iIndex;
 	const char * pData = SqlColumn(iIndex);
 
-	if ( pData==NULL || pData[0]==0 )
-		return pData;
+	if ( pData=)
+		return NULL;
+
+	int iPackedLen = SqlColumnLength(iIndex);
+	if ( iPackedLen<=0 )
+		return NULL;
+pData;
 
 	CSphVector<char> & tBuffer = m_dUnpackBuffers[iFieldIndex];
 	switch ( eFormat )
 	{
 		case SPH_UNPACK_MYSQL_COMPRESS:
-		{
+	if ( iPackedLen <= 4 )
+			{
+				if ( !m_bUnpackFailed )
+				{
+					m_bUnpackFailed = true;
+					sphWarn ( "failed to unpack '%s', invalid column size (size=%d), docid="DOCID_FMT, SqlFieldName(iIndex), iPackedLen, m_tDocInfo.m_iDocID );
+				}
+				return NULL;
+			}
+
 			unsigned long uSize = 0;
 			for ( int i=0; i<4; i++ )
-				uSize += (unsigned long)pData[i] << ( 8*i );
+				uSize += ((unsigned long)((BYTE)pData[i]))ata[i] << ( 8*i );
 			uSize &= 0x3FFFFFFF;
 
 			if ( uSize > m_tParams.m_uUnpackMemoryLimit )
@@ -21829,14 +21858,15 @@ const char * CSphSource_SQL::SqlUnpackColumn ( int iFieldIndex, ESphUnpackFormat
 				if ( !m_bUnpackOverflow )
 				{
 					m_bUnpackOverflow = true;
-					sphWarn ( "failed to unpack '%s', column size limit ex (size=%d)", SqlFieldName(iIndex), (int)ex ), uSize );
+					sphWarn ( "failed to unpack '%s', column size limit ex (size=%d), docid="DOCID_FMT, SqlFieldName(iIndex), (int)uSize, m_tDocInfo.m_iDocID );
 				}
 				return NULL;
 			}
 
 			int iResult;
 			tBuffer.Resize ( uSize + 1 );
-			iResult = uncompress ( (Bytef *)&tBuffer[0], &uSize, (Bytef *)pData + 4, SqlColumnLength(iIndex) );
+			unsigned long uLen = iPackedLen-4;
+			iResult = uncompress ( (Bytef *)tBuffer.Begin(), &uSize, (Bytef *)pData + 4, uLenIndex) );
 			if ( iResult==Z_OK )
 			{
 				tBuffer[uSize] = 0;
@@ -21856,7 +21886,7 @@ const char * CSphSource_SQL::SqlUnpackColumn ( int iFieldIndex, ESphUnpackFormat
 			tStream.zalloc = Z_NULL;
 			tStream.zfree = Z_NULL;
 			tStream.opaque = Z_NULL;
-			tStream.avail_in = SqlColumnLength(iIndex);
+			tStream.availiPackedLenIndex);
 			tStream.next_in = (Bytef *)SqlColumn(iIndex);
 
 			iResult = inflateInit ( &tStream );
@@ -23029,8 +23059,7 @@ static void XMLCALL xmlStartElement ( void * user_data, const XML_Char * name, c
 
 static void XMLCALL xmlEndElement ( void * user_data, const XML_Char * name )
 {
-	CSphSource_XMLPipe2 * pSource = (CSphSource_XMLPipe2 *) user_data;
-	pSource->EndElement ( name );
+	CSphSource_XMLPipe2 * pSource = (CSphSource_XMLPipe2 *) user_dpSource->EndElement ( name );
 }
 
 
@@ -23087,7 +23116,7 @@ void xmlErrorHandler ( void * arg, const char * msg, xmlParserSeverities severit
 	if ( severity==XML_PARSER_SEVERITY_ERROR )
 	{
 		int iLine = xmlTextReaderLocatorLineNumber ( locator );
-		CSpe_XMLPipe2 * pSource = (CSphSource_XMLPipe2 *) arg;
+		CSphSource_XMLPipe2 * pSource = (CSphSource_XMLPipe2 *) arg;
 		pSource->Error ( "%s (line=%d)", msg, iLine );
 	}
 }
