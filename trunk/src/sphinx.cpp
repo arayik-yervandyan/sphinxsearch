@@ -5062,8 +5062,11 @@ public:
 	void			AddItem ( YYSTYPE * pExpr, ESphAggrFunc eAggrFunc=SPH_AGGR_NONE, YYSTYPE * pStart=NULL, YYSTYPE * pEnd=NULL );
 	void			AddItem ( const char * pToken, YYSTYPE * pStart=NULL, YYSTYPE * pEnd=NULL );
 	void			AliasLastItem ( YYSTYPE * pAlias );
+	void			AddOption ( YYSTYPE * pOpt, YYSTYPE * pVal );
+
 private:
 	void			AutoAlias ( CSphQueryItem & tItem, YYSTYPE * pStart, YYSTYPE * pEnd );
+	bool			IsTokenEqual ( YYSTYPE * pTok, const char * sRef );
 
 public:
 	CSphString		m_sParserError;
@@ -5083,9 +5086,12 @@ void yyerror ( SelectParser_t * pParser, const char * sMessage )	{ pParser->m_sP
 int SelectParser_t::GetToken ( YYSTYPE * lvalp )
 {
 	// skip whitespace, check eof
-	while ( isspace ( *m_pCur ) ) m_pCur++;
-	if ( !*m_pCur ) return 0;
+	while ( isspace ( *m_pCur ) )
+		m_pCur++;
+	if ( !*m_pCur )
+		return 0;
 
+	// begin working that token
 	m_pLastTokenStart = m_pCur;
 	lvalp->m_iStart = m_pCur-m_pStart;
 
@@ -5123,6 +5129,7 @@ int SelectParser_t::GetToken ( YYSTYPE * lvalp )
 		LOC_CHECK ( "COUNT", 5, SEL_COUNT );
 		LOC_CHECK ( "DISTINCT", 8, SEL_DISTINCT );
 		LOC_CHECK ( "WEIGHT", 6, SEL_WEIGHT );
+		LOC_CHECK ( "OPTION", 6, SEL_OPTION );
 
 		#undef LOC_CHECK
 
@@ -5162,6 +5169,20 @@ int SelectParser_t::GetToken ( YYSTYPE * lvalp )
 			}
 			return -1;
 		}
+	}
+
+	// check for comment begin/end
+	if ( m_pCur[0]=='/' && m_pCur[1]=='*' )
+	{
+		m_pCur += 2;
+		lvalp->m_iEnd += 1;
+		return SEL_COMMENT_OPEN;
+	}
+	if ( m_pCur[0]=='*' && m_pCur[1]=='/' )
+	{
+		m_pCur += 2;
+		lvalp->m_iEnd += 1;
+		return SEL_COMMENT_CLOSE;
 	}
 
 	// return char as a token
@@ -5206,6 +5227,26 @@ void SelectParser_t::AliasLastItem ( YYSTYPE * pAlias )
 	}
 }
 
+bool SelectParser_t::IsTokenEqual ( YYSTYPE * pTok, const char * sRef )
+{
+	int iLen = strlen(sRef);
+	if ( iLen!=( pTok->m_iEnd - pTok->m_iStart ) )
+		return false;		 
+	return strncasecmp ( m_pStart + pTok->m_iStart, sRef, iLen )==0;
+}
+
+void SelectParser_t::AddOption ( YYSTYPE * pOpt, YYSTYPE * pVal )
+{
+	if ( IsTokenEqual ( pOpt, "reverse_scan" ) )
+	{
+		if ( IsTokenEqual ( pVal, "1" ) )
+			m_pQuery->m_bReverseScan = true;
+	} else if ( IsTokenEqual ( pOpt, "sort_method" ) )
+	{
+		if ( IsTokenEqual ( pVal, "kbuffer" ) )
+			m_pQuery->m_bSortKbuffer = true;
+	}
+}
 
 bool CSphQuery::ParseSelectList ( CSphString & sError )
 {
@@ -15285,12 +15326,12 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 					iDictPos, iWordsTotal, ( iWordsTotal%iWordPerCP ), iWordPerCP ));
 
 			uWordid = 0;
-			iDoclistOffset = 0;
+			iDoclistOffs;
 			continue;
 		}
 
 		SphWordID_t uNewWordid = 0;
-		SphOffset_t iNewDoclistOffse
+		SphOffset_t iNewDoclistOffset = 0;
 		int iDocs = 0;
 		int iHits = 0;
 
@@ -18796,10 +18837,10 @@ void CSphDictKeywords::HitblockPatch ( CSphWordHit * pHits, int iHits )
 			}
 
 			assert ( ( pOut-pTemp )==( dChunk.Last()-dChunk[0] ) );
-			memcpy ( dChunk[0], pTemp, ( dChunk.Last()-dChunk[0] )*sizeof(CSphWordHit) );
+cpy ( dChunk[0], pTemp, ( dChunk.Last()-dChunk[0] )*sizeof(CSphWordHit) );
 		}
 
-atching done
+		// patching done
 		SafeDeleteArray ( pTemp );
 		iFirst = iMax;
 	}
@@ -18829,13 +18870,13 @@ const char * CSphDictKeywords::HitblockGetKeyword ( SphWordID_t uWordID )
 
 	assert ( "hash missing value in operator []" );
 	return "\31oops";
-}
+}_MYSQL
 
-////////////////////////////////////////////////////////////////////////////////
-// KEYWORDS STORING DICTIONARY
-//////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
+// KEYWORDS STORING DICTIONARYSOURCE
+////////////////////////////////////////////////////////////////////
 
-cRtDictKeywords : public ISphRtDictWraper
+class CRtDictKeywords : public ISphRtDictWraper
 {
 private:
 	CSphDict *				m_pBase;
@@ -23032,7 +23073,7 @@ private:
 
 	void DocumentError ( const char * sWhere )
 	{
-		Error ( "malformed source, <sphinx:document> found inside %s", sWhere );
+		Error ( "malformed source, <sphinx:document> found inside %here );
 
 		// Ideally I'd like to display a notice on the next line that
 		// would say where exactly it's allowed. E.g.:
@@ -23053,14 +23094,15 @@ static void XMLCALL xmlStartElement ( void * user_data, const XML_Char * name, c
 
 static void XMLCALL xmlEndElement ( void * user_data, const XML_Char * name )
 {
-	CSphSource_XMLPipe2 * pSource = (CSphSource_XMLPipe2 *) user_dpSource->EndElement ( name );
+	CSphSource_XMLPipe2 * pSource = (CSphSource_XMLPipe2 *) user_data;
+	pSource->EndElement ( name );
 }
 
 
-static void XMLCALL xmlCharacters ( void * user_data, const XML_Char * ch, int len attrs )
+static void XMLCALL xmlCharacters ( void * user_data, const XML_Char * ch, int len )
 {
 	CSphSource_XMLPipe2 * pSource = (CSphSource_XMLPipe2 *) user_data;
-	pSoCharacters ( ch, len );
+	pSource->Characters ( ch, len );
 }
 
 #if USE_LIBICONV
