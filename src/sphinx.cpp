@@ -12182,10 +12182,13 @@ const DWORD * CSphIndex_VLN::FindDocinfo ( SphDocID_t uDocID ) const
 	int iStart = 0;
 	int iEnd = m_uDocinfo-1;
 
+#define LOC_ROW(_index) &m_pDocinfo [ int64_t(_index)*iStride ]
+#define LOC_ID(_index) DOCINFO2ID(LOC_ROW(_index))
+
 	if ( m_pDocinfoHash.GetLength() )
 	{
-		SphDocID_t uFirst = DOCINFO2ID ( &m_pDocinfo[0] );
-		SphDocID_t uLast = DOCINFO2ID ( &m_pDocinfo[( int64_t ( m_uDocinfo-1 ) )*iStride] );
+		SphDocID_t uFirst = LOC_ID(0);
+		SphDocID_t uLast = LOC_ID(iEnd);
 		if ( uDocID<uFirst || uDocID>uLast )
 			return NULL;
 
@@ -12197,41 +12200,33 @@ const DWORD * CSphIndex_VLN::FindDocinfo ( SphDocID_t uDocID ) const
 		iEnd = m_pDocinfoHash [ uHash+2 ] - 1;
 	}
 
-	const DWORD * pFound = NULL;
-	if ( uDocID==DOCINFO2ID ( &m_pDocinfo [ (int64_t(iStart))*iStride ] ) )
-	{
-		pFound = &m_pDocinfo [ (int64_t(iStart))*iStride ];
+	if ( uDocID==LOC_ID(iStart) )
+		return LOC_ROW(iStart);
 
-	} else if ( uDocID==DOCINFO2ID ( &m_pDocinfo [ (int64_t(iEnd))*iStride ] ) )
-	{
-		pFound = &m_pDocinfo [ (int64_t(iEnd))*iStride ];
+	if ( uDocID==LOC_ID(iEnd) )
+		return LOC_ROW(iEnd);
 
-	} else
+	while ( iEnd-iStart>1 )
 	{
-		while ( iEnd-iStart>1 )
-		{
-			// check if nothing found
-			if (
-				uDocID < DOCINFO2ID ( &m_pDocinfo [ (int64_t(iStart))*iStride ] ) ||
-				uDocID > DOCINFO2ID ( &m_pDocinfo [ (int64_t(iEnd))*iStride ] ) )
-					break;
-			assert ( uDocID > DOCINFO2ID ( &m_pDocinfo [ (int64_t(iStart))*iStride ] ) );
-			assert ( uDocID < DOCINFO2ID ( &m_pDocinfo [ (int64_t(iEnd))*iStride ] ) );
+		// check if nothing found
+		if ( uDocID<LOC_ID(iStart) || uDocID>LOC_ID(iEnd) )
+			return NULL;
+		assert ( uDocID > LOC_ID(iStart) );
+		assert ( uDocID < LOC_ID(iEnd) );
 
-			int iMid = iStart + (iEnd-iStart)/2;
-			if ( uDocID==DOCINFO2ID ( &m_pDocinfo [ (int64_t(iMid))*iStride ] ) )
-			{
-				pFound = &m_pDocinfo [ (int64_t(iMid))*iStride ];
-				break;
-			}
-			if ( uDocID<DOCINFO2ID ( &m_pDocinfo [ (int64_t(iMid))*iStride ] ) )
-				iEnd = iMid;
-			else
-				iStart = iMid;
-		}
+		int iMid = iStart + (iEnd-iStart)/2;
+		if ( uDocID==LOC_ID(iMid) )
+			return LOC_ROW(iMid);
+		else if ( uDocID<LOC_ID(iMid) )
+			iEnd = iMid;
+		else
+			iStart = iMid;
 	}
 
-	return pFound;
+#undef LOC_ID
+#undef LOC_ROW
+
+	return NULL;
 }
 
 void CSphIndex_VLN::CopyDocinfo ( CSphQueryContext * pCtx, CSphMatch & tMatch, const DWORD * pFound ) const
@@ -18835,13 +18830,11 @@ const char * CSphDictKeywords::HitblockGetKeyword ( SphWordID_t uWordID )
 	return "\31oops";
 }
 
-URCE
-/////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 // KEYWORDS STORING DICTIONARY
-URCE
-/////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
 
-class CRtDictKeywords : public ISphRtDictWraper
+cRtDictKeywords : public ISphRtDictWraper
 {
 private:
 	CSphDict *				m_pBase;
@@ -23063,10 +23056,10 @@ static void XMLCALL xmlEndElement ( void * user_data, const XML_Char * name )
 }
 
 
-static void XMLCALL xmlCharacters ( void * user_data, const XML_Char * ch, int len )
+static void XMLCALL xmlCharacters ( void * user_data, const XML_Char * ch, int len attrs )
 {
 	CSphSource_XMLPipe2 * pSource = (CSphSource_XMLPipe2 *) user_data;
-	pSource->Characters ( ch, len );
+	pSoCharacters ( ch, len );
 }
 
 #if USE_LIBICONV
