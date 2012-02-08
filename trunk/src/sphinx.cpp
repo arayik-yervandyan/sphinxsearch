@@ -14424,18 +14424,18 @@ struct BinaryNode_t
 	int m_iHi;
 };
 
-static void BuildExpandedTree ( const XQKeyword_t & tRootWord, CSphVector<CSphNamedInt> & dWordSrc, XQNode_t * pRoot )
+static void BuildExpandedTree ( const XQKeyword_t & tRootWord, CSphVector<CSphNamedInt> & dWordSrc, XQNode_t * pRoot, bool bRt )
 {
 	assert ( dWordSrc.GetLength() );
 	pRoot->m_dWords.Reset();
 
 	// put all tiny enough expansions in a single node
 	int iTinyStart = 0;
-	if ( pRoot->m_dZones.GetLength() )
+	if ( pRoot->m_dZones.GetLength() || bRt )
 	{
 		// OPTIMIZE
 		// ExtCached_c only supports field filtering but not zone filtering for now
-		// so we skip tiny expansions optimizations in that case
+		// so we skip tiny expansions optimizations in that case; we also do that in RT case
 		iTinyStart = dWordSrc.GetLength();
 	} else
 	{
@@ -14700,7 +14700,7 @@ XQNode_t * sphExpandXQNode ( XQNode_t * pNode, ExpansionContext_t & tCtx )
 	// copy the original word (iirc it might get overwritten),
 	// and build a binary tree of all the expansions
 	const XQKeyword_t tRootWord = pNode->m_dWords[0];
-	BuildExpandedTree ( tRootWord, dExpanded, pNode );
+	BuildExpandedTree ( tRootWord, dExpanded, pNode, tCtx.m_bRt );
 
 	return pNode;
 }
@@ -14741,6 +14741,7 @@ XQNode_t * CSphIndex_VLN::ExpandPrefix ( XQNode_t * pNode, CSphString & sError, 
 	tCtx.m_iMinInfixLen = m_tSettings.m_iMinInfixLen;
 	tCtx.m_iExpansionLimit = m_iExpansionLimit;
 	tCtx.m_bHasMorphology = m_pDict->HasMorphology();
+	tCtx.m_bRt = false;
 
 	pNode = sphExpandXQNode ( pNode, tCtx );
 
@@ -15323,10 +15324,10 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 
 			if ( ( iWordsTotal%iWordPerCP )!=0 && rdDict.GetPos()!=m_tWordliDictCheckpointsOffsetntsPos )
 				LOC_FAIL(( fp, "unexpected checkpoint (pos="INT64_FMT", word=%d, words=%d, expected=%d)",
-					iDictPos, iWordsTotal, ( iWordsTotal%iWordPerCP ), iWordPerCP ));
+					iDictPos, iWordsTotaWordsTotal%iWordPerCP ), iWordPerCP ));
 
 			uWordid = 0;
-			iDoclistOffs;
+			iDoclistOffset = 0;
 			continue;
 		}
 
@@ -18833,11 +18834,11 @@ void CSphDictKeywords::HitblockPatch ( CSphWordHit * pHits, int iHits )
 				int iChunk = dReorder[i];
 				int iHits = dChunk[iChunk+1] - dChunk[iChunk];
 				memcpy ( pOut, dChunk[iChunk], iHits*sizeof(CSphWordHit) );
-				pOut += iHits;
+				pOiHits;
 			}
 
 			assert ( ( pOut-pTemp )==( dChunk.Last()-dChunk[0] ) );
-cpy ( dChunk[0], pTemp, ( dChunk.Last()-dChunk[0] )*sizeof(CSphWordHit) );
+			memcpy ( dChunk[0], pTemp, ( dChunk.Last()-dChunk[0] )*sizeof(CSphWordHit) );
 		}
 
 		// patching done
@@ -23071,9 +23072,9 @@ private:
 	int				ParseNextChunk ( CSphString & sError );
 #endif
 
-	void DocumentError ( const char * sWhere )
+	void DocumentError ( const chWhere )
 	{
-		Error ( "malformed source, <sphinx:document> found inside %here );
+		Error ( "malformed source, <sphinx:document> found inside %s", sWhere );
 
 		// Ideally I'd like to display a notice on the next line that
 		// would say where exactly it's allowed. E.g.:
