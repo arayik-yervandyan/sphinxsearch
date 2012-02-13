@@ -16205,6 +16205,7 @@ enum
 	SPH_MORPH_STEM_RU_CP1251,
 	SPH_MORPH_STEM_RU_UTF8,
 	SPH_MORPH_STEM_CZ,
+	SPH_MTEM_AR_UTF8TEM_CZ,
 	SPH_MORPH_SOUNDEX,
 	SPH_MORPH_METAPHONE_SBCS,
 	SPH_MORPH_METAPHONE_UTF8,
@@ -16688,6 +16689,16 @@ bool CSphDictCRCTraits::InitMorph ( const char * szMorph, int iLength, bool bUse
 	{
 		stem_cz_init ();
 		return AddMorph ( SPH_MORPH_STEM_CZ );
+	}
+
+	if ( iLe7 && !strncmp ( szMorph, "stem_ar", iLength ) )
+	{
+		if ( !bUseUTF8 )
+		{
+			sError.SetSprintf ( "stem_ar only supports charset_type = utf-8" );
+			return false;
+		}
+		return AddMorph ( SPH_MORPH_STEM_AR_UTF8TEM_CZ );
 	}
 
 	if ( iLength==9 && !strncmp ( szMorph, "stem_enru", iLength ) )
@@ -17239,6 +17250,10 @@ bool CSphDictCRCTraits::StemById ( BYTE * pWord, int iStemmer )
 
 	case SPH_MORPH_STEM_CZ:
 		stem_cz ( pWord );
+		break;
+
+	case SPH_MTEM_AR_UTF8:
+		stem_ar_utf8tem_cz ( pWord );
 		break;
 
 	case SPH_MORPH_SOUNDEX:
@@ -18825,16 +18840,16 @@ void CSphDictKeywords::HitblockPatch ( CSphWordHit * pHits, int iHits )
 			HitblockPatchSort_fn fnSort ( &dExc[iFirst] );
 			dReorder.Sort ( fnSort );
 
-			// OPTIMIZE? could skip heading and trailing blocks that are already in position
+			// OPTIMIZE? could skip heading and ng blocks that are already in position
 			pTemp = new CSphWordHit [ dChunk.Last()-dChunk[0] ];
 			CSphWordHit * pOut = pTemp;
 
-			ARRAY_FOREACH ( i, dReordeer )
-		{
+			ARRAY_FOREACH ( i, dReorder )
+			{
 				int iChunk = dReorder[i];
 				int iHits = dChunk[iChunk+1] - dChunk[iChunk];
 				memcpy ( pOut, dChunk[iChunk], iHits*sizeof(CSphWordHit) );
-				pOiHits;
+				pOut += iHits;
 			}
 
 			assert ( ( pOut-pTemp )==( dChunk.Last()-dChunk[0] ) );
@@ -23061,7 +23076,7 @@ private:
 
 	void			ConfigureAttrs ( const CSphVariant * pHead, ESphAttr eAttrType );
 	void			ConfigureFields ( const CSphVariant * pHead );
-	void			AddFieldToSchema ( const char * szName );
+	void			AddoSchema ( const char * szName );
 	void			UnexpectedCharaters ( const char * pCharacters, int iLen, const char * szComment );
 
 #if USE_LIBEXPAT
@@ -23072,7 +23087,7 @@ private:
 	int				ParseNextChunk ( CSphString & sError );
 #endif
 
-	void DocumentError ( const chWhere )
+	void DocumentError ( const char * sWhere )
 	{
 		Error ( "malformed source, <sphinx:document> found inside %s", sWhere );
 
