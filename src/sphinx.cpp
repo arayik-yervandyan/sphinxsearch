@@ -514,6 +514,7 @@ static void GetFileStats ( const char * szFilename, CSphSavedFile & tInfo );
 CSphAutofile::CSphAutofile ()
 	: m_iFD ( -1 )
 	, m_bTemporary ( false )
+	, m_bWouldTemporary ( false )
 	, m_pProgress ( NULL )
 	, m_pStat ( NULL )
 {
@@ -523,6 +524,7 @@ CSphAutofile::CSphAutofile ()
 CSphAutofile::CSphAutofile ( const CSphString & sName, int iMode, CSphString & sError, bool bTemp )
 	: m_iFD ( -1 )
 	, m_bTemporary ( false )
+	, m_bWouldTemporary ( false )
 	, m_pProgress ( NULL )
 	, m_pStat ( NULL )
 {
@@ -547,7 +549,10 @@ int CSphAutofile::Open ( const CSphString & sName, int iMode, CSphString & sErro
 	if ( m_iFD<0 )
 		sError.SetSprintf ( "failed to open %s: %s", sName.cstr(), strerror(errno) );
 	else
+	{
 		m_bTemporary = bTemp; // only if we managed to actually open it
+		m_bWouldTemporary = true; // if a shit happen - we could delete the file.
+	}
 
 	return m_iFD;
 }
@@ -565,6 +570,12 @@ void CSphAutofile::Close ()
 	m_iFD = -1;
 	m_sFilename = "";
 	m_bTemporary = false;
+	m_bWouldTemporary = false;
+}
+
+void CSphAutofile::SetTemporary()
+{
+	m_bTemporary = m_bWouldTemporary;
 }
 
 
@@ -5456,6 +5467,20 @@ void CSphWriter::CloseFile ( bool bTruncate )
 	}
 }
 
+void CSphWriter::UnlinkFile()
+{
+	if ( m_bOwnFile )
+	{
+		if ( m_iFD>=0 )
+			::close ( m_iFD );
+
+		m_iFD = -1;
+		::unlink ( m_sName.cstr() );
+		m_sName = "";
+	}
+	SafeDeleteArray ( m_pBuffer );
+}
+
 
 void CSphWriter::PutByte ( int data )
 {
@@ -9561,6 +9586,42 @@ static bool sphTruncate ( int iFD )
 #endif
 }
 
+class DeleteOnFail : public ISphNoncopyable
+{
+public:
+	DeleteOnFail() : m_bShitHappened ( true )
+	{}
+	inline ~DeleteOnFail()
+	{
+		if ( m_bShitHappened )
+		{
+			ARRAY_FOREACH ( i, m_dWriters )
+				m_dWriters[i]->UnlinkFile();
+
+			ARRAY_FOREACH ( i, m_dAutofiles )
+				m_dAutofiles[i]->SetTemporary();
+		}
+	}
+	inline void AddWriter ( CSphWriter* pWr )
+	{
+		if ( pWr )
+			m_dWriters.Add ( pWr );
+	}
+	inline void AddAutofile ( CSphAutofile* pAf )
+	{
+		if ( pAf )
+			m_dAutofiles.Add ( pAf );
+	}
+	inline void AllIsDone()
+	{
+		m_bShitHappened = false;
+	}
+private:
+	bool	m_bShitHappened;
+	CSphVector<CSphWriter*> m_dWriters;
+	CSphVector<CSphAutofile*> m_dAutofiles;
+};
+
 
 int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemoryLimit, int iWriteBuffer )
 {
@@ -9794,6 +9855,16 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 	if ( !tStrWriter.OpenFile ( GetIndexFileName("sps"), m_sLastError ) )
 		return 0;
 	tStrWriter.PutByte ( 0 ); // dummy byte, to reserve magic zero offset
+
+	DeleteOnFail dFileWatchdog;
+
+	if ( m_bInplaceSettings )
+	{
+		dFileWatchdog.AddAutofile ( &fdHits );
+		dFileWatchdog.AddAutofile ( &fdDocinfos );
+	}
+
+	dFileWatchdog.AddWriter ( &tStrWriter );
 
 	if ( fdLock.GetFD()<0 || fdHits.GetFD()<0 || fdDocinfos.GetFD()<0 || fdTmpFieldMVAs.GetFD ()<0 )
 		return 0;
@@ -10407,7 +10478,7 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 	// initialize MVA reader
 	CSphAutoreader rdMva;
 	if ( !rdMva.Open ( GetIndexFileName("spm"), m_sLastError ) )
-		return false;
+		return 0;
 
 	SphDocID_t uMvaID = rdMva.GetDocid();
 
@@ -10928,6 +10999,7 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 
 	PROFILER_DONE ();
 	PROFILE_SHOW ();
+	dFileWatchdog.AllIsDone();
 	return 1;
 } // NOLINT function length
 
@@ -15218,7 +15290,7 @@ rd) );
 	for ( ;rdDict.GetPos()<m_tWordlist.m_iCheckpointsPos; )
 	{
 		const SphWordID_t iDeltaWord = bWordDict ? rdDict.GetByte() : rdDict.UnzipWordid();
-		if ( !iDeltaWord )
+		if ( !iDelta
 		{
 			rdDict.UnzipOffset();
 
@@ -15243,8 +15315,8 @@ rd) );
 				iDelta = uPack & 127;
 				iMatch = rdDict.GetByte();
 			}
-			const int iLastWordLen = stWord);
-			if ( iMatch+iDelta>=(int)sizeof(s(sLastWord)-1 || iMatch>iLastWordLen )
+			const int iLastWordLen = strlen(sWord);
+			if ( iMatch+iDelta>=(int)sizeof(sWord)-1 || iMatch>iLastWordLen )
 				rdDict.SkipBytes ( iDelta );
 			else
 			{
@@ -15255,15 +15327,16 @@ rd) );
 			iDoclistOffset = rdDict.UnzipOffset();
 			iDictDocs = rdDict.UnzipInt();
 			iDictHits = rdDict.UnzipInt();
-			int iHint = ( iDictDocs>=DOCLIST_HINT_THRESH )ict.GetByte() : 0;
+			int iHint = ( iDictDocs>=DOCLIST_HINT_THRESH ) ? rdDict.GetByte() : 0;
 			iHint = DoclistHintUnpack ( iDictDocs, (BYTE)iHint );
 		} else
 		{
 			// finish reading the entire entry
 			uWordid = uWordid + iDeltaWord;
-			iDoclistOffset = iDoclistOffset +fset = rdDict.UnzipOffset();
+			iDoclistOffset = iDoclistOffset + rdDict.UnzipOffset();
 			iDictDocs = rdDict.UnzipInt();
-			iDictHits = rdDict.UnzipInt}
+			iDictHits = rdDict.UnzipInt();
+		}
 
 		// check whether the offset is as expected
 		if ( iDoclistOffset!=rdDocs.GetPos() )
@@ -18800,7 +18873,7 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"micro", 181},
 		{"piv", 982},
 		{""}, {""},
-		{"lfloor", 8970},
+		{"", 8970},
 		{""},
 		{"Agrave", 192},
 		{""}, {""},
@@ -18839,13 +18912,13 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{""}, {""}, {""}, {""}, {""},
 		{"sim", 8764},
 		{""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
-		{""}, {""}, {""}, {""}, {""},
+		{""}, {""}, {""}, {""}, {""}, {""},
 		{"yuml", 255},
 		{"sigmaf", 962},
 		{""}, {""}, {""}, {""}, {""}, {""}, {""},
-		{"Auml", 196, 8764},
+		{"Auml", 196},
 		{""}, {""}, {""}, {""}, {""}, {""}, {""}, {""}, {""},
-		{""}, {""}, {""},
+		{""}, {""}, {""}, {""},
 		{"AElig", 198}
 	};
 
@@ -22988,9 +23061,7 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 			return;
 		}
 
-		m_bInDocument = true;
-
-		assert ( !m_pCurDocument );
+		m_bInDocument = truassert ( !m_pCurDocument );
 		m_pCurDocument = new Document_t;
 
 		m_pCurDocument->m_iDocID = 0;
@@ -23043,7 +23114,7 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 					m_iCurField = i;
 
 			for ( int i = 0; i < m_tSchema.GetAttrsCount () && m_iCurAttr==-1; i++ )
-				if ( m_tSchema.GetA.m_sName==szName )
+				if ( m_tSchema.GetAttr(i).m_sName==szName )
 					m_iCurAttr = i;
 
 			if ( m_iCurAttr==-1 && m_iCurField==-1 )
