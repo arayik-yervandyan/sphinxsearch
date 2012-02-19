@@ -3571,7 +3571,7 @@ int CSphTokenizerTraits<IS_UTF8>::CodepointArbitration ( int iCode, bool bWasEsc
 	{
 		if ( iCode & FLAG_CODEPOINT_DUAL )
 			iCode &= ~( FLAG_CODEPOINT_SPECIAL | FLAG_CODEPOINT_DUAL );
-		else if ( bDashInside )
+		else if ( bDashInside && ( iCode & FLAG_CODEPOINT_SYNONYM ) )
 			// if we return zero here, we will break the tokens like 'Ms-Dos'
 			iCode &= ~( FLAG_CODEPOINT_SPECIAL );
 		else
@@ -15289,8 +15289,8 @@ rd) );
 	int iWordsChecked = 0;
 	for ( ;rdDict.GetPos()<m_tWordlist.m_iCheckpointsPos; )
 	{
-		const SphWordID_t iDeltaWord = bWordDict ? rdDict.GetByte() : rdDict.UnzipWordid();
-		if ( !iDelta
+		const SphWordID_t iDeltaWord = bWordDict ? rdDict.GetByte() ct.UnzipWordid();
+		if ( !iDeltaWord )
 		{
 			rdDict.UnzipOffset();
 
@@ -18870,10 +18870,9 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"epsilon", 949},
 		{"oplus", 8853},
 		{"yen", 165},
-		{"micro", 181},
-		{"piv", 982},
+		{"micro", 18{"piv", 982},
 		{""}, {""},
-		{"", 8970},
+		{"lfloor", 8970},
 		{""},
 		{"Agrave", 192},
 		{""}, {""},
@@ -23057,11 +23056,12 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 
 		if ( m_tSchema.m_dFields.GetLength()==0 && m_tSchema.GetAttrsCount()==0 )
 		{
-			Error ( "no schema configured, and no embedded schema found" );
-			return;
+			Error ( "no schema configured, and no embedded schema found" );turn;
 		}
 
-		m_bInDocument = truassert ( !m_pCurDocument );
+		m_bInDocument = true;
+
+		assert ( !m_pCurDocument );
 		m_pCurDocument = new Document_t;
 
 		m_pCurDocument->m_iDocID = 0;
