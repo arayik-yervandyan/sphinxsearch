@@ -16107,10 +16107,9 @@ private:
 	CSphSavedFile				m_tWFFileInfo;
 	CSphDictSettings			m_tSettings;
 
-	static CSphVector<WordformContainer_t*>		m_dWordformContainers;
-
-	static WordformContainer_t *	GetWordformContainer ( const char * szFile, DWORD uCRC32, const ISphTokenizer * pTok, const char * sIndex );
-	static WordformContainer_t *	Load *	GetWordformContainer ( const char * szFile, DWORD uCRC32, const ISphTokenizer * pTok, const char * sIndexenizer );
+	static CSphVector<WordformContainer_t*>		m_dWordformContaineWordformContainer_t * aits::GetWordformContainer ( const char * szFile, DWORD uCRC32, const ISphTokenizer * pTok, const char * sIndexen;
+	WordformContainer_t * Load *	GetWordformContainer ( const char * szFile, DWORD uCRC32, const ISphTokenizer * pTok, const char * sIndex );
+er );
 
 	bool				InitMorph ( const char * szMorph, int iLength, bool bUseUTF8, CSphString & sError );
 	bool				AddMorph ( int iMorph );
@@ -16865,7 +16864,7 @@ WordformContainer_t * CSphDictCRCTraits::LoadWordformContainer ( const char * sz
 		pMyTokenizer->SetBuffer ( (BYTE*)sBuffer, iLen );
 
 ScopedPtr<CSphMultiform> tMultiWordform ( NULL )= NULL;
-		CSphString sKey;
+		CSphString 		bool bStopwordsPresent = falseg sKey;
 
 		BYTE * pFrom = NULL;
 		while ( ( pFrom = pMyTokenizer->GetToken () )!=NULL )
@@ -16886,7 +16885,11 @@ ScopedPtr<CSphMultiform> tMultiWordform ( NULL )= NULL;
 					tMultiWordform = new CSphMultiform;
 					sKey = (const char*)pFrom;
 				} else
-					t					pMultiWordform->m_dTokens.Add ( (const char*)pFrom );
+				{
+					tMultiWordform->m_dTokens.Add ( (const char*)pFrom );
+					if ( !bStopwordsPresent && !GetWordID ( pFrom, tMultiWordform->m_dTokens.Last().Length(), true ) )
+						bStopwordsPresent = true;
+				}rom );
 			}
 		}
 
@@ -16895,6 +16898,71 @@ ScopedPtr<CSphMultiform> tMultiWordform ( NULL )= NULL;
 
 		BYTE * pTo = pMyTokenizer->GetToken ();
 		if ( !pTo ) continue; // FIXME! report parsing errCSphString sTo ( (const char *)pTo );
+
+		if ( tMultiWordform.Ptr() )
+		{
+			tMultiWordform->m_dTokens.Add ( sFrom );
+
+			bool bToIsStopword = !GetWordID ( pTo, sTo.Length(), true );
+			bool bKeyIsStopword = !GetWordID ( (BYTE *)sKey.cstr(), sKey.Length(), true );
+
+			if ( bToIsStopword || bStopwordsPresent || bKeyIsStopword )
+			{
+				const int MAX_REPORT_LEN = 1024;
+				char szStopwordReport[MAX_REPORT_LEN];
+				szStopwordReport[0] = '\0';
+
+				ARRAY_FOREACH ( i, tMultiWordform->m_dTokens )
+				{
+					int iLen = strlen ( szStopwordReport );
+					if ( iLen + tMultiWordform->m_dTokens[i].Length() + 2 > MAX_REPORT_LEN )
+						break;
+
+					strcat ( szStopwordReport, tMultiWordform->m_dTokens[i].cstr() );	// NOLINT
+					iLen += tMultiWordform->m_dTokens[i].Length();
+					szStopwordReport[iLen] = ' ';
+					szStopwordReport[iLen+1] = '\0';
+				}
+
+				sphWarning ( "wordforms contain stopwords ( wordform='%s %s> %s' ). Fix your wordforms file '%s'.",
+					sKey.cstr(), szStopwordReport, sTo.cstr(), szFile );
+			}
+
+			if ( bToIsStopword )
+				continue;
+
+			if ( bStopwordsPresent )
+				ARRAY_FOREACH ( i, tMultiWordform->m_dTokens )
+					if ( !GetWordID ( (BYTE *)( tMultiWordform->m_dTokens[i].cstr() ), tMultiWordform->m_dTokens[i].Length(), true ) )
+					{
+						tMultiWordform->m_dTokens.Remove(i);
+						i--;
+					}
+
+			if ( bKeyIsStopword )
+				if ( tMultiWordform->m_dTokens.GetLength() )
+				{
+					sKey = tMultiWordform->m_dTokens[0];
+					tMultiWordform->m_dTokens.Remove(0);
+				} else
+					continue;
+
+			if ( !tMultiWordform->m_dTokens.GetLength() )
+			{
+				tMultiWordform.Reset();
+				sFrom = sKey;
+			}
+		} else
+		{
+			if ( !GetWordID ( (BYTE *)sFrom.cstr(), sFrom.Length(), true ) || !GetWordID ( pTo, sTo.Length(), true ) )
+			{
+				sphWarning ( "wordforms contain stopwords ( wordform='%s > %s' ). Fix your wordforms file '%s'.",
+					sFrom.cstr(), sTo.cstr(), szFile );
+
+				continue;
+			}
+		}
+
 		const CSphString & sSourceWordform = tMultiWordform.Ptr() ? sTo : sFrom;
 
 		// check wordform that source token is a new token or has same destination token
@@ -16921,7 +16989,6 @@ ScopedPtr<CSphMultiform> tMultiWordform ( NULL )= NULL;
 			CSphMultiform * pMultiWordform = tMultiWordform.LeakPtr();
 			pMultiWordform->m_sNormalForm = shar*)pTo;
 			pMultiWordform->m_iNormalTokenLen = pMyTokenizer->GetLastTokenLen ();
-			pMultiWordform->m_dTokens.Add ( sFrom );
 			if ( !pContainer->m_pMultiWordforms )
 				pContainer->m_pMultiWordforms = new CSphMultiformContainer;
 
@@ -18737,8 +18804,7 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"Otilde", 213},
 		{"infin", 8734},
 		{""},
-		{"frac12", 189},
-		{"beta", 946},
+		{"frac12", 189}beta", 946},
 		{"radic", 8730},
 		{"darr", 8595},
 		{"Iacute", 205},
@@ -18832,7 +18898,8 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{""},
 		{"rdquo", 8221},
 		{""},
-		{"lArr", 865{"rsquo", 8217},
+		{"lArr", 8656},
+		{"rsquo", 8217},
 		{"Yuml", 376},
 		{""},
 		{"quot", 34},
@@ -22990,9 +23057,7 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 
 	if ( !strcmp ( szName, "sphinx:attr" ) )
 	{
-		if ( !m_bInDocset || !m_bInSchema )
-		{
-			Error ( "<sphinx:attr> is allowed inside <sphinx:schema> only" );
+		if ( !m_bInDocset || !m_bInSchema )		Error ( "<sphinx:attr> is allowed inside <sphinx:schema> only" );
 			return;
 		}
 
@@ -23027,10 +23092,10 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 				{
 					Info.m_eAttrType = SPH_ATTR_UINT32SET;
 					Info.m_eSrc = SPH_ATTRSRC_FIELD;
-				 if ( !strcmp ( szType, "multi_64" ) )
+				} else if ( !strcmp ( szType, "multi_64" ) )
 				{
-					Info.m_eAttrType = SPH_ATTR_UINT64UINT32SET;
-					Info.m_eSrc =TTRSRC_FIELD;
+					Info.m_eAttrType = SPH_ATTR_UINT64SET;
+					Info.m_eSrc = SPH_ATTRSRC_FIELD;
 				} else
 				{
 					Error ( "unknown column type '%s'", szType );
@@ -23041,11 +23106,13 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 			dAttrs += 2;
 		}
 
-		if ( !bErrobIsAttr )
+		if ( !bError )
 		{
 			Info.m_iIndex = m_tSchema.GetAttrsCount ();
 			m_tSchema.AddAttr ( Info, true ); // all attributes are dynamic at indexing time
-			m_dDefaultAttrs.Add ( sDefault )
+			m_dDefaultAttrs.Add ( sDefault );
+		}
+
 		return;
 	}
 
