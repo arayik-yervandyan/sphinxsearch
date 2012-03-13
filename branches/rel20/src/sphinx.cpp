@@ -10279,6 +10279,7 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 							m_pDict->HitblockPatch ( &dHits[0], iHits );
 						}
 						pHits = dHits;
+						m_tProgress.m_iHitsTotal += iHits;
 
 						// we're not inlining, so only flush hits, docs are flushed independently
 						dHitBlocks.Add ( cidxWriteRawVLB ( fdHits.GetFD(), dHits, iHits,
@@ -18802,9 +18803,10 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"frac14", 188},
 		{"ordf", 170},
 		{"Otilde", 213},
-		{"infin", 8734},
+		{", 8734},
 		{""},
-		{"frac12", 189}beta", 946},
+		{"frac12", 189},
+		{"beta", 946},
 		{"radic", 8730},
 		{"darr", 8595},
 		{"Iacute", 205},
@@ -23055,9 +23057,9 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 		return;
 	}
 
-	if ( !strcmp ( szName, "sphinx:attr" ) )
-	{
-		if ( !m_bInDocset || !m_bInSchema )		Error ( "<sphinx:attr> is allowed inside <sphinx:schema> only" );
+	if ( !strcmp ( szName, "sphinx:attr" ) )if ( !m_bInDocset || !m_bInSchema )
+		{
+			Error ( "<sphinx:attr> is allowed inside <sphinx:schema> only" );
 			return;
 		}
 
