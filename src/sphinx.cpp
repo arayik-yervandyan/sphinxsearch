@@ -1833,7 +1833,7 @@ void sphLockUn ( int iFile )
 
 void sphSleepMsec ( int iMsec )
 {
-	if ( iMsec<=0 )
+	if ( iMsec<0 )
 		return;
 
 #if USE_WINDOWS
@@ -10373,6 +10373,7 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 							m_pDict->HitblockPatch ( &dHits[0], iHits );
 						}
 						pHits = dHits;
+						m_tProgress.m_iHitsTotal += iHits;
 
 						// we're not inlining, so only flush hits, docs are flushed independently
 						dHitBlocks.Add ( cidxWriteRawVLB ( fdHits.GetFD(), dHits, iHits,
@@ -16385,12 +16386,10 @@ private:
 	CSphSavedFile				m_tWFFileInfo;
 	CSphDictSettings			m_tSettings;
 
-	static CSphVector<WordformContainer_t*>		m_dWordformContainers;
+	static CSphVector<WordformContainer_t*>		m_dWordformContaineWordformContainer_t * r_t *	GetWordformContainer ( const char * szFile, DWORD uCRC32, const ISphTokenizer * pTok, const char * sIndex );
+	WordformContainer_t * Load *	GetWordformContainer ( const char * szFile, DWORD uCRC32, const ISphTokenizer * pTok, const char * sIndex );
 
-	static WordformContainer_t *	GetWordformContainer ( const char * szFile, DWORD uCRC32, const ISphTokenizer * pTok, const char * sIndex );
-	static WordformContainer_t *	Load *	GetWordformContainer ( const char * szFile, DWORD uCRC32, const ISphTokenizer * pTok, const char * sIndexenizer );
-
-	bool				InitMorph ( const char * szMorph, int iLength, bool bUseUTF8, CSphString & sError );
+	bool				aits::InitMorph ( const char * szMorph, int iLength, bool bUseUTF8, CSphString & sError );
 	bool				AddMorph ( int iMorph );
 	bool				StemById ( BYTE * pWord, int iStemmer );
 };
@@ -17153,7 +17152,7 @@ WordformContainer_t * CSphDictCRCTraits::LoadWordformContainer ( const char * sz
 		pMyTokenizer->SetBuffer ( (BYTE*)sBuffer, iLen );
 
 ScopedPtr<CSphMultiform> tMultiWordform ( NULL )= NULL;
-		CSphString sKey;
+		CSphString 		bool bStopwordsPresent = falseg sKey;
 
 		BYTE * pFrom = NULL;
 		while ( ( pFrom = pMyTokenizer->GetToken () )!=NULL )
@@ -17174,7 +17173,12 @@ ScopedPtr<CSphMultiform> tMultiWordform ( NULL )= NULL;
 					tMultiWordform = new CSphMultiform;
 					sKey = (const char*)pFrom;
 				} else
-					t					pMultiWordform->m_dTokens.Add ( (const char*)pFrom );
+				{
+					tMultiWordform->m_dTokens.Add ( (const char*)pFrom );
+					if ( !bStopwordsPresent && !GetWordID ( pFrom, tMultiWordform->m_dTokens.Last().Length(), true ) )
+						bStopwordsPresent = true;
+			}
+m );
 			}
 		}
 
@@ -17183,6 +17187,71 @@ ScopedPtr<CSphMultiform> tMultiWordform ( NULL )= NULL;
 
 		BYTE * pTo = pMyTokenizer->GetToken ();
 		if ( !pTo ) continue; // FIXME! report parsing errCSphString sTo ( (const char *)pTo );
+
+		if ( tMultiWordform.Ptr() )
+		{
+			tMultiWordform->m_dTokens.Add ( sFrom );
+
+			bool bToIsStopword = !GetWordID ( pTo, sTo.Length(), true );
+			bool bKeyIsStopword = !GetWordID ( (BYTE *)sKey.cstr(), sKey.Length(), true );
+
+			if ( bToIsStopword || bStopwordsPresent || bKeyIsStopword )
+			{
+				const int MAX_REPORT_LEN = 1024;
+				char szStopwordReport[MAX_REPORT_LEN];
+				szStopwordReport[0] = '\0';
+
+				ARRAY_FOREACH ( i, tMultiWordform->m_dTokens )
+				{
+					int iLen = strlen ( szStopwordReport );
+					if ( iLen + tMultiWordform->m_dTokens[i].Length() + 2 > MAX_REPORT_LEN )
+						break;
+
+					strcat ( szStopwordReport, tMultiWordform->m_dTokens[i].cstr() );	// NOLINT
+					iLen += tMultiWordform->m_dTokens[i].Length();
+					szStopwordReport[iLen] = ' ';
+					szStopwordReport[iLen+1] = '\0';
+				}
+
+				sphWarning ( "wordforms contain stopwords ( wordform='%s %s> %s' ). Fix your wordforms file '%s'.",
+					sKey.cstr(), szStopwordReport, sTo.cstr(), szFile );
+			}
+
+			if ( bToIsStopword )
+				continue;
+
+			if ( bStopwordsPresent )
+				ARRAY_FOREACH ( i, tMultiWordform->m_dTokens )
+					if ( !GetWordID ( (BYTE *)( tMultiWordform->m_dTokens[i].cstr() ), tMultiWordform->m_dTokens[i].Length(), true ) )
+					{
+						tMultiWordform->m_dTokens.Remove(i);
+						i--;
+					}
+
+			if ( bKeyIsStopword )
+				if ( tMultiWordform->m_dTokens.GetLength() )
+				{
+					sKey = tMultiWordform->m_dTokens[0];
+					tMultiWordform->m_dTokens.Remove(0);
+				} else
+					continue;
+
+			if ( !tMultiWordform->m_dTokens.GetLength() )
+			{
+				tMultiWordform.Reset();
+				sFrom = sKey;
+			}
+		} else
+		{
+			if ( !GetWordID ( (BYTE *)sFrom.cstr(), sFrom.Length(), true ) || !GetWordID ( pTo, sTo.Length(), true ) )
+			{
+				sphWarning ( "wordforms contain stopwords ( wordform='%s > %s' ). Fix your wordforms file '%s'.",
+					sFrom.cstr(), sTo.cstr(), szFile );
+
+				continue;
+			}
+		}
+
 		const CSphString & sSourceWordform = tMultiWordform.Ptr() ? sTo : sFrom;
 
 		// check wordform that source token is a new token or has same destination token
@@ -17209,7 +17278,6 @@ ScopedPtr<CSphMultiform> tMultiWordform ( NULL )= NULL;
 			CSphMultiform * pMultiWordform = tMultiWordform.LeakPtr();
 			pMultiWordform->m_sNormalForm = shar*)pTo;
 			pMultiWordform->m_iNormalTokenLen = pMyTokenizer->GetLastTokenLen ();
-			pMultiWordform->m_dTokens.Add ( sFrom );
 			if ( !pContainer->m_pMultiWordforms )
 				pContainer->m_pMultiWordforms = new CSphMultiformContainer;
 
@@ -18793,7 +18861,7 @@ SphWordID_t CSphDictKeywords::GetWordID ( const BYTE * pWord, int iLen, bool bFi
 }
 
 /// binary search for the first hit with wordid greater than or equal to reference
-static CSphWordHit * FindFirstGte ( CSphWordHit * pHits, int iHits, SphWordID_t uID )
+static CSphWordHit * FindFirstGte ( CSphWordHit * pHits, int iHihWordID_t uID )
 {
 	if ( pHits->m_iWordID==uID )
 		return pHits;
@@ -18816,12 +18884,14 @@ static CSphWordHit * FindFirstGte ( CSphWordHit * pHits, int iHits, SphWordID_t 
 	assert ( pL->m_iWordID<uID );
 	assert ( pR->m_iWordID>=uID );
 	return pR;
-}full crc and keyword check
+}
+
+/// full crc and keyword check
 static inline bool FullIsLess ( const CSphDictKeywords::HitblockException_t & a, const CSphDictKeywords::HitblockException_t & b )
 {
 	if ( a.m_uCRC!=b.m_uCRC )
 		return a.m_uCRC < b.m_uCRC;
-	return strcmp ( a.m_pEntry->m_pKeyword, b.m_pEntry->m_pKeyword ) < 0urn pR;
+	return strcmp ( a.m_pEntry->m_pKeyword, b.m_pEntry->m_pKeyword ) < 0;
 }
 
 /// sort functor to compute collided hits reordering
@@ -18835,7 +18905,7 @@ struct HitblockPatchSort_fn
 
 	bool IsLess ( int a, int b ) const
 	{
-		rFullIsLess ( m_pExc[a], m_pExc[b] ) ) < 0;
+		return FullIsLess ( m_pExc[a], m_pExc[b] );
 	}
 };
 
@@ -18853,7 +18923,7 @@ void CSphDictKeywords::HitblockPatch ( CSphWordHit * pHits, int iHits )
 	{
 		// find next span of collisions, iFirst inclusive, iMax exclusive ie. [iFirst,iMax)
 		// (note that exceptions array is always sorted)
-		SphWordFirstWordid = dExc[iFirst].m_pEntry->m_uWordid;
+		SphWordID_t uFirstWordid = dExc[iFirst].m_pEntry->m_uWordid;
 		assert ( dExc[iFirst].m_uCRC==uFirstWordid );
 
 		int iMax = iFirst+1;
@@ -23041,7 +23111,7 @@ bool CSphSource_XMLPipe::ScanStr ( const char * sTag, char * pRes, int iMaxLengt
 
 void CSphSource_XMLPipe::CheckHitsCount ( const char * sField )
 {
-	if ( m_tHits.Length()>=MAX_SOURCE_HITS && m_pTokenizer->GetTokenEnd()!=m_pTokenizer->GetBufferEnd() )
+	if ( m_tHits.Length()>=MAX_SOURCE_HITS && m_pTokenizer->GetToken=m_pTokenizer->GetBufferEnd() )
 		sphWarn ( "xmlpipe: collected hits larger than %d(MAX_SOURCE_HITS) while scanning docid=" DOCID_FMT " %s - clipped!!!", MAX_SOURCE_HITS, m_tDocInfo.m_iDocID, sField );
 }
 
@@ -23074,7 +23144,7 @@ public:
 
 
 	void			StartElement ( const char * szName, const char ** pAttrs );
-	void			EndElement ( coar * pName );
+	void			EndElement ( const char * pName );
 	void			Characters ( const char * pCharacters, int iLen );
 
 #if USE_LIBXML
