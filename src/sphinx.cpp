@@ -14108,6 +14108,16 @@ bool CSphIndex_VLN::DoGetKeywords ( CSphVector <CSphKeywordInfo> & dKeywords, co
 #endif
 
 
+static bool IsWeightColumn ( const CSphString & sAttr, const CSphSchema & tSchema )
+{
+	if ( sAttr=="@weight" )
+		return true;
+
+	const CSphColumnInfo * pCol = tSchema.GetAttr ( sAttr.cstr() );
+	return ( pCol && pCol->m_bWeight );
+}
+
+
 bool CSphQueryContext::CreateFilters ( bool bFullscan, const CSphVector<CSphFilterSettings> * pdFilters, const CSphSchema & tSchema, const DWORD * pMvaPool, CSphString & sError )
 {
 	if ( !pdFilters )
@@ -14118,14 +14128,16 @@ bool CSphQueryContext::CreateFilters ( bool bFullscan, const CSphVector<CSphFilt
 		if ( tFilter.m_sAttrName.IsEmpty() )
 			continue;
 
-		if ( bFullscan && tFilter.m_sAttrName=="@weight" )
+		bool bWeight = IsWeightColumn ( tFilter.m_sAttrName, tSchema );
+
+		if ( bFullscan && bWeight )
 			continue; // @weight is not avaiable in fullscan mode
 
 		ISphFilter * pFilter = sphCreateFilter ( tFilter, tSchema, pMvaPool, sError );
 		if ( !pFilter )
 			return false;
 
-		ISphFilter ** pGroup = tFilter.m_sAttrName=="@weight" ? &m_pWeightFilter : &m_pFilter;
+		ISphFilter ** pGroup = bWeight ? &m_pWeightFilter : &m_pFilter;
 		*pGroup = sphJoinFilters ( *pGroup, pFilter );
 	}
 	return true;
@@ -18788,7 +18800,7 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"cong", 8773},
 		{"mdash", 8212},
 		{"ccedil", 231},
-		{"ne", 8800},
+		{"n00},
 		{"sub", 8834},
 		{"Zeta", 918},
 		{"Lambda", 923},
@@ -18803,7 +18815,7 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"frac14", 188},
 		{"ordf", 170},
 		{"Otilde", 213},
-		{", 8734},
+		{"infin", 8734},
 		{""},
 		{"frac12", 189},
 		{"beta", 946},
@@ -23046,9 +23058,7 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 				sDefault = dAttrs[1];
 
 			dAttrs += 2;
-		}
-
-		if ( bIsAttr )
+	if ( bIsAttr )
 		{
 			Info.m_iIndex = m_tSchema.GetAttrsCount ();
 			m_tSchema.AddAttr ( Info, true ); // all attributes are dynamic at indexing time
@@ -23057,7 +23067,9 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 		return;
 	}
 
-	if ( !strcmp ( szName, "sphinx:attr" ) )if ( !m_bInDocset || !m_bInSchema )
+	if ( !strcmp ( szName, "sphinx:attr" ) )
+	{
+		if ( !m_bInDocset || !m_bInSchema )
 		{
 			Error ( "<sphinx:attr> is allowed inside <sphinx:schema> only" );
 			return;
