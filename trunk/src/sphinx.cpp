@@ -8376,6 +8376,7 @@ void SaveIndexSettings ( CSphWriter & tWriter, const CSphIndexSettings & tSettin
 	tWriter.PutString ( tSettings.m_sZones );
 	tWriter.PutDword ( tSettings.m_iBoundaryStep );
 	tWriter.PutDword ( tSettings.m_iStopwordStep );
+	tWriter.PutDword ( tSettings.m_iOvershortStep );
 }
 
 
@@ -12942,6 +12943,9 @@ void LoadIndexSettings ( CSphIndexSettings & tSettings, CSphReader & tReader, DW
 		tSettings.m_iBoundaryStep = (int)tReader.GetDword();
 		tSettings.m_iStopwordStep = (int)tReader.GetDword();
 	}
+
+	if ( uVersion>=28 )
+		tSettings.m_iOvershortStep = (int)tReader.GetDword();
 }
 
 
@@ -14969,7 +14973,7 @@ bool CSphIndex_VLN::MultiQuery ( const CSphQuery * pQuery, CSphQueryResult * pRe
 
 	// parse query
 	XQQuery_t tParsed;
-	if ( !sphParseExtendedQuery ( tParsed, pQuery->m_sQuery.cstr(), pTokenizer.Ptr(), &m_tSchema, pDict, m_tSettings.m_iStopwordStep ) )
+	if ( !sphParseExtendedQuery ( tParsed, pQuery->m_sQuery.cstr(), pTokenizer.Ptr(), &m_tSchema, pDict, m_tSettings ) )
 	{
 		pResult->m_sError = tParsed.m_sParseError;
 		return false;
@@ -15058,7 +15062,7 @@ bool CSphIndex_VLN::MultiQueryEx ( int iQueries, const CSphQuery * pQueries, CSp
 		}
 
 		// parse query
-		if ( sphParseExtendedQuery ( dXQ[i], pQueries[i].m_sQuery.cstr(), pTokenizer, &m_tSchema, pDict, m_tSettings.m_iStopwordStep ) )
+		if ( sphParseExtendedQuery ( dXQ[i], pQueries[i].m_sQuery.cstr(), pTokenizer, &m_tSchema, pDict, m_tSettings ) )
 		{
 			// transform query if needed (quorum transform, keyword expansion, etc.)
 			sphTransformExtendedQuery ( &dXQ[i].m_pRoot );
@@ -18860,8 +18864,8 @@ SphWordID_t CSphDictKeywords::GetWordID ( const BYTE * pWord, int iLen, bool bFi
 	return HitblockGetID ( (const char *)pWord, iLen, uCRC ); // !COMMIT would break, we kind of strcmp inside; but must never get called?
 }
 
-/// binary search for the first hit with wordid greater than or equal to reference
-static CSphWordHit * FindFirstGte ( CSphWordHit * pHits, int iHihWordID_t uID )
+/// binary search for the first hit with wordid grehan or equal to reference
+static CSphWordHit * FindFirstGte ( CSphWordHit * pHits, int iHits, SphWordID_t uID )
 {
 	if ( pHits->m_iWordID==uID )
 		return pHits;
@@ -23109,9 +23113,9 @@ bool CSphSource_XMLPipe::ScanStr ( const char * sTag, char * pRes, int iMaxLengt
 }
 
 
-void CSphSource_XMLPipe::CheckHitsCount ( const char * sField )
+void CSphSource_XMLPipe::CheckHitsC const char * sField )
 {
-	if ( m_tHits.Length()>=MAX_SOURCE_HITS && m_pTokenizer->GetToken=m_pTokenizer->GetBufferEnd() )
+	if ( m_tHits.Length()>=MAX_SOURCE_HITS && m_pTokenizer->GetTokenEnd()!=m_pTokenizer->GetBufferEnd() )
 		sphWarn ( "xmlpipe: collected hits larger than %d(MAX_SOURCE_HITS) while scanning docid=" DOCID_FMT " %s - clipped!!!", MAX_SOURCE_HITS, m_tDocInfo.m_iDocID, sField );
 }
 
