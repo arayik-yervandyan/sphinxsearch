@@ -68,6 +68,10 @@
 #include <sql.h>
 #endif
 
+#if USE_RE2
+#include <re2/re2.h>
+#endif
+
 #if USE_WINDOWS
 	#include <io.h> // for open()
 
@@ -123,6 +127,11 @@
 #if ( USE_WINDOWS && USE_LIBXML )
 	#pragma comment(linker, "/defaultlib:libxml.lib")
 	#pragma message("Automatically linking with libxml.lib")
+#endif
+
+#if ( USE_WINDOWS && USE_RE2 )
+	#pragma comment(linker, "/defaultlib:re2.lib")
+	#pragma message("Automatically linking with re2.lib")
 #endif
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2786,6 +2795,39 @@ void SaveDictionarySettings ( CSphWriter & tWriter, CSphDict * pDict, bool bForc
 
 	tWriter.PutDword ( tSettings.m_iMinStemmingLen );
 	tWriter.PutByte ( tSettings.m_bWordDict || bForceWordDict );
+}
+
+
+void LoadFieldFilterSettings ( CSphReader & tReader, CSphFieldFilterSettings & tFieldFilterSettings )
+{
+	int nRegexps = tReader.GetDword();
+	if ( !nRegexps )
+		return;
+
+	tFieldFilterSettings.m_dRegexps.Resize ( nRegexps );
+	ARRAY_FOREACH ( i, tFieldFilterSettings.m_dRegexps )
+		tFieldFilterSettings.m_dRegexps[i] = tReader.GetString();
+
+	tFieldFilterSettings.m_bUTF8 = !!tReader.GetByte();
+}
+
+
+void SaveFieldFilterSettings ( CSphWriter & tWriter, ISphFieldFilter * pFieldFilter )
+{
+	if ( !pFieldFilter )
+	{
+		tWriter.PutDword ( 0 );
+		return;
+	}
+
+	CSphFieldFilterSettings tSettings;
+	pFieldFilter->GetSettings ( tSettings );
+
+	tWriter.PutDword ( tSettings.m_dRegexps.GetLength() );
+	ARRAY_FOREACH ( i, tSettings.m_dRegexps )
+		tWriter.PutString ( tSettings.m_dRegexps[i] );
+
+	tWriter.PutByte ( tSettings.m_bUTF8 ? 1 : 0 );
 }
 
 
@@ -7252,6 +7294,7 @@ CSphIndex::CSphIndex ( const char * sIndexName, const char * sFilename )
 	, m_bStripperInited ( true )
 	, m_bEnableStar ( false )
 	, m_bId32to64 ( false )
+	, m_pFieldFilter ( NULL )
 	, m_pTokenizer ( NULL )
 	, m_pDict ( NULL )
 	, m_iMaxCachedDocs ( 0 )
@@ -7264,6 +7307,7 @@ CSphIndex::CSphIndex ( const char * sIndexName, const char * sFilename )
 
 CSphIndex::~CSphIndex ()
 {
+	SafeDelete ( m_pFieldFilter );
 	SafeDelete ( m_pTokenizer );
 	SafeDelete ( m_pDict );
 }
@@ -7276,6 +7320,14 @@ void CSphIndex::SetInplaceSettings ( int iHitGap, int iDocinfoGap, float fRelocF
 	m_fRelocFactor = fRelocFactor;
 	m_fWriteFactor = fWriteFactor;
 	m_bInplaceSettings = true;
+}
+
+
+void CSphIndex::SetFieldFilter ( ISphFieldFilter * pFieldFilter )
+{
+	if ( m_pFieldFilter!=pFieldFilter )
+		SafeDelete ( m_pFieldFilter );
+	m_pFieldFilter = pFieldFilter;
 }
 
 
@@ -8423,6 +8475,9 @@ bool CSphIndex_VLN::WriteHeader ( CSphWriter & fdInfo, const DictHeader_t & tDic
 
 	fdInfo.PutDword ( m_iKillListSize );
 	fdInfo.PutDword ( m_uMinMaxIndex );
+
+	// field filter info
+	SaveFieldFilterSettings ( fdInfo, m_pFieldFilter );
 
 	return true;
 }
@@ -13091,6 +13146,13 @@ bool CSphIndex_VLN::LoadHeader ( const char * sHeaderName, bool bStripPath, CSph
 	if ( m_uVersion>=20 )
 		m_uMinMaxIndex = rdInfo.GetDword ();
 
+	if ( m_uVersion>=28 )
+	{
+		CSphFieldFilterSettings tFieldFilterSettings;
+		LoadFieldFilterSettings ( rdInfo, tFieldFilterSettings );
+		SetFieldFilter ( sphCreateFieldFilter ( tFieldFilterSettings, sWarning ) );
+	}
+
 	if ( rdInfo.GetErrorFlag() )
 		m_sLastError.SetSprintf ( "%s: failed to parse header (unexpected eof)", sHeaderName );
 
@@ -13270,6 +13332,16 @@ void CSphIndex_VLN::DebugDumpHeader ( FILE * fp, const char * sHeaderName, bool 
 	}
 
 	fprintf ( fp, "killlist-size: %d\n", m_iKillListSize );
+	fprintf ( fp, "min-max-index: %u\n", m_uMinMaxIndex );
+
+	if ( m_pFieldFilter )
+	{
+		CSphFieldFilterSettings tSettings;
+		m_pFieldFilter->GetSettings ( tSettings );
+		fprintf ( fp, "field-filter-utf8: %d\n", tSettings.m_bUTF8 ? 1 : 0 );
+		ARRAY_FOREACH ( i, tSettings.m_dRegexps )
+			fprintf ( fp, "field-filter-regexp [%d]: %s\n", i, tSettings.m_dRegexps[i].cstr() );
+	}
 }
 
 
@@ -14971,9 +15043,13 @@ bool CSphIndex_VLN::MultiQuery ( const CSphQuery * pQuery, CSphQueryResult * pRe
 	CSphScopedPtr<CSphDict> tDict2 ( NULL );
 	pDict = SetupExactDict ( tDict2, pDict, *pTokenizer.Ptr() );
 
+	const BYTE * sModifiedQuery = (BYTE *)pQuery->m_sQuery.cstr();
+	if ( m_pFieldFilter )
+		sModifiedQuery = m_pFieldFilter->Apply ( sModifiedQuery );
+
 	// parse query
 	XQQuery_t tParsed;
-	if ( !sphParseExtendedQuery ( tParsed, pQuery->m_sQuery.cstr(), pTokenizer.Ptr(), &m_tSchema, pDict, m_tSettings ) )
+	if ( !sphParseExtendedQuery ( tParsed, (const char*)sModifiedQuery, pTokenizer.Ptr(), &m_tSchema, pDict, m_tSettings ) )
 	{
 		pResult->m_sError = tParsed.m_sParseError;
 		return false;
@@ -15290,13 +15366,13 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 	////////////////////
 
 	// adjust result sets
-	if ( bFinalPass )
-		for ( int iSorter=0; iSorter<iSorters; iSorter++ )
+	for ( int iSorter=0; iSorter<iSorters; iSorter++ )
 	{
 		ISphMatchSorter * pTop = ppSorters[iSorter];
-		if ( pTop->GetLength() )
-	CSphMatch * const pHead = pTop->Finalize();
-			const int iCount = pTop->GetLength >First();
+		if ( pTop->GetLength() && bFinalPass )
+		{
+			CSphMatch * const pHead = pTop->Finalize();
+			const int iCount = pTop->GetLength ();
 			CSphMatch * const pTail = pHead + iCount;
 
 			for ( CSphMatch * pCur=pHead; pCur<pTail; pCur++ )
@@ -15322,9 +15398,13 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 	return true;
 }
 
-//////////////////////////////////////////////////////////////////////////
+
+
+////////////////////////////////////////////////////////////////////////
 // INDEX CHECKING
-//////////////////////////////////////////////////////////////////////////
+
+
+////////////////////////////////////////////////////////////////////////
 
 #define LOC_FAIL(_args) \
 	if ( ++iFails<=FAILS_THRESH ) \
@@ -15335,12 +15415,13 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 		iFailsPrinted++; \
 		\
 		if ( iFails==FAILS_THRESH ) \
-			fprintf ( fp, "(threshold reached; suppressing further output)\n" ); 2 );
+			fprintf ( fp, "(threshold reached; suppressing further output)\n" ); \
+	}
 
 int CSphIndex_VLN::DebugCheck ( FILE * fp )
 {
 	int64_t tmCheck = sphMicroTimer();
-	int i= 0;
+	int iFails = 0;
 	int iFailsPrinted = 0;
 	const int FAILS_THRESH = 100;
 
@@ -18790,7 +18871,7 @@ void CSphDictKeywords::DictEntry ( SphWordID_t, BYTE * sKeyword, int iDocs, int 
 			m_pDictChunk = new DictKeyword_t [ DICT_CHUNK ];
 			m_iDictChunkFree = DICT_CHUNK;
 			m_dDictChunks.Add ( m_pDictChunk );
-			m_iMemUse += sizeof(DictKeyword_t)*DICT_CHUNK;
+			m_iMemUse += sizeof(DictKeyworICT_CHUNK;
 		}
 
 		// alloc keyword
@@ -18822,7 +18903,7 @@ void CSphDictKeywords::DictEntry ( SphWordID_t, BYTE * sKeyword, int iDocs, int 
 	pWord->m_uOff = iDoclistOffset;
 	pWord->m_iDocs = iDocs;
 	pWord->m_iHits = iHits;
-	pWord->m_uHsphint = DoclistHintPack ( iDocs, iDoclistLength );
+	pWord->m_uHint = sphDoclistHintPack ( iDocs, iDoclistLength );
 }
 
 SphWordID_t CSphDictKeywords::GetWordID ( BYTE * pWord )
@@ -18864,7 +18945,7 @@ SphWordID_t CSphDictKeywords::GetWordID ( const BYTE * pWord, int iLen, bool bFi
 	return HitblockGetID ( (const char *)pWord, iLen, uCRC ); // !COMMIT would break, we kind of strcmp inside; but must never get called?
 }
 
-/// binary search for the first hit with wordid grehan or equal to reference
+/// binary search for the first hit with wordid greater than or equal to reference
 static CSphWordHit * FindFirstGte ( CSphWordHit * pHits, int iHits, SphWordID_t uID )
 {
 	if ( pHits->m_iWordID==uID )
@@ -20438,9 +20519,137 @@ bool CSphHTMLStripper::IsValidTagStart ( int iCh ) const
 	return ( i>=0 && i<MAX_CHAR_INDEX );
 }
 
-SOURCE
-////////////////////////////////////////////////////////////////////////// GENERIC SOURCESOURCE
-////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////
+#if USE_RE2
+class CSphFieldRegExps : public ISphFieldFilter
+{
+public:
+	explicit				CSphFieldRegExps ( bool bUTF8 );
+	virtual					~CSphFieldRegExps ();
+
+	virtual	const BYTE *	Apply ( const BYTE * sField, int iLength = 0 );
+	virtual int				GetResultLength () const;
+	virtual	void			GetSettings ( CSphFieldFilterSettings & tSettings ) const;
+
+	bool					AddRegExp ( const char * sRegExp, CSphString & sError );
+
+private:
+	struct RegExp_t
+	{
+		CSphString	m_sFrom;
+		CSphString	m_sTo;
+
+		RE2 *		m_pRE2;
+	};
+
+	CSphVector<RegExp_t>	m_dRegexps;
+	bool					m_bUTF8;
+
+	std::string				m_sField;
+};
+
+
+CSphFieldRegExps::CSphFieldRegExps ( bool bUTF8 )
+	: m_bUTF8 ( bUTF8 )
+{
+}
+
+CSphFieldRegExps::~CSphFieldRegExps ()
+{
+	ARRAY_FOREACH ( i, m_dRegexps )
+		SafeDelete ( m_dRegexps[i].m_pRE2 );
+}
+
+const BYTE * CSphFieldRegExps::Apply ( const BYTE * sField, int iLength )
+{
+	if ( !sField || !*sField )
+		return sField;
+
+	bool bReplaced = false;
+	m_sField = iLength ? std::string ( (char *) sField, iLength ) : (char *) sField;
+	ARRAY_FOREACH ( i, m_dRegexps )
+	{
+		assert ( m_dRegexps[i].m_pRE2 );
+		if ( RE2::GlobalReplace ( &m_sField, *m_dRegexps[i].m_pRE2, m_dRegexps[i].m_sTo.cstr() ) )
+			bReplaced = true;
+	}
+
+	return bReplaced ? (const BYTE *)m_sField.c_str () : sField;
+}
+
+int	CSphFieldRegExps::GetResultLength () const
+{
+	return m_sField.length();
+}
+
+void CSphFieldRegExps::GetSettings ( CSphFieldFilterSettings & tSettings ) const
+{
+	tSettings.m_bUTF8 = m_bUTF8;
+	tSettings.m_dRegexps.Resize ( m_dRegexps.GetLength() );
+	ARRAY_FOREACH ( i, m_dRegexps )
+		tSettings.m_dRegexps[i].SetSprintf ( "%s => %s", m_dRegexps[i].m_sFrom.cstr(), m_dRegexps[i].m_sTo.cstr() );
+}
+
+bool CSphFieldRegExps::AddRegExp ( const char * sRegExp, CSphString & sError )
+{
+	const char sSplitter [] = "=>";
+	const char * sSplit = strstr ( sRegExp, sSplitter );
+	if ( !sSplit )
+	{
+		sError = "mapping token (=>) not found";
+		return false;
+	} else if ( strstr ( sSplit + strlen ( sSplitter ), sSplitter ) )
+	{
+		sError = "mapping token (=>) found more than once";
+		return false;
+	}
+
+	m_dRegexps.Resize ( m_dRegexps.GetLength () + 1 );
+	RegExp_t & tRegExp = m_dRegexps.Last();
+	tRegExp.m_sFrom.SetBinary ( sRegExp, sSplit-sRegExp );
+	tRegExp.m_sTo = sSplit + strlen ( sSplitter );
+	tRegExp.m_sFrom.Trim();
+	tRegExp.m_sTo.Trim();
+
+	RE2::Options tOptions;
+	tOptions.set_utf8 ( m_bUTF8 );
+	tRegExp.m_pRE2 = new RE2 ( tRegExp.m_sFrom.cstr(), tOptions );
+
+	std::string sRE2Error;
+	if ( !tRegExp.m_pRE2->CheckRewriteString ( tRegExp.m_sTo.cstr(), &sRE2Error ) )
+	{
+		sError.SetSprintf ( "\"%s => %s\" is not a valid mapping: %s", tRegExp.m_sFrom.cstr(), tRegExp.m_sTo.cstr(), sRE2Error.c_str() );
+		SafeDelete ( tRegExp.m_pRE2 );
+		m_dRegexps.Remove ( m_dRegexps.GetLength() - 1 );
+		return false;
+	}
+
+	return true;
+}
+#endif
+
+#if USE_RE2
+ISphFieldFilter * sphCreateFieldFilter ( const CSphFieldFilterSettings & tFilterSettings, CSphString & sError )
+{
+	CSphFieldRegExps * pFilter = new CSphFieldRegExps ( tFilterSettings.m_bUTF8 );
+	ARRAY_FOREACH ( i, tFilterSettings.m_dRegexps )
+		pFilter->AddRegExp ( tFilterSettings.m_dRegexps[i].cstr(), sError );
+
+	return pFilter;
+}
+#else
+ISphFieldFilter * sphCreateFieldFilter ( const CSphFieldFilterSettings &, CSphString & )
+{
+	return NULL;
+}
+#endif
+its;
+}
+
+///////////////////////////////////////////////////////////////////////////GENERIC SOURCE
+
+/////////////////////////////////////////////////////////////////////////////
 CSphSourceSettings::CSphSourceSettings ()
 	: m_iMinPrefixLen ( 0 )
 	, m_iMinInfixLen ( 0 )
@@ -20473,6 +20682,7 @@ SOURCE
 CSphSource::CSphSource ( const char * sName )
 	: m_pTokenizer ( NULL )
 	, m_pDict ( NULL )
+	, m_pFieldFilter ( NULL )
 	, m_tSchema ( sName )
 	, m_bStripHTML ( false )
 	, m_iNullIds ( 0 )
@@ -20519,6 +20729,11 @@ bool CSphSource::SetStripHTML ( const char * sExtractAttrs, const char * sRemove
 	return true;
 }
 
+
+void CSphSource::SetFieldFilter ( ISphFieldFilter * pFilter )
+{
+	m_pFieldFilter = pFilter;
+}
 
 void CSphSource::SetTokenizer ( ISphTokenizer * pTokenizer )
 {
@@ -20656,6 +20871,12 @@ CSphSource_Document::CSphBuildHitsState_t::CSphBuildHitsState_t ()
 {
 }
 
+CSphSource_Document::CSphBuildHitsState_t::~CSphBuildHitsState_t ()
+{
+	ARRAY_FOREACH ( i, m_dTmpFieldStorage )
+		SafeDeleteArray ( m_dTmpFieldStorage[i] );
+}
+
 CSphSource_Document::CSphSource_Document ( const char * sName )
 	: CSphSource ( sName )
 	, m_pReadFileBuffer ( NULL )
@@ -20678,6 +20899,14 @@ bool CSphSource_Document::IterateDocument ( CSphString & sError )
 
 	m_tState = CSphBuildHitsState_t();
 	m_tState.m_iEndField = m_tSchema.m_iBaseFields ? m_tSchema.m_iBaseFields : m_tSchema.m_dFields.GetLength();
+	m_tState.m_dTmpFieldPtrs.Resize ( m_tState.m_iEndField );
+	m_tState.m_dTmpFieldStorage.Resize ( m_tState.m_iEndField );
+
+	ARRAY_FOREACH ( i, m_tState.m_dTmpFieldPtrs )
+	{
+		m_tState.m_dTmpFieldPtrs[i] = NULL;
+		m_tState.m_dTmpFieldStorage[i] = NULL;
+	}
 
 	m_dMva.Resize ( 1 ); // must not have zero offset
 
@@ -20713,6 +20942,41 @@ bool CSphSource_Document::IterateDocument ( CSphString & sError )
 			}
 			if ( !bOk && m_eOnFileFieldError==FFE_SKIP_DOCUMENT )
 				continue;
+		}
+
+		if ( m_pFieldFilter )
+		{
+			// new field strings may be longer than original, that's why we need temporary storage
+			ARRAY_FOREACH ( i, m_tState.m_dTmpFieldStorage )
+				SafeDeleteArray ( m_tState.m_dTmpFieldStorage[i] );
+
+			bool bHaveModifiedFields = false;
+			for ( int iField=0; iField<m_tState.m_iEndField; iField++ )
+			{
+				if ( m_tSchema.m_dFields[iField].m_bFilename )
+				{
+					m_tState.m_dTmpFieldPtrs[iField] = m_tState.m_dFields[iField];
+					continue;
+				}
+
+				BYTE * sValue = m_tState.m_dFields[iField];
+				const BYTE * sResult = m_pFieldFilter->Apply ( sValue );
+				if ( sResult!=sValue )
+				{
+					// emulate CString's safety gap
+					const int FAKE_SAFETY_GAP = 4;
+					int iResultLen = m_pFieldFilter->GetResultLength();
+					m_tState.m_dTmpFieldStorage[iField] = new BYTE [iResultLen + 1 + FAKE_SAFETY_GAP];
+					memcpy ( m_tState.m_dTmpFieldStorage[iField], sResult, iResultLen );
+					m_tState.m_dTmpFieldStorage[iField][iResultLen] = '\0';
+					m_tState.m_dTmpFieldPtrs[iField] = m_tState.m_dTmpFieldStorage[iField];
+					bHaveModifiedFields = true;
+				} else
+					m_tState.m_dTmpFieldPtrs[iField] = m_tState.m_dFields[iField];
+			}
+
+			if ( bHaveModifiedFields )
+				m_tState.m_dFields = (BYTE **)&( m_tState.m_dTmpFieldPtrs[0] );
 		}
 
 		// we're good
@@ -21092,9 +21356,21 @@ void CSphSource_Document::BuildHits ( CSphString & sError, bool bSkipEndMarker )
 				continue;
 
 			// load files
-			int iFieldBytes = m_tSchema.m_dFields[m_tState.m_iField].m_bFilename
-				? LoadFileField ( &sField, sError )
-				: (int) strlen ( (char*)sField );
+			int iFieldBytes;
+			const BYTE * sTextToIndex;
+			if ( m_tSchema.m_dFields[m_tState.m_iField].m_bFilename )
+			{
+				iFieldBytes = LoadFileField ( &sField, sError );
+				sTextToIndex = sField;
+				if ( m_pFieldFilter )
+					sTextToIndex = m_pFieldFilter->Apply ( sTextToIndex );
+
+				iFieldBytes = sTextToIndex!=sField ? m_pFieldFilter->GetResultLength() : (int) strlen ( (char*)sField );
+			} else
+			{
+				iFieldBytes = (int) strlen ( (char*)sField );
+				sTextToIndex = sField;
+			}
 
 			if ( iFieldBytes<=0 )
 				continue;
@@ -21102,14 +21378,14 @@ void CSphSource_Document::BuildHits ( CSphString & sError, bool bSkipEndMarker )
 			// strip html
 			if ( m_bStripHTML )
 			{
-				m_pStripper->Strip ( sField );
-				iFieldBytes = (int) strlen ( (char*)sField );
+				m_pStripper->Strip ( (BYTE*)sTextToIndex );
+				iFieldBytes = (int) strlen ( (char*)sTextToIndex );
 			}
 
 			// tokenize and build hits
 			m_tStats.m_iTotalBytes += iFieldBytes;
 
-			m_pTokenizer->SetBuffer ( sField, iFieldBytes );
+			m_pTokenizer->SetBuffer ( (BYTE*)sTextToIndex, iFieldBytes );
 
 			m_tState.m_iHitPos = HITMAN::Create ( m_tState.m_iField, m_tState.m_iStartPos );
 		}
@@ -22752,9 +23028,7 @@ bool CSphSource_XMLPipe::IterateDocument ( CSphString & sError )
 	/////////////////////////
 
 	// check for eof
-	if ( !SkipWhitespace() )
-	{
-		m_tDocInfo.m_iDocID = 0;
+	if ( !SkipWhitespace()		m_tDocInfo.m_iDocID = 0;
 		return true;
 	}
 
@@ -22776,11 +23050,22 @@ bool CSphSource_XMLPipe::IterateDocument ( CSphString & sError )
 
 	// index title
 	{
-		int iLen = (int)strlen ( sTitle );
+		const BYTE * sTextToIndex = (BYTE *)sTitle;
+		int iLen = -1;
+		if ( m_pFieldFilter )
+		{
+			sTextToIndex = m_pFieldFilter->Apply ( sTextToIndex );
+			if ( sTextToIndex!=(BYTE *)sTitle )
+				iLen = m_pFieldFilter->GetResultLength();
+		}
+
+		if ( iLen==-1 )
+			iLen = (int)strlen ( (char *)sTextToIndex );
+
 		Hitpos_t iPos = HITMAN::Create ( 0, 1 );
 		BYTE * sWord;
 
-		m_pTokenizer->SetBuffer ( (BYTE*)sTitle, iLen );
+		m_pTokenizer->SetBuffer ( (BYTE *)sTextToIndex, iLen );
 		while ( ( sWord = m_pTokenizer->GetToken() )!=NULL && m_tHits.Length()<MAX_SOURCE_HITS )
 		{
 			m_tHits.AddHit ( m_tDocInfo.m_iDocID, m_pDict->GetWordID ( sWord ), iPos );
@@ -22844,7 +23129,12 @@ bool CSphSource_XMLPipe::IterateDocument ( CSphString & sError )
 		}
 	}
 
-	m_pTokenizer->SetBuffer ( m_pBuffer, p-m_pBuffer );
+	const BYTE * sTextToIndex = m_pFieldFilter ? m_pFieldFilter->Apply ( m_pBuffer, p-m_pBuffer ) : m_pBuffer;
+
+	if ( sTextToIndex!=m_pBuffer )
+		m_pTokenizer->SetBuffer ( (BYTE*)sTextToIndex, m_pFieldFilter->GetResultLength() );
+	else
+		m_pTokenizer->SetBuffer ( m_pBuffer, p-m_pBuffer );
 
 	// tokenize
 	BYTE * sWord;
@@ -22912,11 +23202,15 @@ ISphHits * CSphSource_XMLPipe::IterateHits ( CSphString & )
 
 	m_bHitsReady = false;
 
-	return &m_tHitsSphRange_t	CSphSource_XMLPipe::IterateFieldMVAStart ( int )
+	return &m_tHits;
+}
+
+
+SphRange_t	CSphSource_XMLPipe::IterateFieldMVAStart ( int )
 {
 	SphRange_t tRange;
 	tRange.m_iStart = tRange.m_iLength = 0;
-	return tRange_tHits;
+	return tRange;
 }
 
 
@@ -23113,7 +23407,7 @@ bool CSphSource_XMLPipe::ScanStr ( const char * sTag, char * pRes, int iMaxLengt
 }
 
 
-void CSphSource_XMLPipe::CheckHitsC const char * sField )
+void CSphSource_XMLPipe::CheckHitsCount ( const char * sField )
 {
 	if ( m_tHits.Length()>=MAX_SOURCE_HITS && m_pTokenizer->GetTokenEnd()!=m_pTokenizer->GetBufferEnd() )
 		sphWarn ( "xmlpipe: collected hits larger than %d(MAX_SOURCE_HITS) while scanning docid=" DOCID_FMT " %s - clipped!!!", MAX_SOURCE_HITS, m_tDocInfo.m_iDocID, sField );
