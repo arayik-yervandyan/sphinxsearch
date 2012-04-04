@@ -5114,6 +5114,7 @@ CSphQuery::CSphQuery ()
 	, m_eSort		( SPH_SORT_RELEVANCE )
 	, m_iMaxMatches	( 1000 )
 	, m_bSortKbuffer	( false )
+	, m_bZSlist		( false )
 	, m_eGroupFunc		( SPH_GROUPBY_ATTR )
 	, m_sGroupSortBy	( "@groupby desc" )
 	, m_sGroupDistinct	( "" )
@@ -5343,7 +5344,7 @@ bool SelectParser_t::IsTokenEqual ( YYSTYPE * pTok, const char * sRef )
 {
 	int iLen = strlen(sRef);
 	if ( iLen!=( pTok->m_iEnd - pTok->m_iStart ) )
-		return false;		 
+		return false;
 	return strncasecmp ( m_pStart + pTok->m_iStart, sRef, iLen )==0;
 }
 
@@ -5476,6 +5477,7 @@ void CSphSchema::ResetAttrs ()
 	m_dAttrs.Reset();
 	m_dStaticUsed.Reset();
 	m_dDynamicUsed.Reset();
+	m_dPtrAttrs.Reset();
 	m_iStaticSize = 0;
 }
 
@@ -5496,10 +5498,14 @@ void CSphSchema::AddAttr ( const CSphColumnInfo & tCol, bool bDynamic )
 	if ( tCol.m_tLocator.m_iBitCount>0 )		iBits = tCol.m_tLocator.m_iBitCount;
 	if ( tCol.m_eAttrType==SPH_ATTR_BOOL )		iBits = 1;
 	if ( tCol.m_eAttrType==SPH_ATTR_BIGINT )	iBits = 64;
-	tLoc.m_iBitCount = iBits;
 	tLoc.m_bDynamic = bDynamic;
-
 	CSphVector<int> & dUsed = bDynamic ? m_dDynamicUsed : m_dStaticUsed;
+	if ( tCol.m_eAttrType==SPH_ATTR_STRINGPTR )
+	{
+		iBits = ROWITEMPTR_BITS;
+		m_dPtrAttrs.Add ( dUsed.GetLength() );
+	}
+	tLoc.m_iBitCount = iBits;
 	if ( iBits>=ROWITEM_BITS )
 	{
 		tLoc.m_iBitOffset = dUsed.GetLength()*ROWITEM_BITS;
@@ -5556,6 +5562,63 @@ void CSphSchema::RemoveAttr ( int iIndex )
 
 	// do remove
 	m_dAttrs.Remove ( iIndex );
+	m_dPtrAttrs.RemoveValue ( iItem );
+}
+
+void CSphSchema::CloneMatch ( CSphMatch * pDst, const CSphMatch & rhs ) const
+{
+	assert ( pDst );
+	FreeStringPtrs ( pDst );
+	pDst->Clone ( rhs, GetDynamicSize() );
+	CopyStrings ( pDst, rhs );
+};
+
+void CSphSchema::CloneWholeMatch ( CSphMatch * pDst, const CSphMatch & rhs ) const
+{
+	assert ( pDst );
+	FreeStringPtrs ( pDst );
+	pDst->Clone ( rhs, GetRowSize() );
+	CopyStrings ( pDst, rhs );
+};
+
+void CSphSchema::CopyStrings ( CSphMatch * pDst, const CSphMatch & rhs, int iUpBound ) const
+{
+	if ( iUpBound<0 )
+	{
+		ARRAY_FOREACH ( i, m_dPtrAttrs )
+			*(const char**) (pDst->m_pDynamic+m_dPtrAttrs[i]) = CSphString (*(const char**)(rhs.m_pDynamic+m_dPtrAttrs[i])).Leak();
+	} else
+	{
+		ARRAY_FOREACH ( i, m_dPtrAttrs )
+			if ( m_dPtrAttrs[i] < iUpBound )
+				*(const char**) (pDst->m_pDynamic+m_dPtrAttrs[i]) = CSphString (*(const char**)(rhs.m_pDynamic+m_dPtrAttrs[i])).Leak();
+			else
+				break;
+	}
+}
+
+void CSphSchema::FreeStringPtrs ( CSphMatch * pMatch, int iUpBound ) const
+{
+	assert ( pMatch );
+	if ( !pMatch->m_pDynamic )
+		return;
+
+	if ( m_dPtrAttrs.GetLength()==0 )
+		return;
+
+	CSphString sStr;
+	if ( iUpBound<0 )
+	{
+		ARRAY_FOREACH ( i, m_dPtrAttrs )
+			sStr.Adopt ( (char**) (pMatch->m_pDynamic+m_dPtrAttrs[i]));
+	} else
+	{
+		ARRAY_FOREACH ( i, m_dPtrAttrs )
+			if ( m_dPtrAttrs[i] < iUpBound )
+				sStr.Adopt ( (char**) (pMatch->m_pDynamic+m_dPtrAttrs[i]));
+			else
+				break;
+	}
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -6308,6 +6371,8 @@ CSphQueryResult::~CSphQueryResult ()
 	{
 		SafeDeleteArray ( m_dStorage2Free[i] );
 	}
+	ARRAY_FOREACH ( i, m_dMatches )
+		m_tSchema.FreeStringPtrs ( &m_dMatches[i] );
 }
 
 void CSphQueryResult::LeakStorages ( CSphQueryResult & tDst )
@@ -12490,11 +12555,15 @@ static inline void CalcContextItems ( CSphMatch & tMatch, const CSphVector<CSphQ
 			tMatch.SetAttr ( tCalc.m_tLoc, tCalc.m_pExpr->IntEval(tMatch) );
 		else if ( tCalc.m_eType==SPH_ATTR_BIGINT )
 			tMatch.SetAttr ( tCalc.m_tLoc, tCalc.m_pExpr->Int64Eval(tMatch) );
-		else
+		else if ( tCalc.m_eType==SPH_ATTR_STRINGPTR )
+		{
+			const BYTE * pStr = NULL;
+			tCalc.m_pExpr->StringEval ( tMatch, &pStr );
+			tMatch.SetAttr ( tCalc.m_tLoc, (SphAttr_t) pStr );
+		} else
 			tMatch.SetAttrFloat ( tCalc.m_tLoc, tCalc.m_pExpr->Eval(tMatch) );
 	}
 }
-
 
 void CSphQueryContext::CalcFilter ( CSphMatch & tMatch ) const
 {
@@ -12513,6 +12582,38 @@ void CSphQueryContext::CalcFinal ( CSphMatch & tMatch ) const
 	CalcContextItems ( tMatch, m_dCalcFinal );
 }
 
+static inline void FreeStrItems ( CSphMatch & tMatch, const CSphVector<CSphQueryContext::CalcItem_t> & dItems )
+{
+	ARRAY_FOREACH ( i, dItems )
+	{
+		const CSphQueryContext::CalcItem_t & tCalc = dItems[i];
+		if ( tCalc.m_eType==SPH_ATTR_STRINGPTR )
+		{
+			if ( !tMatch.m_pDynamic )
+				continue;
+
+			CSphString sStr;
+			sStr.Adopt ( (char**) (tMatch.m_pDynamic+tCalc.m_tLoc.m_iBitOffset/ROWITEM_BITS));
+		}
+	}
+}
+
+void CSphQueryContext::FreeStrFilter ( CSphMatch & tMatch ) const
+{
+	FreeStrItems ( tMatch, m_dCalcFilter );
+}
+
+
+void CSphQueryContext::FreeStrSort ( CSphMatch & tMatch ) const
+{
+	FreeStrItems ( tMatch, m_dCalcSort );
+}
+
+
+void CSphQueryContext::FreeStrFinal ( CSphMatch & tMatch ) const
+{
+	FreeStrItems ( tMatch, m_dCalcFinal );
+}
 
 void CSphQueryContext::SetStringPool ( const BYTE * pStrings )
 {
@@ -12587,6 +12688,7 @@ bool CSphIndex_VLN::MatchExtended ( CSphQueryContext * pCtx, const CSphQuery * p
 				}
 				bNewMatch |= ppSorters[iSorter]->Push ( pMatch[i] );
 			}
+			pCtx->FreeStrSort ( pMatch[i] );
 
 			if ( bNewMatch )
 				if ( --iCutoff==0 )
@@ -13516,7 +13618,7 @@ void CSphIndex_VLN::DumpHitlist ( FILE * fp, const char * sKeyword, bool bID )
 	tTermSetup.m_pDict = m_pDict;
 	tTermSetup.m_pIndex = this;
 	tTermSetup.m_eDocinfo = m_tSettings.m_eDocinfo;
-	tTermSetup.m_tMin.Clone ( *m_pMin, m_tSchema.GetRowSize() );
+	m_tSchema.CloneWholeMatch ( &tTermSetup.m_tMin, *m_pMin );
 	tTermSetup.m_bSetupReaders = true;
 
 	Qword tKeyword ( false, false );
@@ -14248,6 +14350,17 @@ bool CSphQueryContext::SetupCalc ( CSphQueryResult * pResult, const CSphSchema &
 	return true;
 }
 
+void CSphQueryContext::SetupExtraData ( ISphExtra * pData )
+{
+	ARRAY_FOREACH ( i, m_dCalcFilter )
+		m_dCalcFilter[i].m_pExpr->SetupExtraData ( pData );
+
+	ARRAY_FOREACH ( i, m_dCalcSort )
+		m_dCalcSort[i].m_pExpr->SetupExtraData ( pData );
+
+	ARRAY_FOREACH ( i, m_dCalcFinal )
+		m_dCalcFinal[i].m_pExpr->SetupExtraData ( pData );
+}
 
 CSphDict * CSphIndex_VLN::SetupStarDict ( CSphScopedPtr<CSphDict> & tContainer, CSphDict * pPrevDict, ISphTokenizer & tTokenizer ) const
 {
@@ -15166,6 +15279,8 @@ bool CSphIndex_VLN::MultiQuery ( const CSphQuery * pQuery, CSphQueryResult * pRe
 	if ( m_iMaxCachedDocs && m_iMaxCachedHits )
 		iCommonSubtrees = sphMarkCommonSubtrees ( 1, &tParsed );
 
+	tParsed.m_bNeedSZlist = pQuery->m_bZSlist;
+
 	CSphQueryNodeCache tNodeCache ( iCommonSubtrees, m_iMaxCachedDocs, m_iMaxCachedHits );
 	bool bResult = ParsedMultiQuery ( pQuery, pResult, iSorters, &dSorters[0], tParsed, pDict, pExtraFilters, &tNodeCache, iTag );
 
@@ -15352,7 +15467,7 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 	tTermSetup.m_tMin.m_iDocID = m_pMin->m_iDocID;
 	if ( m_tSettings.m_eDocinfo==SPH_DOCINFO_INLINE )
 	{
-		tTermSetup.m_tMin.Clone ( *m_pMin, m_tSchema.GetRowSize() );
+		m_tSchema.CloneWholeMatch ( &tTermSetup.m_tMin, *m_pMin );
 		tTermSetup.m_iInlineRowitems = m_tSchema.GetRowSize();
 	}
 	tTermSetup.m_iDynamicRowitems = pResult->m_tSchema.GetDynamicSize();
@@ -15374,6 +15489,8 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 	CSphScopedPtr<ISphRanker> pRanker ( sphCreateRanker ( tXQ, pQuery, pResult, tTermSetup, tCtx ) );
 	if ( !pRanker.Ptr() )
 		return false;
+
+	tCtx.SetupExtraData ( pRanker.Ptr() );
 
 	// empty index, empty response!
 	if ( m_bIsEmpty )
@@ -18764,8 +18881,10 @@ bool CSphDictKeywords::DictDictHeader_t * pHeadersCount, int iMemLimit, CSphStri
 		}
 
 		tEntry.m_iBlock = i;
-		qWords.Push ( tEntry );CSphKeywordDeltaWriter tLastKeyword;'\0';
+		qWords.Push ( t);
+	}
 
+	CSphKeywordDeltaWriter tLastKeyword;
 	int iWords = 0;
 	while ( qWords.GetLength() )
 	{
@@ -18773,7 +18892,7 @@ bool CSphDictKeywords::DictDictHeader_t * pHeadersCount, int iMemLimit, CSphStri
 		const int iLen = strlen ( tWord.m_sKeyword ); // OPTIMIZE?
 
 		// store checkpoints as needed
-		if ( ( iWoSPH_rds % WORDLIST_CHECKPOINT )==0 )
+		if ( ( iWords % SPH_WORDLIST_CHECKPOINT )==0 )
 		{
 			// emit a checkpoint, unless we're at the very dict beginning
 			if ( iWords )
@@ -18788,25 +18907,28 @@ bool CSphDictKeywords::DictDictHeader_t * pHeadersCount, int iMemLimit, CSphStri
 
 			CSphWordlistCheckpoint & tCheckpoint = m_dCheckpoints.Add ();
 			tCheckpoint.m_sWord = (char*) sClone;
-			tCheckpoint.m_iWordlistOffset = m_wrDict.GetPos()tLastKeyword.Reset();
+			tCheckpoint.m_iWordlistOffset = m_wrDict.GetPos();
+
+			tLastKeyword.Reset();
 		}
-		iWords++= '\0';
+		iWords++;
 
 		// write final dict entry
 		assert ( iLen );
 		assert ( tWord.m_uOff );
 		assert ( tWord.m_iDocs );
-		assert ( tWord.m_iHi
-		tLastKeyword.PutDelta ( m_wrDict, (const BYTE *)tWord.m_sKeyword, iLen );ta );
+		assert ( tWord.m_iHits );
 
+		tLastKeyword.PutDelta ( m_wrDict, (const BYTE *)tWord.m_sKeyword, iLen );
 		m_wrDict.ZipOffset ( tWord.m_uOff );
 		m_wrDict.ZipInt ( tWord.m_iDocs );
 		m_wrDict.ZipInt ( tWord.m_iHits );
-		if ( tWuHintTHRESH )
+		if ( tWord.m_uHint )
 			m_wrDict.PutByte ( tWord.m_uHint );
-build infixes
+
+		// build infixes
 		if ( pInfixer )
-			pInfixer->AddWord ( (const BYTE*)tWord.m_sKeyword, m_dCheckpoints.GetLength()_uHint );
+			pInfixer->AddWord ( (const BYTE*)tWord.m_sKeyword, m_dCheckpoints.GetLength() );
 
 		// next
 		int iBin = tWord.m_iBlock;
@@ -18829,13 +18951,15 @@ build infixes
 
 	// end of dictionary block
 	m_wrDict.ZipInt ( 0 );
-	m_wrDict.ZipInt ( 0// flush infix hash entries, if any
+	m_wrDict.ZipInt ( 0 );
+
+	// flush infix hash entries, if any
 	if ( pInfixer )
 		pInfixer->SaveEntries ( m_wrDict );
 
 	// flush wordlist checkpoints (blocks)
 	pHeader->m_iDictCheckpointsOffset = m_wrDict.GetPos();
-	pHeader->m_iDictCheckpointssCount = m_dCheckpoints.GetLength();
+	pHeader->m_iDictCheckpoints = m_dCheckpoints.GetLength();
 
 	ARRAY_FOREACH ( i, m_dCheckpoints )
 	{
@@ -18848,7 +18972,10 @@ build infixes
 		m_wrDict.PutBytes ( m_dCheckpoints[i].m_sWord, iLen );
 		m_wrDict.PutOffset ( m_dCheckpoints[i].m_iWordlistOffset );
 
-		SafeDeleteArray ( m_dCheckpoints[i].m_sWord );// flush infix hash blocks
+		SafeDeleteArray ( m_dCheckpoints[i].m_sWord );
+	}
+
+	// flush infix hash blocks
 	if ( pInfixer )
 		pInfixer->SaveEntryBlocks ( m_wrDict, pHeader );
 
@@ -18863,12 +18990,11 @@ build infixes
 
 	// about it
 	LOC_CLEANUP();
-	#undef LOC_CLEANUP );
-	}
+	#undef LOC_CLEANUP
 
 	m_wrDict.CloseFile ();
 	if ( m_wrDict.IsError() )
-		sError.SetSprintf ( "dictionary write erut of space?)" );
+		sError.SetSprintf ( "dictionary write error (out of space?)" );
 	return !m_wrDict.IsError();
 }
 
@@ -22867,7 +22993,7 @@ bool CSphSource_PgSQL::Setup ( const CSphSourceParams_PgSQL & tParams )
 	CSphSource_SQL::Setup ( tParams );
 
 	m_sPgClientEncoding = tParams.m_sClientEncoding;
-	if ( !m_sPgClientEncoding.cstr() )
+	ifsPgClientEncoding.cstr() )
 		m_sPgClientEncoding = "";
 
 	// build and store DSN for error reporting
@@ -22910,17 +23036,19 @@ bool CSphSource_PgSQL::SqlConnect ()
 	m_tPgDriver = PQsetdbLogin ( m_tParams.m_sHost.cstr(), sPort, NULL, NULL,
 		m_tParams.m_sDB.cstr(), m_tParams.m_sUser.cstr(), m_tParams.m_sPass.cstr() );
 
-	if ( PQstatus ( m_tPgDriver )==CONNECTION_B{
+	if ( PQstatus ( m_tPgDriver )==CONNECTION_BAD )
+	{
 		if ( m_tParams.m_bPrintQueries )
 			fprintf ( stdout, "SQL-CONNECT: FAIL\n" );
 		return false;
-	}false;
+	}
 
 	// set client encoding
 	if ( !m_sPgClientEncoding.IsEmpty() )
 		if ( -1==PQsetClientEncoding ( m_tPgDriver, m_sPgClientEncoding.cstr() ) )
 	{
-		SqlDisconnect if ( m_tParams.m_bPrintQueries )
+		SqlDisconnect ();
+		if ( m_tParams.m_bPrintQueries )
 			fprintf ( stdout, "SQL-CONNECT: FAIL\n" );
 		return false;
 	}
@@ -22935,8 +23063,7 @@ void CSphSource_PgSQL::SqlDisconnect ()
 {
 	if ( m_tParams.m_bPrintQueries )
 		fprintf ( stdout, "SQL-DISCONNECT\n" );
-t ()
-{
+
 	PQfinish ( m_tPgDriver );
 }
 
@@ -22949,13 +23076,14 @@ bool CSphSource_PgSQL::SqlQuery ( const char * sQuery )
 	m_pPgResult = PQexec ( m_tPgDriver, sQuery );
 
 	ExecStatusType eRes = PQresultStatus ( m_pPgResult );
-	if ( ( eRes!=PGRES_COMMAND_OK ) && ( eRes!=PGRES_TUPLES_OK{
+	if ( ( eRes!=PGRES_COMMAND_OK ) && ( eRes!=PGRES_TUPLES_OK ) )
+	{
 		if ( m_tParams.m_bPrintQueries )
 			fprintf ( stdout, "SQL-QUERY: %s: FAIL\n", sQuery );
 		return false;
 	}
 	if ( m_tParams.m_bPrintQueries )
-		fprintf ( stdout, "SQL-QUERY: %s: ok\n", sQuery ) false;
+		fprintf ( stdout, "SQL-QUERY: %s: ok\n", sQuery );
 
 	m_iPgRows = PQntuples ( m_pPgResult );
 	return true;
@@ -22999,7 +23127,7 @@ const char * CSphSource_PgSQL::SqlFieldName ( int iIndex )
 	if ( !m_pPgResult )
 		return NULL;
 
-	return PQfname ( m_pPgResult,x );
+	return PQfname ( m_pPgResult, iIndex );
 }
 
 
