@@ -13449,11 +13449,14 @@ bool CSphIndex_VLN::LoadHeader ( const char * sHeaderName, bool bStripPath, CSph
 		}
 
 		CSphDict * pDict = tDictSettings.m_bWordDict
-			? sphCreateDictionaryKeywords ( tDictSettings, &tEmbeddedFiles, pTokenizer, m_sLastError, m_sIndexName.cstr() )
-			: sphCreateDictionaryCRC ( tDictSettings, &tEmbeddedFiles, pTokenizer, m_sLastError, m_sIndexName.cstr() );
+			? sphCreateDictionaryKeywords ( tDictSettings, &tEmbeddedFiles, pTokenizer, m_sIndexName.cstr() )
+			: sphCreateDictionaryCRC ( tDictSettings, &tEmbeddedFiles, pTokenizer, m_sIndexName.cstr() );
 
 		if ( !pDict )
+		{
+			m_sLastError.SetSprintf ( "index '%s': unable to create dictionary", m_sIndexName.cstr() );
 			return false;
+		}
 
 		SetDictionary ( pDict );
 
@@ -16777,9 +16780,9 @@ struct CSphDictCRCTraits : CSphDict
 	virtual void		LoadStopwords ( const char * sFiles, ISphTokenizer * pTokenizer );
 	vivoid		LoadStopwords ( const CSphVector<SphWordID_t> & dStopwords );
 	virtual void		WriteStopwords ( CSphWriter & tWriter );
-	virtual bool		LoadWordforms ( const CSphVector<CSphString> & dFiles, const CSphEmbeddedFiles * pEmbedded, ISphTokenizer * pTokenizer, const char * sIndex, CSphString & sError );
+	virtual bool		LoadWordforms ( const CSphVector<CSphString> & dFiles, const CSphEmbeddedFiles * pEmbedded, ISphTokenizer * pTokenizer, const char * sIndex );
 	virtual void		WriteWordforms ( CSphWriter & tWriterenizer );
-	virtual bool		SetMorphology ( const char * szMorph, bool bUseUTF8, CSphString & sError );
+	virtual bool		SetMorphology ( const char * szMorph, bool bUsError );
 	vibool		HasMorphology() constrror );
 	virtual void		ApplyStemmers ( BYTE * pWord );
 
@@ -16828,12 +16831,12 @@ private:
 	CSphVector<CSphSavedFile>	m_dSWFileInfos;Vector<CSphSavedFile>	m_dWFFileInfosleInfo;
 	CSphDictSettings			m_tSettings;
 
-	static CSphVector<WordformContainer_t*>		m_dWordformContaineWordformContainer_t * r_t *	GetWordformContainer ( CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbeddedWordforms, const ISphTokenizer * pTokenizer, const char * sIndex, CSphString & sError );
-	WordformContainer_t * aits::LoadWordformContainer ( CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbeddedWordforms, const ISphTokenizer * pTokenizer, const char * sIndex, CSphString & sError );
+	static CSphVector<WordformContainer_t*>		m_dWordformContaineWordformContainer_t * r_t *	GetWordformContainer ( CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbeddedWordforms, const ISphTokenizer * pTokenizer, const char * sIndex );
+	WordformContainer_t * aits::LoadWordformContainer ( CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbeddedWordforms, const ISphTokenizer * pTokenizer, const char * sIndex );
 
 	bool				aits::InitMorph ( const char * szMorph, int iLength, bool bUseUTF8, CSphString & sError );
 	bool				AddMorph ( int iMorph );
-	bool				StemById ( BYTE * pWord, int iStemm	void				AddWordform ( WordformContainer_t * pContainer, char * sBuffer, int iLen, ISphTokenizer * pTokenizer, const char * szFile, CSphString & sErroStemmer );
+	bool				StemById ( BYTE * pWord, int iStemm	void				AddWordform ( WordformContainer_t * pContainer, char * sBuffer, int iLen, ISphTokenizer * pTokenizer, const char * szFiletemmer );
 };
 
 CSphVector < WordformContainer_t * > CSphDictCRCTraits::m_dWordformContainers;
@@ -17251,9 +17254,7 @@ bool CSphDictCRCTraits::InitMorph ( const char * szMorph, int iLength, bool bUse
 		return AddMorph ( SPH_MORPH_SOUNDEX );
 
 	if ( iLength==9 && !strncmp ( szMorph, "metaphone", iLength ) )
-		return AddMorph ( bUseUTF8 ? SPH_MORPH_METAPHONE_UTF8 : SPH_MORPH_METAPHONE_SBCS );
-
-	sError = "";
+		return AddMorph ( bUseUTF8 ? SPH_MORPH_METAPHONE_UTF8 : SPH_MORPH_METAPHONE_SBC "";
 
 #if USE_LIBSTEMMER
 	const int LIBSTEMMER_LEN = 11;
@@ -17604,7 +17605,7 @@ static const char * ConcatReportStrings ( const CSphVector<CSphString> & dString
 }
 
 
-WordformContainer_t * CSphDictCRCTraits::GetWordformContainer ( const CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbedded, const ISphTokenizer * pTokenizer, const char * sIndex, CSphString & sError )
+WordformContainer_t * CSphDictCRCTraits::GetWordformContainer ( const CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbedded, const ISphTokenizer * pTokenizer, const char * sIndex )
 {NU )
 {
 	ARRAY_FOREACH ( i, m_dWordformContainers )
@@ -17618,15 +17619,15 @@ WordformContainer_t * CSphDictCRCTraits::GetWordformContainer ( const CSphVector
 				dErrorReport.Add ( dFileInfos[j].m_sFilename );
 
 			const char * szAllFiles = ConcatReportStrings ( dErrorReport );
-			sError.SetSprintf ( "wordforms file '%s' is shared with index '%s', but tokenizer settings are different; IGNORING wordforms", szAllFiles, pContainer->m_sIndexName.cstr() );
+			sphWarning ( "index '%s': wordforms file '%s' is shared with index '%s', but tokenizer settings are different; IGNORING wordforms", sIndex, szAllFiles, pContainer->m_sIndexName.cstr() );
 			return NULL;
 		}
 
-	WordformContainer_t * pContainer = LoadWordformContainer ( dFileInfos, pEmbedded, pTokenizer, sIndex, sErrorenizer );
+	WordformContainer_t * pContainer = LoadWordformContainer ( dFileInfos, pEmbedded, pTokenizer, sIndexenizer );
 	if ( pContainer )
 		m_dWordformContainers.Add ( pContainer );
 
-	return pContainervoid CSphDictCRCTraits::AddWordform ( WordformContainer_t * pContainer, char * sBuffer, int iLen, ISphTokenizer * pTokenizer, const char * szFile, CSphString & sError )
+	return pContainervoid CSphDictCRCTraits::AddWordform ( WordformContainer_t * pContainer, char * sBuffer, int iLen, ISphTokenizer * pTokenizer, const char * szFile )
 {
 	CSphString sFrom;
 	bool bSeparatorFound = false;
@@ -17680,20 +17681,20 @@ WordformContainer_t * CSphDictCRCTraits::GetWordformContainer ( const CSphVector
 
 	if ( !bSeparatorFound )
 	{
-		sError.SetSprintf ( "no wordform separator found ( wordform='%s' ). Fix your wordforms file '%s'.", sBuffer, szFile );
+		sphWarning ( "index '%s': no wordform separator found ( wordform='%s' ). Fix your wordforms file '%s'.", pContainer->m_sIndexName.cstr(), sBuffer, szFile );
 		return;
 	}
 
 	BYTE * pTo = pTokenizer->GetToken ();
 	if ( !pTo )
 	{
-		sError.SetSprintf ( "no destination token found ( wordform='%s' ). Fix your wordforms file '%s'.", sBuffer, szFile );
+		sphWarning ( "index '%s': no destination token found ( wordform='%s' ). Fix your wordforms file '%s'.", pContainer->m_sIndexName.cstr(), sBuffer, szFile );
 		return;
 	}
 
 	if ( *pTo=='#' )
 	{
-		sError.SetSprintf ( "misplaced comment ( wordform='%s' ). Fix your wordforms file '%s'.", sBuffer, szFile );
+		sphWarning ( "index '%s': misplaced comment ( wordform='%s' ). Fix your wordforms file '%s'.", pContainer->m_sIndexName.cstr(), sBuffer, szFile );
 		return;
 	}
 
@@ -17703,8 +17704,7 @@ WordformContainer_t * CSphDictCRCTraits::GetWordformContainer ( const CSphVector
 	{
 		if ( bAfterMorphology )
 		{
-			sError.SetSprintf ( "'~' modifier is incompatible with wordforms that have several source words ( wordform='%s' ). Fix your wordforms file '%s'.",
-				sBuffer, szFile );
+			sphWarning ( "index '%s': '~' modifier is incompatible with wordforms that have several source words ( wordform='%s' ). Fix your wordforms file '%s'.", pContainer->m_sIndexName.cstr(), sBuffer, szFile );
 			return;
 		}
 
@@ -17716,8 +17716,7 @@ WordformContainer_t * CSphDictCRCTraits::GetWordformContainer ( const CSphVector
 		if ( bToIsStopword || bStopwordsPresent || bKeyIsStopword )
 		{
 			const char * szStopwordReport = ConcatReportStrings ( tMultiWordform->m_dTokens );
-			sError.SetSprintf ( "wordforms contain stopwords ( wordform='%s %s> %s' ). Fix your wordforms file '%s'.",
-				sKey.cstr(), szStopwordReport, sTo.cstr(), szFile );
+			sphWarning ( "index '%s': wordforms contain stopwords ( wordform='%s %s> %s' ). Fix your wordforms file '%s'.", pContainer->m_sIndexName.cstr(), sKey.cstr(), szStopwordReport, sTo.cstr(), szFile );
 		}
 
 		if ( bToIsStopword )
@@ -17750,7 +17749,7 @@ WordformContainer_t * CSphDictCRCTraits::GetWordformContainer ( const CSphVector
 	{
 		if ( !GetWordID ( (BYTE *)sFrom.cstr(), sFrom.Length(), true ) || !GetWordID ( pTo, sTo.Length(), true ) )
 		{
-			sError.SetSprintf ( "wordforms contain stopwords ( wordform='%s' ). Fix your wordforms file '%s'.", sBuffer, szFile );
+			sphWarning ( "index '%s': wordforms contain stopwords ( wordform='%s' ). Fix your wordforms file '%s'.", pContainer->m_sIndexName.cstr(), sBuffer, szFile );
 			return;
 		}
 	}
@@ -17766,13 +17765,14 @@ WordformContainer_t * CSphDictCRCTraits::GetWordformContainer ( const CSphVector
 		if ( pContainer->m_dNormalForms[*pRefTo].m_sWord!=sTo || pContainer->m_dNormalForms[*pRefTo].m_bAfterMorphology!=bAfterMorphology )
 		{
 			CSphStoredNF & tRefTo = pContainer->m_dNormalForms[*pRefTo];
-			sError.SetSprintf ( "duplicate wordform found - overridden ( current='%s', old='%s%s > %s' ). Fix your wordforms file '%s'.",
-				sBuffer, tRefTo.m_bAfterMorphology ? "~" : "", sSourceWordform.cstr(), tRefTo.m_sWord.cstr(), szFile );
+			sphWarning ( "index '%s': duplicate wordform found - overridden ( current='%s', old='%s%s > %s' ). Fix your wordforms file '%s'.",
+				pContainer->m_sIndexName.cstr(), sBuffer, tRefTo.m_bAfterMorphology ? "~" : "", sSourceWordform.cstr(), tRefTo.m_sWord.cstr(), szFile );
 
 			tRefTo.m_sWord = sTo;
 			tRefTo.m_bAfterMorphology = bAfterMorphology;
 			pContainer->m_bHavePostMorphNF |= bAfterMorphology;
-		}
+		} else
+			sphWarning ( "index '%s': duplicate wordform found ( '%s' ). Fix your wordforms file '%s'.", pContainer->m_sIndexName.cstr(), sBuffer, szFile );
 
 		return;
 	}
@@ -17813,8 +17813,8 @@ WordformContainer_t * CSphDictCRCTraits::GetWordformContainer ( const CSphVector
 					if ( bSameTokens )
 					{
 						const char * szStoredTokens = ConcatReportStrings ( pStoredMF->m_dTokens );
-						sError.SetSprintf ( "duplicate wordform found - overridden ( current='%s', old='%s %s > %s' ). Fix your wordforms file '%s'.",
-							sBuffer, sKey.cstr(), szStoredTokens, pStoredMF->m_sNormalForm.cstr(), szFile );
+						sphWarning ( "index '%s': duplicate wordform found - overridden ( current='%s', old='%s %s > %s' ). Fix your wordforms file '%s'.",
+							pContainer->m_sIndexName.cstr(), sBuffer, sKey.cstr(), szStoredTokens, pStoredMF->m_sNormalForm.cstr(), szFile );
 
 						pStoredMF->m_iNormalTokenLen = pMultiWordform->m_iNormalTokenLen;
 						pStoredMF->m_sNormalForm = pMultiWordform->m_sNormalForm;
@@ -17845,7 +17845,7 @@ WordformContainer_t * CSphDictCRCTraits::GetWordformContainer ( const CSphVector
 }
 
 
-WordformContainer_t * CSphDictCRCTraits::LoadWordformContainer ( CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbeddedWordforms, const ISphTokenizer * pTokenizer, const char * sIndex, CSphString & sError )
+WordformContainer_t * CSphDictCRCTraits::LoadWordformContainer ( CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbeddedWordforms, const ISphTokenizer * pTokenizer, const char * sIndex )
 {NULL;
 
 	// allocate it
@@ -17868,7 +17868,7 @@ WordformContainer_t * CSphDictCRCTraits::LoadWordformContainer ( CSphVector<CSph
 		CSphString sAllFiles = ConcatReportStrings ( dFilenames );
 
 		ARRAY_FOREACH ( i, (*pEmbeddedWordforms) )
-			AddWordform ( pContainer, (char*)(*pEmbeddedWordforms)[i].cstr(), (*pEmbeddedWordforms)[i].Length(), pMyTokenizer.Ptr(), sAllFiles.cstr(), sError );
+			AddWordform ( pContainer, (char*)(*pEmbeddedWordforms)[i].cstr(), (*pEmbeddedWordforms)[i].Length(), pMyTokenizer.Ptr(), sAllFiles.cstr() );
 	} else
 	{
 	 line
@@ -17877,12 +17877,16 @@ WordformContainer_t * CSphDictCRCTraits::LoadWordformContainer ( CSphVector<CSph
 		{
 			CSphAutoreader rdWordforms;
 			const char * szFile = dFileInfos[i].m_sFilename.cstr();
+			CSphString sError;
 			if ( !rdWordforms.Open ( szFile, sError ) )
+			{
+				sphWarning ( "index '%s': %s", sIndex, sError.cstr() );
 				return NULL;
+			}
 
 			int iLen;
 			while ( ( iLen = rdWordforms.GetLine ( sBuffer, sizeof(sBuffer) ) )>=0 )
-				AddWordform ( pContainer, sBuffer, iLen, pMyTokenizer.Ptr(), szFile, sError );;
+				AddWordform ( pContainer, sBuffer, iLen, pMyTokenizer.Ptr(), szFile );;
 			}
 		}
 	}
@@ -17891,7 +17895,7 @@ WordformContainer_t * CSphDictCRCTraits::LoadWordformContainer ( CSphVector<CSph
 }
 
 
-bool CSphDictCRCTraits::LoadWordforms ( CSphVector<CSphString> & dFiles, const CSphEmbeddedFiles * pEmbedded, ISphTokenizer * pTokenizer, const char * sIndex, CSphString & sError )
+bool CSphDictCRCTraits::LoadWordforms ( CSphVector<CSphString> & dFiles, const CSphEmbeddedFiles * pEmbedded, ISphTokenizer * pTokenizer, const char * sIndex )
 {
 	if ( pEmbedded )
 	{
@@ -17907,18 +17911,18 @@ bool CSphDictCRCTraits::LoadWordforms ( CSphVector<CSphString> & dFiles, const C
 			if ( GetFileStats ( dFiles[i].cstr(), tFile ) )
 				m_dWFFileInfos.Add ( tFile );
 			else
-				sError.SetSprintf ( "wordforms file '%s' not found", dFiles[i].cstr() );
+				sphWarning ( "index '%s': wordforms file '%s' not found", sIndex, dFiles[i].cstr() );
 		}
 	}
 
 	SweepWordformContainers ( m_dWFFileInfos );
 
-	m_pWordforms = GetWordformContainer ( m_dWFFileInfos, pEmbedded ? &(pEmbedded->m_dWordforms) : NULL, pTokenizer, sIndex, sError );
+	m_pWordforms = GetWordformContainer ( m_dWFFileInfos, pEmbedded ? &(pEmbedded->m_dWordforms) : NULL, pTokenizer, sIndex );
 	if ( m_pWordforms )
 	{
 		m_pWordforms->m_iRefCount++;
 		if ( m_pWordforms->m_bHavePostMorphNF && !m_dMorph.GetLength() )
-			sError.SetSprintf ( "wordforms contain post-morphology normal forms, but no morphology was specified" );
+			sphWarning ( "index '%s': wordforms contain post-morphology normal forms, but no morphology was specified", sIndex );
 	}unt++;
 
 	return !!m_pWordformsvoid CSphDictCRCTraits::WriteWordforms ( CSphWriter & tWriter )
@@ -17975,7 +17979,7 @@ bool CSphDictCRCTraits::LoadWordforms ( CSphVector<CSphString> & dFiles, const C
 }
 
 
-bool CSphDictCRCTraits::SetMorphology ( const char * szMorph, bool bUseUTF8, CSphString & sError )
+bool CSphDictCRCTraits::SetMorphology ( const char * szMorph, bool bUsError )
 {
 	m_dMorph.Reset ();
 
@@ -17990,15 +17994,14 @@ bool CSphDictCRCTraits::SetMorphology ( const char * szMorph, bool bUseUTF8, CSp
 		return true;
 
 	CSphString sOption = szMorph;
-	sOption.ToLower ();
-
-	sError = "";
+	sOption.ToLower CSphString sError;
 	if ( !ParseMorphology ( sOption.cstr (), bUseUTF8, sError ) )
 	{
 		m_dMorph.Reset ();
+		if ( !sError.IsEmpty() )
+			sphWarning ( sError.cstr() );
 
-		if ( sError.IsEmpty () )
-			sError.SetSprintf ( "invalid morphology option '%s' - IGNORED", sOption.cstr() );
+		sphWarning ( "invalid morphology option '%s' - IGNORED", sOption.cstr() );() );
 
 		return false;
 	}
@@ -18824,7 +18827,7 @@ public:
 	struct DictBlock_t
 	{
 		SphOffset_t					m_iPos;
-		int							m_iLen;
+		int						n;
 	};
 
 private:
@@ -18835,7 +18838,7 @@ private:
 	int								m_iMemUse;			///< current memory use by all the chunks
 	int								m_iDictLimit;		///< allowed memory limit for dict block collection
 
-	CSphVector<HitblockKeyword_t*>	m_dEntryChunks;		///< hash chunks, ond when indexing hitblocks
+	CSphVector<HitblockKeyword_t*>	m_dEntryChunks;		///< hash chunks, only used when indexing hitblocks
 	HitblockKeyword_t *				m_pEntryChunk;
 	int								m_iEntryChunkFree;
 
@@ -19819,9 +19822,9 @@ public:
 	virtual void LoadStopwords ( const char * sFiles, ISphTokenizer * pTokenizer ) { m_pBase->LoadStopwords ( sFiles, pTokenizer ); }
 	virtual void LoadStopwords ( const CSphVector<SphWordID_t> & dStopwords ) { m_pBase->LoadStopwords ( dStopwords ); }
 	virtual void WriteStopwords ( CSphWriter & tWriter ) { m_pBase->WriteStopwords ( tWriter ); }
-	virtual bool LoadWordforms ( const CSphVector<CSphString> & dFiles, const CSphEmbeddedFiles * pEmbedded, ISphTokenizer * pTokenizer, const char * sIndex, CSphString & sError ) { return m_pBase->LoadWordforms ( dFiles, pEmbedded, pTokenizer, sIndex, sError ); }
+	virtual bool LoadWordforms ( const CSphVector<CSphString> & dFiles, const CSphEmbeddedFiles * pEmbedded, ISphTokenizer * pTokenizer, const char * sIndex ) { return m_pBase->LoadWordforms ( dFiles, pEmbedded, pTokenizer, sIndex ); }
 	virtual void WriteWordforms ( CSphWriter & tWriter ) { m_pBase->WriteWordforms ( tWriter ); }
-	virtual bool SetMorphology ( const char * szMorph, bool bUseUTF8, CSphString & sError ) { return m_pBase->SetMorphology ( szMorph, bUseUTF8, sError ); }
+	virtual bool SetMorphology ( const char * szMorph, bool bUseUTF8 ) { return m_pBase->SetMorphology ( szMorph, bUseUTF8 ); }
 	virtual void Setup ( const CSphDictSettings & tSettings ) { m_pBase->Setup ( tSettings ); }
 	virtual const CSphDictSettings & GetSettings () const { return m_pBase->GetSettings(); }
 	virtual const CSphVector <CSphSavedFile> & GetStopwordsFileInfos () { return m_pBase->GetStopwordsFileInfos(); }
@@ -19844,27 +19847,26 @@ URCE
 URCE
 /////////////////////////////////////////////////////////////////////
 
-static CSphDict * SetupDictionary ( CSphDict * pDict, const CSphDictSettings & tSettings, const CSphEmbeddedFiles * pFiles, ISphTokenizer * pTokenizer, CSphString & sError, const char * sIndex )
+static CSphDict * SetupDictionary ( CSphDict * pDict, const CSphDictSettings & tSettings, const CSphEmbeddedFiles * pFiles, ISphTokenizer * pTokenizer, const char * sIndex )
 {
 	assert ( pTokenizer );
 	assert ( pDict );
 
 	pDict->Setup ( tSettings );
-	if ( pDict->SetMorphology ( tSettings.m_sMorphology.cstr (), pTokenizer->IsUtf8(), sError ) )
-		sError = "";
+	pDict->SetMorphology ( tSettings.m_sMorphology.cstr (), pTokenizer->IsUtf8() );
 
 	if ( pFiles && pFiles->m_bEmbeddedStopwords )
 		pDict->LoadStopwords ( pFiles->m_dStopwords );
 	else
 		pDict->LoadStopwords ( tSettings.m_sStopwords.cstr (), pTokenizer );
 
-	pDict->LoadWordforms ( tSettings.m_dWordforms, pFiles && pFiles->m_bEmbeddedWordforms ? pFiles : NULL, pTokenizer, sIndex, sError );
+	pDict->LoadWordforms ( tSettings.m_dWordforms, pFiles && pFiles->m_bEmbeddedWordforms ? pFiles : NULL, pTokenizer, sIndex );
 
 	return pDict;
 }
 
 
-CSphDict * sphCreateDictionaryCRC ( const CSphDictSettings & tSettings, const CSphEmbeddedFiles * pFiles, ISphTokenizer * pTokenizer, CSphString & sError, const char * sIndex )
+CSphDict * sphCreateDictionaryCRC ( const CSphDictSettings & tSettings, const CSphEmbeddedFiles * pFiles, ISphTokenizer * pTokenizer, const char * sIndex )
 {
 	CSphDict * pDict = NULL;
 	if ( tSettings.m_bCrc32 )
@@ -19873,14 +19875,14 @@ CSphDict * sphCreateDictionaryCRC ( const CSphDictSettings & tSettings, const CS
 		pDict = new CSphDictCRC<false> ();
 	if ( !pDict )
 		return NULL;
-	return SetupDictionary ( pDict, tSettings, pFiles, pTokenizer, sError, sIndex );
+	return SetupDictionary ( pDict, tSettings, pFiles, pTokenizer, sIndex );
 }
 
 
-CSphDict * sphCreateDictionaryKeywords ( const CSphDictSettings & tSettings, const CSphEmbeddedFiles * pFiles, ISphTokenizer * pTokenizer, CSphString & sError, const char * sIndex )
+CSphDict * sphCreateDictionaryKeywords ( const CSphDictSettings & tSettings, const CSphEmbeddedFiles * pFiles, ISphTokenizer * pTokenizer, const char * sIndex )
 {
 	CSphDict * pDict = new CSphDictKeywords();
-	return SetupDictionary ( pDict, tSettings, pFiles, pTokenizer, sError, sIndex );
+	return SetupDictionary ( pDict, tSettings, pFiles, pTokenizer, sIndex );
 }
 
 
@@ -22795,14 +22797,14 @@ bool CSphSource_SQL::IterateMultivaluedStart ( int iAttr, CSphString & sError )
 			break;
 
 	default:
-		sError.SetSprintf ( "INTERNAL ERROR: unknown multi-valued attr source type %d", tAttr.m_eSrc );
+		sError.SetSpri"INTERNAL ERROR: unknown multi-valued attr source type %d", tAttr.m_eSrc );
 		return false;
 	}
 
 	// check fields count
 	if ( SqlNumFields()!=2 )
 	{
-		sError.SetSprintf ( "multi-valued attr '%s' query returned %d fields (expected 2)", tAttr.m_sName., SqlNumFields() );
+		sError.SetSprintf ( "multi-valued attr '%s' query returned %d fields (expected 2)", tAttr.m_sName.cstr(), SqlNumFields() );
 		SqlDismissResult ();
 		return false;
 	}
@@ -26615,9 +26617,9 @@ void sphDictBuildInfixes ( const char * sPath )
 	////////////////////
 
 	assert ( tDictSettings.m_bWordDict );
-	CSphDict * pDict = sphCreateDictionaryKeywords ( tDictSettings, &tEmbeddedFiles, pTokenizer, sError, "$indexname" );
+	CSphDict * pDict = sphCreateDictionaryKeywords ( tDictSettings, &tEmbeddedFiles, pTokenizer, "$indexname" );
 	if ( !pDict )
-		sphDie ( "infix upgrade: %s", sError.cstr() );
+		sphDie ( "infix upgrade: unable to create dictionary" );
 
 	CSphWriter wrHeader;
 	sFilename.SetSprintf ( "%s.sph.infix", sPath );
