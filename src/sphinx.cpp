@@ -12694,7 +12694,7 @@ static inline void CalcContextItems ( CSphMatch & tMatch, const CSphVector<CSphQ
 		{
 			const BYTE * pStr = NULL;
 			tCalc.m_pExpr->StringEval ( tMatch, &pStr );
-			tMatch.SetAttr ( tCalc.m_tLoc, (SphAttr_t) pStr );
+			tMatch.SetAttr ( tCalc.m_tLoc, (SphAttr_t) pStr ); // FIXME! a potential leak of *previous* value?
 		} else
 			tMatch.SetAttrFloat ( tCalc.m_tLoc, tCalc.m_pExpr->Eval(tMatch) );
 	}
@@ -18824,10 +18824,10 @@ public:
 		BYTE						m_uHint;
 	};
 
-	struct DictBlock_t
+	struct Dictt
 	{
 		SphOffset_t					m_iPos;
-		int						n;
+		int							m_iLen;
 	};
 
 private:
@@ -22792,12 +22792,12 @@ bool CSphSource_SQL::IterateMultivaluedStart ( int iAttr, CSphString & sError )
 			// run first step (in order to report errors)
 			m_uCurrentID = m_uMinID;
 			if ( !RunQueryStep ( tAttr.m_sQuery.cstr(), sError ) )
-				return false;
+				retuse;
 
 			break;
 
 	default:
-		sError.SetSpri"INTERNAL ERROR: unknown multi-valued attr source type %d", tAttr.m_eSrc );
+		sError.SetSprintf ( "INTERNAL ERROR: unknown multi-valued attr source type %d", tAttr.m_eSrc );
 		return false;
 	}
 
