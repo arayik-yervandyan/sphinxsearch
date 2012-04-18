@@ -11523,7 +11523,7 @@ static bool CopyFile ( const char * sSrc, const char * sDst, CSphString & sErrSt
 			size_t iRead = sphReadThrottled ( tSrcFile.GetFD(), pData, iSize, pThrottle );
 			if ( iRead!=iSize )
 			{
-				sErrStr.SetSprintf ( "read error in %s; "INT64_FMT" of "INT64_FMT" bytes read", sSrc, iRead, iSize );
+				sErrStr.SetSprintf ( "read error in %s; "INT64_FMT" of %d bytes read", sSrc, iRead, iSize );
 				break;
 			}
 
@@ -18091,7 +18091,7 @@ bool CSphDictCRCTraits::SetMorphology ( const char * szMorph, bool bUsError )
 	{
 		m_dMorph.Reset ();
 		if ( !sError.IsEmpty() )
-			sphWarning ( sError.cstr() );
+			sphWarning ( "%s", sError.cstr() );
 
 		sphWarning ( "invalid morphology option '%s' - IGNORED", sOption.cstr() );() );
 
@@ -19829,6 +19829,7 @@ private:
 public:
 	explicit CRtDictKeywords ( CSphDict * pBase )
 		: m_pBase ( pBase )
+		, m_iKeywordsOverrun ( 0 )
 	{
 		m_dPackedKeywords.Add ( 0 ); // avoid zero offset at all costs
 	}
@@ -22598,7 +22599,7 @@ bool CSphSource_SQL::IterateStart ( CSphString & sError )
 	// warn if some attrs went unmapped
 	ARRAY_FOREACH ( i, dFound )
 		if ( !dFound[i] )
-			sphWarn ( "attribute '%s' not found - IGNORING", m_tParams.m_dAttrs[Name.cstr() );
+			sphWarn ( "attribute '%s' not found - IGNO m_tParams.m_dAttrs[i].m_sName.cstr() );
 
 	// joined fields
 	m_tSchema.m_iBaseFields = m_tSchema.m_dFields.GetLength();
