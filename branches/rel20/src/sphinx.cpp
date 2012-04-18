@@ -16957,12 +16957,14 @@ ScopedPtr<CSphMultiform> tMultiWordform ( NULL )= NULL;
 					}
 
 			if ( bKeyIsStopword )
+			{
 				if ( tMultiWordform->m_dTokens.GetLength() )
 				{
 					sKey = tMultiWordform->m_dTokens[0];
 					tMultiWordform->m_dTokens.Remove(0);
 				} else
 					continue;
+			}
 
 			if ( !tMultiWordform->m_dTokens.GetLength() )
 			{
