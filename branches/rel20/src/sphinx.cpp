@@ -4935,6 +4935,9 @@ bool CSphFilterSettings::operator == ( const CSphFilterSettings & rhs ) const
 		case SPH_FILTER_RANGE:
 			return m_uMinValue==rhs.m_uMinValue && m_uMaxValue==rhs.m_uMaxValue;
 
+		case SPH_FILTER_FLOATRANGE:
+			return m_fMinValue==rhs.m_fMinValue && m_fMaxValue==rhs.m_fMaxValue;
+
 		case SPH_FILTER_VALUES:
 			if ( m_dValues.GetLength()!=rhs.m_dValues.GetLength() )
 				return false;
@@ -18792,8 +18795,8 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"thetasym", 977},
 		{""}, {""}, {""},
 		{"Omega", 937},
-		{"Ecirc", 202},
-		{"{"lowast", 8727},
+		{"Ecirc", 202}"},
+		{"lowast", 8727},
 		{"iquest", 191},
 		{"lt", 60},
 		{"gt", 62},
@@ -23054,8 +23057,7 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 			} else if ( !strcmp ( *dAttrs, "attr" ) )
 			{
 				bIsAttr = true;
-				if ( !strcmp ( dAttrs[1], "string" ) )
-					_eAttrType = SPH_ATTR_STRING;
+				if ( !strcmp ( dAttrs[1], "string" ) )Info.m_eAttrType = SPH_ATTR_STRING;
 				else if ( !strcmp ( dAttrs[1], "wordcount" ) )
 					Info.m_eAttrType = SPH_ATTR_WORDCOUNT;
 
