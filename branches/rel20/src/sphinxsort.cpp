@@ -1329,8 +1329,8 @@ public:
 			assert ( ( iValues%2 )==0 );
 			for ( ;iValues>0; iValues-=2, pValues+=2 )
 			{
-				uint64_t uMva = MVA_UPSIZE ( pValues );
-				SphGroupKey_t uGroupkey = this->m_pGrouper->KeyFromValue ( uMva );
+				int64_t iMva = MVA_UPSIZE ( pValues );
+				SphGroupKey_t uGroupkey = this->m_pGrouper->KeyFromValue ( iMva );
 				bRes |= this->PushEx ( tEntry, uGroupkey, false );
 			}
 
@@ -2086,8 +2086,8 @@ static bool SetupGroupbySettings ( const CSphQuery * pQuery, const CSphSchema & 
 			return false;
 	}
 
-	tSettings.m_bMVA = ( eType==SPH_ATTR_UINT32SET || eType==SPH_ATTR_UINT64SET );
-	tSettings.m_bMva64 = ( eType==SPH_ATTR_UINT64SET );
+	tSettings.m_bMVA = ( eType==SPH_ATTR_UINT32SET || eType==SPH_ATTR_INT64SET );
+	tSettings.m_bMva64 = ( eType==SPH_ATTR_INT64SET );
 
 	// setup distinct attr
 	if ( !pQuery->m_sGroupDistinct.IsEmpty() )

@@ -3659,8 +3659,8 @@ void SearchRequestBuilder_t::SendQuery ( const char * sIndexes, NetOutputBuffer_
 				break;
 
 			case SPH_FILTER_RANGE:
-				tOut.SendUint64 ( tFilter.m_uMinValue );
-				tOut.SendUint64 ( tFilter.m_uMaxValue );
+				tOut.SendUint64 ( tFilter.m_iMinValue );
+				tOut.SendUint64 ( tFilter.m_iMaxValue );
 				break;
 
 			case SPH_FILTER_FLOATRANGE:
@@ -3816,7 +3816,7 @@ bool SearchReplyParser_t::ParseReply ( MemInputBuffer_c & tReq, AgentConn_t & tA
 				for ( int j=0; j<tSchema.GetAttrsCount(); j++ )
 				{
 					const CSphColumnInfo & tAttr = tSchema.GetAttr(j);
-					if ( tAttr.m_eAttrType==SPH_ATTR_UINT32SET || tAttr.m_eAttrType==SPH_ATTR_UINT64SET )
+					if ( tAttr.m_eAttrType==SPH_ATTR_UINT32SET || tAttr.m_eAttrType==SPH_ATTR_INT64SET )
 					{
 						tMatch.SetAttr ( tAttr.m_tLocator, m_dMvaStorage.GetLength() );
 
@@ -4007,8 +4007,8 @@ bool FixupQuery ( CSphQuery * pQuery, const CSphSchema * pSchema, const char * s
 		tFilter.m_dValues.Resize ( pQuery->m_iOldGroups );
 		ARRAY_FOREACH ( i, tFilter.m_dValues )
 			tFilter.m_dValues[i] = pQuery->m_pOldGroups[i];
-		tFilter.m_uMinValue = pQuery->m_iOldMinGID;
-		tFilter.m_uMaxValue = pQuery->m_iOldMaxGID;
+		tFilter.m_iMinValue = pQuery->m_iOldMinGID;
+		tFilter.m_iMaxValue = pQuery->m_iOldMaxGID;
 		pQuery->m_dFilters.Add ( tFilter );
 	}
 
@@ -4030,8 +4030,8 @@ bool FixupQuery ( CSphQuery * pQuery, const CSphSchema * pSchema, const char * s
 
 		CSphFilterSettings tFilter;
 		tFilter.m_sAttrName = pSchema->GetAttr(iAttr).m_sName;
-		tFilter.m_uMinValue = pQuery->m_iOldMinTS;
-		tFilter.m_uMaxValue = pQuery->m_iOldMaxTS;
+		tFilter.m_iMinValue = pQuery->m_iOldMinTS;
+		tFilter.m_iMaxValue = pQuery->m_iOldMaxTS;
 		pQuery->m_dFilters.Add ( tFilter );
 	}
 
@@ -4256,8 +4256,8 @@ bool ParseSearchQuery ( InputBuffer_c & tReq, CSphQuery & tQuery, int iVer, int 
 				switch ( tFilter.m_eType )
 				{
 					case SPH_FILTER_RANGE:
-						tFilter.m_uMinValue = ( iVer>=0x114 ) ? tReq.GetUint64() : tReq.GetDword ();
-						tFilter.m_uMaxValue = ( iVer>=0x114 ) ? tReq.GetUint64() : tReq.GetDword ();
+						tFilter.m_iMinValue = ( iVer>=0x114 ) ? tReq.GetUint64() : tReq.GetDword ();
+						tFilter.m_iMaxValue = ( iVer>=0x114 ) ? tReq.GetUint64() : tReq.GetDword ();
 						break;
 
 					case SPH_FILTER_FLOATRANGE:
@@ -4289,8 +4289,8 @@ bool ParseSearchQuery ( InputBuffer_c & tReq, CSphQuery & tQuery, int iVer, int 
 				if ( !tFilter.m_dValues.GetLength() )
 				{
 					// 0 length means this is range, not set
-					tFilter.m_uMinValue = tReq.GetDword ();
-					tFilter.m_uMaxValue = tReq.GetDword ();
+					tFilter.m_iMinValue = tReq.GetDword ();
+					tFilter.m_iMaxValue = tReq.GetDword ();
 				}
 
 				tFilter.m_eType = tFilter.m_dValues.GetLength() ? SPH_FILTER_VALUES : SPH_FILTER_RANGE;
@@ -4307,8 +4307,8 @@ bool ParseSearchQuery ( InputBuffer_c & tReq, CSphQuery & tQuery, int iVer, int 
 		CSphFilterSettings & tFilter = tQuery.m_dFilters.Add();
 		tFilter.m_sAttrName = "@id";
 		tFilter.m_eType = SPH_FILTER_RANGE;
-		tFilter.m_uMinValue = uMinID;
-		tFilter.m_uMaxValue = uMaxID;
+		tFilter.m_iMinValue = uMinID;
+		tFilter.m_iMaxValue = uMaxID;
 	}
 
 	// v.1.3
@@ -4830,10 +4830,10 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 				case SPH_FILTER_RANGE:
 					if ( f.m_bExclude )
 						tBuf.Append ( " %s NOT BETWEEN "INT64_FMT" AND "INT64_FMT,
-						f.m_sAttrName.cstr(), (int64_t)f.m_uMinValue, (int64_t)f.m_uMaxValue );
+						f.m_sAttrName.cstr(), f.m_iMinValue, f.m_iMaxValue );
 					else
 						tBuf.Append ( " %s BETWEEN "INT64_FMT" AND "INT64_FMT,
-							f.m_sAttrName.cstr(), (int64_t)f.m_uMinValue, (int64_t)f.m_uMaxValue );
+							f.m_sAttrName.cstr(), f.m_iMinValue, f.m_iMaxValue );
 					break;
 
 				case SPH_FILTER_FLOATRANGE:
@@ -5077,7 +5077,7 @@ int CalcResultLength ( int iVer, const CSphQueryResult * pRes, const CSphVector<
 	for ( int i=0; i<iAttrsCount; i++ )
 	{
 		const CSphColumnInfo & tCol = pRes->m_tSchema.GetAttr(i);
-		if ( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_UINT64SET )
+		if ( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_INT64SET )
 			dMvaItems.Add ( tCol.m_tLocator );
 		if ( tCol.m_eAttrType==SPH_ATTR_STRING )
 			dStringItems.Add ( tCol.m_tLocator );
@@ -5224,7 +5224,7 @@ void SendResult ( int iVer, NetOutputBuffer_c & tOut, const CSphQueryResult * pR
 			for ( int j=0; j<iAttrsCount; j++ )
 			{
 				const CSphColumnInfo & tAttr = pRes->m_tSchema.GetAttr(j);
-				if ( tAttr.m_eAttrType==SPH_ATTR_UINT32SET || tAttr.m_eAttrType==SPH_ATTR_UINT64SET )
+				if ( tAttr.m_eAttrType==SPH_ATTR_UINT32SET || tAttr.m_eAttrType==SPH_ATTR_INT64SET )
 				{
 					assert ( tMatch.GetAttr ( tAttr.m_tLocator )==0 || pMvaPool );
 					const DWORD * pValues = tMatch.GetAttrMVA ( tAttr.m_tLocator, pMvaPool );
@@ -5238,12 +5238,12 @@ void SendResult ( int iVer, NetOutputBuffer_c & tOut, const CSphQueryResult * pR
 						// send MVA values
 						int iValues = *pValues++;
 						tOut.SendDword ( iValues );
-						if ( tAttr.m_eAttrType==SPH_ATTR_UINT64SET )
+						if ( tAttr.m_eAttrType==SPH_ATTR_INT64SET )
 						{
 							assert ( ( iValues%2 )==0 );
 							while ( iValues )
 							{
-								uint64_t uVal = MVA_UPSIZE ( pValues );
+								uint64_t uVal = (uint64_t)MVA_UPSIZE ( pValues );
 								tOut.SendUint64 ( uVal );
 								pValues += 2;
 								iValues -= 2;
@@ -6014,8 +6014,8 @@ void SetupKillListFilter ( CSphFilterSettings & tFilter, const SphAttr_t * pKill
 
 	tFilter.m_bExclude = true;
 	tFilter.m_eType = SPH_FILTER_VALUES;
-	tFilter.m_uMinValue = pKillList[0];
-	tFilter.m_uMaxValue = pKillList[nEntries-1];
+	tFilter.m_iMinValue = pKillList[0];
+	tFilter.m_iMaxValue = pKillList[nEntries-1];
 	tFilter.m_sAttrName = "@id";
 	tFilter.SetExternalValues ( pKillList, nEntries );
 }
@@ -7698,7 +7698,7 @@ public:
 	void			AddConst ( int iList, const SqlNode_t& tValue );
 	void			SetStatement ( const SqlNode_t& tName, SqlSet_e eSet );
 	bool			AddFloatRangeFilter ( const CSphString & sAttr, float fMin, float fMax );
-	bool			AddUintRangeFilter ( const CSphString & sAttr, int64_t iMin, int64_t iMax );
+	bool			AddIntRangeFilter ( const CSphString & sAttr, int64_t iMin, int64_t iMax );
 	bool			AddUservarFilter ( const CSphString & sCol, const CSphString & sVar, bool bExclude );
 	bool			AddDistinct ( SqlNode_t * pNewExpr, SqlNode_t * pStart, SqlNode_t * pEnd );
 	CSphFilterSettings * AddFilter ( const CSphString & sCol, ESphFilter eType );
@@ -7846,7 +7846,7 @@ public:
 				break;
 			case SPH_ATTR_STRING:
 			case SPH_ATTR_UINT32SET:
-			case SPH_ATTR_UINT64SET:
+			case SPH_ATTR_INT64SET:
 				CSphMatch::SetAttr ( tLoc, 0 );
 				break;
 			default:
@@ -8152,7 +8152,7 @@ void SqlParser_c::UpdateMVAAttr ( const CSphString & sName, const SqlNode_t & dV
 			SphAttr_t uVal = *pVal;
 			if ( uVal>UINT_MAX )
 			{
-				eType = SPH_ATTR_UINT64SET;
+				eType = SPH_ATTR_INT64SET;
 			}
 			tUpd.m_dPool.Add ( (DWORD)uVal );
 			tUpd.m_dPool.Add ( (DWORD)( uVal>>32 ) );
@@ -8192,13 +8192,13 @@ bool SqlParser_c::AddFloatRangeFilter ( const CSphString & sAttr, float fMin, fl
 	return true;
 }
 
-bool SqlParser_c::AddUintRangeFilter ( const CSphString & sAttr, int64_t iMin, int64_t iMax )
+bool SqlParser_c::AddIntRangeFilter ( const CSphString & sAttr, int64_t iMin, int64_t iMax )
 {
 	CSphFilterSettings * pFilter = AddFilter ( sAttr, SPH_FILTER_RANGE );
 	if ( !pFilter )
 		return false;
-	pFilter->m_uMinValue = (SphAttr_t)iMin;
-	pFilter->m_uMaxValue = (SphAttr_t)iMax;
+	pFilter->m_iMinValue = iMin;
+	pFilter->m_iMaxValue = iMax;
 	return true;
 }
 
@@ -9312,7 +9312,7 @@ void UpdateRequestBuilder_t::BuildRequest ( const char * sIndexes, NetOutputBuff
 	ARRAY_FOREACH ( i, m_tUpd.m_dAttrs )
 	{
 		tOut.SendString ( m_tUpd.m_dAttrs[i].m_sName.cstr() );
-		tOut.SendInt ( ( m_tUpd.m_dAttrs[i].m_eAttrType==SPH_ATTR_UINT32SET || m_tUpd.m_dAttrs[i].m_eAttrType==SPH_ATTR_UINT64SET ) ? 1 : 0 );
+		tOut.SendInt ( ( m_tUpd.m_dAttrs[i].m_eAttrType==SPH_ATTR_UINT32SET || m_tUpd.m_dAttrs[i].m_eAttrType==SPH_ATTR_INT64SET ) ? 1 : 0 );
 	}
 	tOut.SendInt ( m_tUpd.m_dDocids.GetLength() );
 
@@ -10318,7 +10318,7 @@ void HandleMysqlInsert ( const SqlStmt_t & tStmt, NetOutputBuffer_c & tOut, BYTE
 				bResult = tDoc.SetDefaultAttr ( tLoc, tCol.m_eAttrType );
 				if ( tCol.m_eAttrType==SPH_ATTR_STRING )
 					dStrings.Add ( NULL );
-				if ( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_UINT64SET )
+				if ( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_INT64SET )
 					dMvas.Add ( 0 );
 			} else
 			{
@@ -10330,18 +10330,18 @@ void HandleMysqlInsert ( const SqlStmt_t & tStmt, NetOutputBuffer_c & tOut, BYTE
 					sError.SetSprintf ( "raw %d, column %d: internal error: unknown insval type %d", 1+c, 1+iQuerySchemaIdx, tVal.m_iType ); // 1 for human base
 					break;
 				}
-				if ( tVal.m_iType==TOK_CONST_MVA && !( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_UINT64SET ) )
+				if ( tVal.m_iType==TOK_CONST_MVA && !( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_INT64SET ) )
 				{
 					sError.SetSprintf ( "raw %d, column %d: MVA value specified for a non-MVA column", 1+c, 1+iQuerySchemaIdx ); // 1 for human base
 					break;
 				}
-				if ( ( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_UINT64SET ) && tVal.m_iType!=TOK_CONST_MVA )
+				if ( ( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_INT64SET ) && tVal.m_iType!=TOK_CONST_MVA )
 				{
 					sError.SetSprintf ( "raw %d, column %d: non-MVA value specified for a MVA column", 1+c, 1+iQuerySchemaIdx ); // 1 for human base
 					break;
 				}
 
-				if ( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_UINT64SET )
+				if ( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_INT64SET )
 				{
 					// collect data from scattered insvals
 					// FIXME! maybe remove this mess, and just have a single m_dMvas pool in parser instead?
@@ -10351,7 +10351,7 @@ void HandleMysqlInsert ( const SqlStmt_t & tStmt, NetOutputBuffer_c & tOut, BYTE
 						tVal.m_pVals->Uniq();
 						iLen = tVal.m_pVals->GetLength();
 					}
-					if ( tCol.m_eAttrType==SPH_ATTR_UINT64SET )
+					if ( tCol.m_eAttrType==SPH_ATTR_INT64SET )
 					{
 						dMvas.Add ( iLen*2 );
 						for ( int j=0; j<iLen; j++ )
@@ -10989,7 +10989,7 @@ void HandleMysqlUpdate ( NetOutputBuffer_c & tOut, BYTE uPacketID, const SqlStmt
 	ARRAY_FOREACH_COND ( i, tStmt.m_tUpdate.m_dAttrs, !bMvaUpdate )
 	{
 		bMvaUpdate = ( tStmt.m_tUpdate.m_dAttrs[i].m_eAttrType==SPH_ATTR_UINT32SET
-			|| tStmt.m_tUpdate.m_dAttrs[i].m_eAttrType==SPH_ATTR_UINT64SET );
+			|| tStmt.m_tUpdate.m_dAttrs[i].m_eAttrType==SPH_ATTR_INT64SET );
 	}
 
 	ARRAY_FOREACH ( iIdx, dIndexNames )
@@ -11285,7 +11285,7 @@ void SendMysqlSelectResult ( NetOutputBuffer_c & tOut, BYTE & uPacketID, SqlRowB
 				dRows.PutNumeric ( "%f", tMatch.GetAttrFloat(tLoc) );
 				break;
 
-			case SPH_ATTR_UINT64SET:
+			case SPH_ATTR_INT64SET:
 			case SPH_ATTR_UINT32SET:
 				{
 					int iLenOff = dRows.Length();
@@ -11310,9 +11310,9 @@ void SendMysqlSelectResult ( NetOutputBuffer_c & tOut, BYTE & uPacketID, SqlRowB
 						{
 							for ( ; nValues; nValues-=2, pValues+=2 )
 							{
-								uint64_t uVal = MVA_UPSIZE ( pValues );
+								int64_t iVal = MVA_UPSIZE ( pValues );
 								dRows.Reserve ( SPH_MAX_NUMERIC_STR );
-								int iLen = snprintf ( dRows.Get(), SPH_MAX_NUMERIC_STR, nValues>2 ? UINT64_FMT"," : UINT64_FMT, uVal );
+								int iLen = snprintf ( dRows.Get(), SPH_MAX_NUMERIC_STR, nValues>2 ? INT64_FMT"," : INT64_FMT, iVal );
 								dRows.IncPtr ( iLen );
 							}
 						}
