@@ -2098,12 +2098,12 @@ public:
 	ESphFilter			m_eType;		///< filter type
 	union
 	{
-		SphAttr_t		m_uMinValue;	///< range min
+		SphAttr_t		m_iMinValue;	///< range min
 		float			m_fMinValue;	///< range min
 	};
 	union
 	{
-		SphAttr_t		m_uMaxValue;	///< range max
+		SphAttr_t		m_iMaxValue;	///< range max
 		float			m_fMaxValue;	///< range max
 	};
 	CSphVector<SphAttr_t>	m_dValues;		///< integer values set
