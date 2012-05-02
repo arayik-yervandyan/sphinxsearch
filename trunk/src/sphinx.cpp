@@ -18050,6 +18050,9 @@ bool CSphDictCRCTraits::LoadWordforms ( CSphVector<CSphString> & dFiles, const C
 		}
 	}
 
+	if ( !m_dWFFileInfos.GetLength() )
+		return false;
+
 	SweepWordformContainers ( m_dWFFileInfos );
 
 	m_pWordforms = GetWordformContainer ( m_dWFFileInfos, pEmbedded ? &(pEmbedded->m_dWordforms) : NULL, pTokenizer, sIndex );
@@ -22598,9 +22601,9 @@ bool CSphSource_SQL::IterateStart ( CSphString & sError )
 		}
 
 		tCol.m_iIndex = i+1;
-		tCol.m_eWordpGetWordpart ( tCol.m_sName.cstr(), bWordDict )_INFIX;
+		tCol.m_eWordpGetWordpart ( tCol.m_sName.cstr(), bWordDict );
 
-		if ( tCol.m_eAttrType==SPH_ATT || tCol.m_bIndexed )
+		if ( tCol.m_eAttrType==SPH_ATTR_NONE || tCol.m_bIndexed )
 		{
 			m_tSchema.m_dFields.Add ( tCol );
 			ARRAY_FOREACH ( k, m_tParams.m_dUnpack )
