@@ -18,6 +18,7 @@
 #include "sphinxexcerpt.h"
 #include "sphinxrt.h"
 #include "sphinxint.h"
+#include "sphinxquery.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -8319,25 +8320,25 @@ bool ParseSqlQuery ( const CSphString & sQuery, CSphVector<SqlStmt_t> & dStmt, C
 
 /////////////////////////////////////////////////////////////////////////////
 
-int sphGetPassageBoundary ( const CSphString & sPassageBoundaryMode )
+ESphSpz sphGetPassageBoundary ( const CSphString & sPassageBoundaryMode )
 {
 	if ( sPassageBoundaryMode.IsEmpty() )
-		return 0;
+		return SPH_SPZ_NONE;
 
-	int iMode = 0;
+	ESphSpz eSPZ = SPH_SPZ_NONE;
 	if ( sPassageBoundaryMode=="sentence" )
-		iMode = MAGIC_CODE_SENTENCE;
+		eSPZ = SPH_SPZ_SENTENCE;
 	else if ( sPassageBoundaryMode=="paragraph" )
-		iMode = MAGIC_CODE_PARAGRAPH;
+		eSPZ = SPH_SPZ_PARAGRAPH;
 	else if ( sPassageBoundaryMode=="zone" )
-		iMode = MAGIC_CODE_ZONE;
+		eSPZ = SPH_SPZ_ZONE;
 
-	return iMode;
+	return eSPZ;
 }
 
 bool sphCheckOptionsSPZ ( const ExcerptQuery_t & q, const CSphString & sPassageBoundaryMode, CSphString & sError )
 {
-	if ( q.m_iPassageBoundary )
+	if ( q.m_ePassageSPZ )
 	{
 		if ( q.m_iAround==0 )
 		{
@@ -8352,7 +8353,7 @@ bool sphCheckOptionsSPZ ( const ExcerptQuery_t & q, const CSphString & sPassageB
 
 	if ( q.m_bEmitZones )
 	{
-		if ( q.m_iPassageBoundary!=MAGIC_CODE_ZONE )
+		if ( q.m_ePassageSPZ!=SPH_SPZ_ZONE )
 		{
 			sError.SetSprintf ( "invalid combination of passage_boundary=%s and emit_zones", sPassageBoundaryMode.cstr() );
 			return false;
@@ -8636,16 +8637,9 @@ static bool SnippetTransformPassageMacros ( CSphString & sSrc, CSphString & sPos
 	return true;
 }
 
-static bool IsSPZEnabled ( const ExcerptQuery_t & q )
+
+static bool SetupStripperSPZ ( const CSphIndexSettings & tSettings, const ExcerptQuery_t & q, bool bSetupSPZ, CSphScopedPtr<CSphHTMLStripper> & tStripper, ISphTokenizer * pTokenizer, CSphString & sError )
 {
-	return ( q.m_iPassageBoundary || ( q.m_sStripMode=="retain" && q.m_bHighlightQuery ) );
-}
-
-
-static bool SetupStripperSPZ ( const CSphIndexSettings & tSettings, const ExcerptQuery_t & q, CSphScopedPtr<CSphHTMLStripper> & tStripper, ISphTokenizer * pTokenizer, CSphString & sError )
-{
-	bool bSetupSPZ = IsSPZEnabled ( q );
-
 	if ( bSetupSPZ &&
 		( !pTokenizer->EnableSentenceIndexing ( sError ) || !pTokenizer->EnableZoneIndexing ( sError ) ) )
 	{
@@ -8701,6 +8695,24 @@ static CSphDict * SetupExactDict ( const CSphIndexSettings & tSettings, const Ex
 }
 
 
+static DWORD CollectQuerySPZ ( const XQNode_t * pNode )
+{
+	if ( !pNode )
+		return SPH_SPZ_NONE;
+
+	DWORD eSPZ = SPH_SPZ_NONE;
+	if ( pNode->GetOp()==SPH_QUERY_SENTENCE )
+		eSPZ |= SPH_SPZ_SENTENCE;
+	else if ( pNode->GetOp()==SPH_QUERY_PARAGRAPH )
+		eSPZ |= SPH_SPZ_PARAGRAPH;
+
+	ARRAY_FOREACH ( i, pNode->m_dChildren )
+		eSPZ |= CollectQuerySPZ ( pNode->m_dChildren[i] );
+
+	return eSPZ;
+}
+
+
 class SnippetContext_t : ISphNoncopyable
 {
 private:
@@ -8713,6 +8725,8 @@ public:
 	CSphScopedPtr<ISphTokenizer> m_tTokenizer;
 	CSphScopedPtr<CSphHTMLStripper> m_tStripper;
 	ISphTokenizer * m_pQueryTokenizer;
+	XQQuery_t m_tExtQuery;
+	DWORD m_eExtQuerySPZ;
 
 	SnippetContext_t()
 		: m_tDictCloned ( NULL )
@@ -8722,10 +8736,11 @@ public:
 		, m_tTokenizer ( NULL )
 		, m_tStripper ( NULL )
 		, m_pQueryTokenizer ( NULL )
+		, m_eExtQuerySPZ ( SPH_SPZ_NONE )
 	{
 	}
 
-	bool Setup ( CSphIndex * pIndex, const ExcerptQuery_t & tQuery, CSphString & sError )
+	bool Setup ( const CSphIndex * pIndex, const ExcerptQuery_t & tSettings, CSphString & sError )
 	{
 		CSphScopedPtr<CSphDict> tDictCloned ( NULL );
 		m_pDict = pIndex->GetDictionary();
@@ -8737,20 +8752,37 @@ public:
 		m_tTokenizer = pIndex->GetTokenizer()->Clone ( true );
 		m_pQueryTokenizer = m_tTokenizer.Ptr();
 
-		if ( !SetupStripperSPZ ( pIndex->GetSettings(), tQuery, m_tStripper, m_tTokenizer.Ptr(), sError ) )
+		// setup exact dictionary if needed
+		m_pDict = SetupExactDict ( pIndex->GetSettings(), tSettings, m_tExactDict, m_pDict, m_tTokenizer.Ptr() );
+		// TODO!!! check star dict too
+
+		if ( tSettings.m_bHighlightQuery )
+		{
+			if ( !sphParseExtendedQuery ( m_tExtQuery, tSettings.m_sWords.cstr(), m_pQueryTokenizer, &pIndex->GetMatchSchema(), m_pDict, pIndex->GetSettings().m_iStopwordStep ) )
+			{
+				sError = m_tExtQuery.m_sParseError;
+				return false;
+			}
+			if ( m_tExtQuery.m_pRoot )
+				m_tExtQuery.m_pRoot->ClearFieldMask();
+
+			m_eExtQuerySPZ = SPH_SPZ_NONE;
+			m_eExtQuerySPZ |= CollectQuerySPZ ( m_tExtQuery.m_pRoot );
+			if ( m_tExtQuery.m_dZones.GetLength() )
+				m_eExtQuerySPZ |= SPH_SPZ_ZONE;
+		}
+
+		bool bSetupSPZ = ( tSettings.m_ePassageSPZ!=SPH_SPZ_NONE || m_eExtQuerySPZ!=SPH_SPZ_NONE ||
+			( tSettings.m_sStripMode=="retain" && tSettings.m_bHighlightQuery ) );
+
+		if ( !SetupStripperSPZ ( pIndex->GetSettings(), tSettings, bSetupSPZ, m_tStripper, m_tTokenizer.Ptr(), sError ) )
 			return false;
 
-		if ( IsSPZEnabled ( tQuery ) )
+		if ( bSetupSPZ )
 		{
 			m_tQueryTokenizer = pIndex->GetTokenizer()->Clone ( true );
 			m_pQueryTokenizer = m_tQueryTokenizer.Ptr();
 		}
-
-		////////////////////////////
-		// setup exact dictionary if needed
-		////////////////////////////
-
-		m_pDict = SetupExactDict ( pIndex->GetSettings(), tQuery, m_tExactDict, m_pDict, m_tTokenizer.Ptr() );
 
 		return true;
 	}
@@ -8786,9 +8818,8 @@ void SnippetThreadFunc ( void * pArg )
 		if ( pQuery->m_iNext!=PROCESSED_ITEM )
 			continue;
 
-		pQuery->m_sRes = sphBuildExcerpt ( *pQuery, tCtx.m_pDict, tCtx.m_tTokenizer.Ptr(),
-			&pDesc->m_pIndex->GetMatchSchema(), pDesc->m_pIndex,
-			pQuery->m_sError, tCtx.m_tStripper.Ptr(), tCtx.m_pQueryTokenizer );
+		pQuery->m_sRes = sphBuildExcerpt ( *pQuery, pDesc->m_pIndex, tCtx.m_tStripper.Ptr(), tCtx.m_tExtQuery, tCtx.m_eExtQuerySPZ,
+			pQuery->m_sError, tCtx.m_pDict, tCtx.m_tTokenizer.Ptr(), tCtx.m_pQueryTokenizer );
 
 		if ( bDone )
 			return;
@@ -8890,7 +8921,8 @@ bool MakeSnippets ( CSphString sIndex, CSphVector<ExcerptQuery_t> & dQueries, CS
 		// boring single threaded loop
 		ARRAY_FOREACH ( i, dQueries )
 		{
-			dQueries[i].m_sRes = sphBuildExcerpt ( dQueries[i], tCtx.m_pDict, tCtx.m_tTokenizer.Ptr(), &pIndex->GetMatchSchema(), pIndex, sError, tCtx.m_tStripper.Ptr(), tCtx.m_pQueryTokenizer );
+			dQueries[i].m_sRes = sphBuildExcerpt ( dQueries[i], pIndex, tCtx.m_tStripper.Ptr(), tCtx.m_tExtQuery, tCtx.m_eExtQuerySPZ,
+				sError, tCtx.m_pDict, tCtx.m_tTokenizer.Ptr(), tCtx.m_pQueryTokenizer );
 			if ( !dQueries[i].m_sRes )
 			{
 				bOk = false;
@@ -9132,7 +9164,7 @@ void HandleCommandExcerpt ( int iSock, int iVer, InputBuffer_c & tReq )
 		return;
 	}
 
-	q.m_iPassageBoundary = sphGetPassageBoundary ( q.m_sRawPassageBoundary );
+	q.m_ePassageSPZ = sphGetPassageBoundary ( q.m_sRawPassageBoundary );
 
 	CSphString sError;
 
@@ -10556,7 +10588,7 @@ void HandleMysqlCallSnippets ( NetOutputBuffer_c & tOut, BYTE uPacketID, SqlStmt
 		return;
 	}
 
-	q.m_iPassageBoundary = sphGetPassageBoundary ( q.m_sRawPassageBoundary );
+	q.m_ePassageSPZ = sphGetPassageBoundary ( q.m_sRawPassageBoundary );
 
 	if ( !sphCheckOptionsSPZ ( q, q.m_sRawPassageBoundary, sError ) )
 	{
