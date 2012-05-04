@@ -43,7 +43,7 @@ public:
 	char *	BuildExcerpt ( const ExcerptQuery_t & tQuery );
 
 	void	TokenizeQuery ( const ExcerptQuery_t &, CSphDict * pDict, ISphTokenizer * pTokenizer, const CSphIndexSettings & tSettings );
-	void	TokenizeDocument ( char * pData, int iDataLen, CSphDict * pDict, ISphTokenizer * pTokenizer, bool bFillMasks, const ExcerptQuery_t & q, const CSphIndexSettings & tSettings );
+	void	TokenizeDocument ( char * pData, int iDataLen, CSphDict * pDict, ISphTokenizer * pTokenizer, bool bFillMasks, const ExcerptQuery_t & q, const CSphIndexSettings & tSettings, int iSPZ );
 
 	void	SetMarker ( CSphHitMarker * pMarker ) { m_pMarker = pMarker; }
 	void	SetExactPhrase ( const ExcerptQuery_t & tQuery );
@@ -678,11 +678,10 @@ int FindAddZone ( const char * sZoneName, int iZoneNameLen, SmallStringHash_T<in
 }
 
 // FIXME! unify with global static void TokenizeDocument somehow, lots of common code
-void ExcerptGen_c::TokenizeDocument ( char * pData, int iDataLen, CSphDict * pDict, ISphTokenizer * pTokenizer, bool bFillMasks, const ExcerptQuery_t & q, const CSphIndexSettings & tSettings )
+void ExcerptGen_c::TokenizeDocument ( char * pData, int iDataLen, CSphDict * pDict, ISphTokenizer * pTokenizer, bool bFillMasks, const ExcerptQuery_t & q, const CSphIndexSettings & tSettings, int iSPZ )
 {
 	assert ( q.m_sStripMode!="retain" );
 	bool bQueryMode = q.m_bHighlightQuery;
-	int iSPZ = q.m_iPassageBoundary;
 
 	m_iTotalCP = 0;
 	m_iDocumentWords = 0;
@@ -1883,7 +1882,7 @@ public:
 	CSphVector< CSphVector<int> >			m_dDocHits;
 
 	// query parsing result
-	XQQuery_t								m_tQuery;
+	const XQQuery_t	&						m_tQuery;
 
 protected:
 	// query keywords and parsing stuff
@@ -1892,17 +1891,14 @@ protected:
 	CSphVector<BYTE>						m_dStarBuffer;
 
 	bool									m_bQueryMode;
-	bool									m_bSentence;
-	bool									m_bParagraph;
 	BYTE									m_sTmpWord [ 3*SPH_MAX_WORD_LEN + 16 ];
 
 public:
-	explicit	SnippetsDocIndex_c ( bool bQueryMode );
+	SnippetsDocIndex_c ( bool bQueryMode, const XQQuery_t & tQuery );
 	void		SetupHits ();
 	int			FindWord ( SphWordID_t iWordID, const BYTE * sWord, int iWordLen ) const;
 	void		AddHits ( SphWordID_t iWordID, const BYTE * sWord, int iWordLen, DWORD uPosition );
-	bool		Parse ( const char * sQuery, ISphTokenizer * pTokenizer, CSphDict * pDict, const CSphSchema * pSchema, CSphString & sError, int iStopwordStep );
-	int			GetSPZ () const;
+	bool		ParseQuery ( const char * sQuery, ISphTokenizer * pTokenizer, CSphDict * pDict, DWORD eExtQuerySPZ );
 
 protected:
 	bool		MatchStar ( const ExcerptGen_c::Keyword_t & tTok, const BYTE * sWord, int iWordLen ) const;
@@ -1912,11 +1908,10 @@ protected:
 };
 
 
-SnippetsDocIndex_c::SnippetsDocIndex_c ( bool bQueryMode )
+SnippetsDocIndex_c::SnippetsDocIndex_c ( bool bQueryMode, const XQQuery_t & tQuery )
 	: m_uLastPos ( 0 )
+	, m_tQuery ( tQuery )
 	, m_bQueryMode ( bQueryMode )
-	, m_bSentence ( false )
-	, m_bParagraph ( false )
 {}
 
 
@@ -1983,7 +1978,7 @@ void SnippetsDocIndex_c::AddHits ( SphWordID_t iWordID, const BYTE * sWord, int 
 }
 
 
-bool SnippetsDocIndex_c::Parse ( const char * sQuery, ISphTokenizer * pTokenizer, CSphDict * pDict, const CSphSchema * pSchema, CSphString & sError, int iStopwordStep )
+bool SnippetsDocIndex_c::ParseQuery ( const char * sQuery, ISphTokenizer * pTokenizer, CSphDict * pDict, DWORD eExtQuerySPZ )
 {
 	if ( !m_bQueryMode )
 	{
@@ -2012,22 +2007,14 @@ bool SnippetsDocIndex_c::Parse ( const char * sQuery, ISphTokenizer * pTokenizer
 
 	} else
 	{
-		// parse extended query
-		if ( !sphParseExtendedQuery ( m_tQuery, sQuery, pTokenizer, pSchema, pDict, iStopwordStep ) )
-		{
-			sError = m_tQuery.m_sParseError;
-			return false;
-		}
-
-		m_tQuery.m_pRoot->ClearFieldMask();
 		ExtractWords ( m_tQuery.m_pRoot, pDict );
 
-		if ( m_bSentence )
+		if ( eExtQuerySPZ & SPH_SPZ_SENTENCE )
 		{
 			strncpy ( (char *)m_sTmpWord, MAGIC_WORD_SENTENCE, sizeof(m_sTmpWord) );
 			AddWord ( pDict->GetWordID ( m_sTmpWord ) );
 		}
-		if ( m_bParagraph )
+		if ( eExtQuerySPZ & SPH_SPZ_PARAGRAPH )
 		{
 			strncpy ( (char *)m_sTmpWord, MAGIC_WORD_PARAGRAPH, sizeof(m_sTmpWord) );
 			AddWord ( pDict->GetWordID ( m_sTmpWord ) );
@@ -2045,24 +2032,6 @@ bool SnippetsDocIndex_c::Parse ( const char * sQuery, ISphTokenizer * pTokenizer
 	m_dQueryWords.Uniq();
 	assert ( !m_dStarWords.GetLength() || m_dStarBuffer.GetLength() );
 	return true;
-}
-
-
-int SnippetsDocIndex_c::GetSPZ () const
-{
-	// with sentence in query we should consider SENTECE, PARAGRAPH, ZONE
-	// with paragraph in query we should consider PARAGRAPH, ZONE
-	// with zone in query we should consider ZONE
-	if ( m_bSentence )
-		return MAGIC_CODE_SENTENCE;
-
-	if ( m_bParagraph )
-		return MAGIC_CODE_PARAGRAPH;
-
-	if ( m_tQuery.m_dZones.GetLength() )
-		return MAGIC_CODE_ZONE;
-
-	return 0;
 }
 
 
@@ -2091,8 +2060,9 @@ void SnippetsDocIndex_c::AddWord ( const char * sWord, int iStarPosition )
 
 void SnippetsDocIndex_c::ExtractWords ( XQNode_t * pNode, CSphDict * pDict )
 {
-	m_bSentence |= ( pNode->GetOp()==SPH_QUERY_SENTENCE );
-	m_bParagraph |= ( pNode->GetOp()==SPH_QUERY_PARAGRAPH );
+	if ( !pNode )
+		return;
+
 	ARRAY_FOREACH ( i, pNode->m_dWords )
 	{
 		const XQKeyword_t & tWord = pNode->m_dWords[i];
@@ -2463,7 +2433,7 @@ static void AddZone ( const char * pStart, const char * pEnd, int uPosition, Tok
 
 
 /// tokenize document using a given functor
-static void TokenizeDocument ( TokenFunctorTraits_c & tFunctor, const CSphHTMLStripper * pStripper )
+static void TokenizeDocument ( TokenFunctorTraits_c & tFunctor, const CSphHTMLStripper * pStripper, DWORD iSPZ )
 {
 	ISphTokenizer * pTokenizer = tFunctor.m_pTokenizer;
 	CSphDict * pDict = tFunctor.m_pDict;
@@ -2474,7 +2444,6 @@ static void TokenizeDocument ( TokenFunctorTraits_c & tFunctor, const CSphHTMLSt
 	assert ( pStartPtr && pLastTokenEnd );
 
 	bool bRetainHtml = tFunctor.m_sStripMode=="retain";
-	int iSPZ = tFunctor.m_iPassageBoundary;
 	int uPosition = 0;
 	BYTE * sWord = NULL;
 	SphWordID_t iBlendID = 0;
@@ -2774,22 +2743,49 @@ inline bool operator < ( const SphHitMark_t & a, const SphHitMark_t & b )
 }
 
 
+// with sentence in query we should consider SENTECE, PARAGRAPH, ZONE
+// with paragraph in query we should consider PARAGRAPH, ZONE
+// with zone in query we should consider ZONE
+int ConvertSPZ ( DWORD eSPZ )
+{
+	if ( eSPZ & SPH_SPZ_SENTENCE )
+		return MAGIC_CODE_SENTENCE;
+	else if ( eSPZ & SPH_SPZ_PARAGRAPH )
+		return MAGIC_CODE_PARAGRAPH;
+	else if ( eSPZ & SPH_SPZ_ZONE )
+		return MAGIC_CODE_ZONE;
+	else
+		return 0;
+}
+
+
 static char * HighlightAllFastpath ( const ExcerptQuery_t & tQuerySettings,
-	const CSphIndexSettings & tIndexSettings,
+	const CSphIndexSettings & tIndexSettings, const XQQuery_t & tExtQuery, DWORD eExtQuerySPZ,
 	const char * sDoc, int iDocLen,
 	CSphDict * pDict, ISphTokenizer * pTokenizer, const CSphHTMLStripper * pStripper,
-	const CSphSchema * pSchema, CSphString & sError,
-	ISphTokenizer * pQueryTokenizer )
+	CSphString & sError, ISphTokenizer * pQueryTokenizer )
 {
 	ExcerptQuery_t tFixedSettings ( tQuerySettings );
 
-	// exact_phrase is replaced by query_mode=1 + "query words"
-	if ( tQuerySettings.m_bExactPhrase )
+	// exact_phrase emulation
+	// bug of words is replaced by query_mode=1 + "query words"
+	XQQuery_t tExactPhraseQuery;
+	bool bPhraseEmulation = tQuerySettings.m_bExactPhrase;
+	if ( bPhraseEmulation )
 	{
 		if ( !tQuerySettings.m_bHighlightQuery && tQuerySettings.m_sWords.Length() && strchr ( tQuerySettings.m_sWords.cstr(), 0x22 )==NULL )
 			tFixedSettings.m_sWords.SetSprintf ( "\"%s\"", tQuerySettings.m_sWords.cstr() );
 
 		tFixedSettings.m_bHighlightQuery = true;
+
+		CSphSchema tSchema;
+		if ( !sphParseExtendedQuery ( tExactPhraseQuery, tFixedSettings.m_sWords.cstr(), pQueryTokenizer, &tSchema, pDict, tIndexSettings.m_iStopwordStep ) )
+		{
+			sError = tExactPhraseQuery.m_sParseError;
+			return NULL;
+		}
+		if ( tExactPhraseQuery.m_pRoot )
+			tExactPhraseQuery.m_pRoot->ClearFieldMask();
 	}
 
 	bool bRetainHtml = ( tFixedSettings.m_sStripMode=="retain" );
@@ -2799,13 +2795,9 @@ static char * HighlightAllFastpath ( const ExcerptQuery_t & tQuerySettings,
 		pTokenizer->AddSpecials ( "<" );
 
 	// create query and hit lists container, parse query
-	SnippetsDocIndex_c tContainer ( tFixedSettings.m_bHighlightQuery );
-	if ( !tContainer.Parse ( tFixedSettings.m_sWords.cstr(), pQueryTokenizer, pDict, pSchema, sError, tIndexSettings.m_iStopwordStep ) )
+	SnippetsDocIndex_c tContainer ( tFixedSettings.m_bHighlightQuery, ( bPhraseEmulation ? tExactPhraseQuery : tExtQuery ) );
+	if ( !tContainer.ParseQuery ( tFixedSettings.m_sWords.cstr(), pQueryTokenizer, pDict, eExtQuerySPZ ) )
 		return NULL;
-
-	// fast-path collects no passages but that flag says what SPZ should we collect
-	if ( tFixedSettings.m_bHighlightQuery && !tFixedSettings.m_iPassageBoundary )
-		tFixedSettings.m_iPassageBoundary = tContainer.GetSPZ();
 
 	// do highlighting
 	if ( !tFixedSettings.m_bHighlightQuery )
@@ -2813,7 +2805,7 @@ static char * HighlightAllFastpath ( const ExcerptQuery_t & tQuerySettings,
 		// simple bag of words query
 		// do just one tokenization pass over the document, matching and highlighting keywords
 		HighlightPlain_c tHighlighter ( tContainer, pTokenizer, pDict, tFixedSettings, tIndexSettings, sDoc, iDocLen );
-		TokenizeDocument ( tHighlighter, NULL );
+		TokenizeDocument ( tHighlighter, NULL, 0 );
 
 		if ( !tHighlighter.m_iMatchesCount && tFixedSettings.m_bAllowEmpty )
 			tHighlighter.m_dResult.Reset();
@@ -2831,7 +2823,7 @@ static char * HighlightAllFastpath ( const ExcerptQuery_t & tQuerySettings,
 
 		// do the 1st pass
 		HitCollector_c tHitCollector ( tContainer, pTokenizer, pDict, tFixedSettings, tIndexSettings, sDoc, iDocLen );
-		TokenizeDocument ( tHitCollector, pStripper );
+		TokenizeDocument ( tHitCollector, pStripper, ConvertSPZ ( eExtQuerySPZ ) );
 
 		// prepare for the 2nd pass (that is, extract matching hits)
 		SnippetZoneChecker_c tZoneChecker ( tHitCollector.m_dZones, tHitCollector.m_hZones, tContainer.m_tQuery.m_dZones );
@@ -2919,7 +2911,7 @@ static char * HighlightAllFastpath ( const ExcerptQuery_t & tQuerySettings,
 
 		// 2nd pass
 		HighlightQuery_c tHighlighter ( tContainer, pTokenizer, pDict, tFixedSettings, tIndexSettings, sDoc, iDocLen, dMarked );
-		TokenizeDocument ( tHighlighter, pStripper );
+		TokenizeDocument ( tHighlighter, pStripper, ConvertSPZ ( eExtQuerySPZ ) );
 
 		if ( !tHighlighter.m_iMatchesCount && tFixedSettings.m_bAllowEmpty )
 			tHighlighter.m_dResult.Reset();
@@ -2942,7 +2934,6 @@ ExcerptQuery_t::ExcerptQuery_t ()
 	, m_iLimitPassages ( 0 )
 	, m_iAround ( 5 )
 	, m_iPassageId ( 1 )
-	, m_iPassageBoundary ( 0 )
 	, m_bRemoveSpaces ( false )
 	, m_bExactPhrase ( false )
 	, m_bUseBoundaries ( false )
@@ -2959,13 +2950,15 @@ ExcerptQuery_t::ExcerptQuery_t ()
 	, m_sRes ( NULL )
 	, m_bHasBeforePassageMacro ( false )
 	, m_bHasAfterPassageMacro ( false )
+	, m_ePassageSPZ ( SPH_SPZ_NONE )
 {
 }
 
 /////////////////////////////////////////////////////////////////////////////
 
 
-char * sphBuildExcerpt ( ExcerptQuery_t & tOptions, CSphDict * pDict, ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphIndex * pIndex, CSphString & sError, const CSphHTMLStripper * pStripper, ISphTokenizer * pQueryTokenizer )
+char * sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, const CSphHTMLStripper * pStripper, const XQQuery_t & tExtQuery,
+						DWORD eExtQuerySPZ, CSphString & sError, CSphDict * pDict, ISphTokenizer * pDocTokenizer, ISphTokenizer * pQueryTokenizer )
 {
 	if ( tOptions.m_sStripMode=="retain"
 		&& !( tOptions.m_iLimit==0 && tOptions.m_iLimitPassages==0 && tOptions.m_iLimitWords==0 ) )
@@ -2973,9 +2966,6 @@ char * sphBuildExcerpt ( ExcerptQuery_t & tOptions, CSphDict * pDict, ISphTokeni
 		sError = "html_strip_mode=retain requires that all limits are zero";
 		return NULL;
 	}
-
-	if ( !tOptions.m_sWords.cstr()[0] )
-		tOptions.m_bHighlightQuery = false;
 
 	char * pData = const_cast<char*> ( tOptions.m_sSource.cstr() );
 	CSphFixedVector<char> pBuffer ( 0 );
@@ -3026,32 +3016,24 @@ char * sphBuildExcerpt ( ExcerptQuery_t & tOptions, CSphDict * pDict, ISphTokeni
 		|| ( tOptions.m_iLimit && tOptions.m_iLimit<=iDataLen )
 		|| tOptions.m_bForceAllWords || tOptions.m_bUseBoundaries ))
 	{
-		return HighlightAllFastpath ( tOptions, pIndex->GetSettings(), pData, iDataLen, pDict, pTokenizer, pStripper, pSchema, sError, pQueryTokenizer );
+		return HighlightAllFastpath ( tOptions, pIndex->GetSettings(), tExtQuery, eExtQuerySPZ, pData, iDataLen, pDict, pDocTokenizer, pStripper, sError, pQueryTokenizer );
 	}
 
 	if ( !tOptions.m_bHighlightQuery )
 	{
 		// legacy highlighting
-		ExcerptGen_c tGenerator ( pTokenizer->IsUtf8() );
-		tGenerator.TokenizeQuery ( tOptions, pDict, pTokenizer, pIndex->GetSettings() );
+		ExcerptGen_c tGenerator ( pDocTokenizer->IsUtf8() );
+		tGenerator.TokenizeQuery ( tOptions, pDict, pDocTokenizer, pIndex->GetSettings() );
 		tGenerator.SetExactPhrase ( tOptions );
-		tGenerator.TokenizeDocument ( pData, iDataLen, pDict, pTokenizer, true, tOptions, pIndex->GetSettings() );
+		tGenerator.TokenizeDocument ( pData, iDataLen, pDict, pDocTokenizer, true, tOptions, pIndex->GetSettings(), ConvertSPZ ( tOptions.m_ePassageSPZ | eExtQuerySPZ ) );
 		return tGenerator.BuildExcerpt ( tOptions );
 	}
 
-	XQQuery_t tQuery;
-	if ( !sphParseExtendedQuery ( tQuery, tOptions.m_sWords.cstr(), pQueryTokenizer, pSchema, pDict, pIndex->GetSettings().m_iStopwordStep ) )
-	{
-		sError = tQuery.m_sParseError;
-		return NULL;
-	}
-	tQuery.m_pRoot->ClearFieldMask();
+	ExcerptGen_c tGenerator ( pDocTokenizer->IsUtf8() );
+	tGenerator.TokenizeDocument ( pData, iDataLen, pDict, pDocTokenizer, false, tOptions, pIndex->GetSettings(), ConvertSPZ ( tOptions.m_ePassageSPZ | eExtQuerySPZ ) );
 
-	ExcerptGen_c tGenerator ( pTokenizer->IsUtf8() );
-	tGenerator.TokenizeDocument ( pData, iDataLen, pDict, pTokenizer, false, tOptions, pIndex->GetSettings() );
-
-	CSphScopedPtr<SnippetZoneChecker_c> pZoneChecker ( new SnippetZoneChecker_c ( tGenerator.GetZones(), tGenerator.GetZonesName(), tQuery.m_dZones ) );
-	SnippetsQwordSetup tSetup ( &tGenerator, pTokenizer );
+	CSphScopedPtr<SnippetZoneChecker_c> pZoneChecker ( new SnippetZoneChecker_c ( tGenerator.GetZones(), tGenerator.GetZonesName(), tExtQuery.m_dZones ) );
+	SnippetsQwordSetup tSetup ( &tGenerator, pDocTokenizer );
 	CSphString sWarning;
 
 	tSetup.m_pDict = pDict;
@@ -3060,7 +3042,7 @@ char * sphBuildExcerpt ( ExcerptQuery_t & tOptions, CSphDict * pDict, ISphTokeni
 	tSetup.m_pWarning = &sWarning;
 	tSetup.m_pZoneChecker = pZoneChecker.Ptr();
 
-	CSphScopedPtr<CSphHitMarker> pMarker ( CSphHitMarker::Create ( tQuery.m_pRoot, tSetup ) );
+	CSphScopedPtr<CSphHitMarker> pMarker ( CSphHitMarker::Create ( tExtQuery.m_pRoot, tSetup ) );
 	if ( !pMarker.Ptr() )
 	{
 		sError = sWarning;
