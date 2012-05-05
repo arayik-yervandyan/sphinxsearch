@@ -1025,7 +1025,7 @@ char * ExcerptGen_c::BuildExcerpt ( const ExcerptQuery_t & tQuery )
 
 	// do highlighting
 	if ( ( tQuery.m_iLimit<=0 || tQuery.m_iLimit>m_iTotalCP )
-		&& ( tQuery.m_iLimitWords<=0 || tQuery.m_iLimitWords>m_iDocumentWords ) )
+		&& ( tQuery.m_iLimitWords<=0 || tQuery.m_iLimitWords>m_iDocumentWords ) && tQuery.m_ePassageSPZ==SPH_SPZ_NONE )
 	{
 		HighlightAll ( tQuery );
 
@@ -3010,11 +3010,13 @@ char * sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, co
 	// FIXME!!! check on real data (~100 Mb) as stripper changes len
 	iDataLen = strlen ( pData );
 
+	bool bCanFastPathed = ( ( tOptions.m_iLimit==0 || tOptions.m_iLimit>=iDataLen ) &&
+		( tOptions.m_iLimitWords==0 || tOptions.m_iLimitWords>iDataLen/2 ) &&
+		!tOptions.m_bForceAllWords && !tOptions.m_bUseBoundaries && !tOptions.m_iLimitPassages && !tOptions.m_bWeightOrder &&
+		tOptions.m_ePassageSPZ==SPH_SPZ_NONE && !tOptions.m_bEmitZones );
+
 	// fast path that highlights entire document
-	if (!( tOptions.m_iLimitPassages
-		|| ( tOptions.m_iLimitWords && tOptions.m_iLimitWords<iDataLen/2 )
-		|| ( tOptions.m_iLimit && tOptions.m_iLimit<=iDataLen )
-		|| tOptions.m_bForceAllWords || tOptions.m_bUseBoundaries ))
+	if ( bCanFastPathed )
 	{
 		return HighlightAllFastpath ( tOptions, pIndex->GetSettings(), tExtQuery, eExtQuerySPZ, pData, iDataLen, pDict, pDocTokenizer, pStripper, sError, pQueryTokenizer );
 	}
