@@ -18039,15 +18039,16 @@ bool CSphDictCRCTraits::LoadWordforms ( CSphVector<CSphString> & dFiles, const C
 			m_dWFFileInfos[i] = pEmbedded->m_dWordformFiles[i];
 	} else
 	{
-		m_dWFFileInfos.Reserve ( m_dWFFileInfos.GetLength() );
+		m_dWFFileInfos.Reserve ( dFiles.GetLength() );
 		CSphSavedFile tFile;
 		ARRAY_FOREACH ( i, dFiles )
-		{
-			if ( GetFileStats ( dFiles[i].cstr(), tFile ) )
-				m_dWFFileInfos.Add ( tFile );
-			else
-				sphWarning ( "index '%s': wordforms file '%s' not found", sIndex, dFiles[i].cstr() );
-		}
+			if ( !dFiles[i].IsEmpty() )
+			{
+				if ( GetFileStats ( dFiles[i].cstr(), tFile ) )
+					m_dWFFileInfos.Add ( tFile );
+				else
+					sphWarning ( "index '%s': wordforms file '%s' not found", sIndex, dFiles[i].cstr() );
+			}
 	}
 
 	if ( !m_dWFFileInfos.GetLength() )
