@@ -157,6 +157,19 @@ $opts['limit'] = 30;
 $res =  $client->BuildExcerpts($docs, 'test', 'and PARAGRAPH words',  $opts);
 $res['PARAGRAPH'] = 'old-path';
 $results[] = $res;
+
+// regression fast-path vs passage_boundary
+$opts['limit'] = 0;
+$opts['passage_boundary'] = 'paragraph';
+$res =  $client->BuildExcerpts($docs, 'test', 'and words',  $opts);
+$res['passage_boundary'] = 'paragraph';
+$results[] = $res;
+
+$opts['passage_boundary'] = 'zone';
+$res =  $client->BuildExcerpts($docs, 'test', 'and words',  $opts);
+$res['passage_boundary'] = 'zone';
+$results[] = $res;
+
 	
 // regression head SPZ overgrow + non fast path SPZ
 
