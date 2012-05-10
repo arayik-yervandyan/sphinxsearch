@@ -92,6 +92,36 @@ foreach ( $queries as $query )
 	$results [] = $reply;
 }
 
+// regressions fast-path query mode starred vs regular term matches
+
+$query = ' "*ivide* u" | ividende* | "dividende u" ';
+$results [] = $query;
+$results [] = $client->BuildExcerpts ( array ( 'du dividende fort' ), 'test', $query, array ( 'query_mode' => 1 ) );
+
+$query = ' *ividende* | "dividende u" ';
+$results [] = $query;
+$results [] = $client->BuildExcerpts ( array ( 'Orange denoncent la politique du dividende fort' ), 'test', $query, array ( 'query_mode' => 1 ) );
+
+$query = ' *ividende* dividende u ';
+$results [] = $query;
+$results [] = $client->BuildExcerpts ( array ( 'Orange denoncent la politique du dividende fort' ), 'test', $query, array ( 'query_mode' => 0 ) );
+
+$query = ' dividende* | "dividende p" ';
+$results [] = $query;
+$results [] = $client->BuildExcerpts ( array ( 'Orange denoncent la politique du dividende fort' ), 'test', $query, array ( 'query_mode' => 1 ) );
+
+$query = ' dividende* dividende p ';
+$results [] = $query;
+$results [] = $client->BuildExcerpts ( array ( 'Orange denoncent la politique du dividende fort' ), 'test', $query, array ( 'query_mode' => 0 ) );
+
+$query = ' (orange ("dividende*")) ';
+$results [] = $query;
+$results [] = $client->BuildExcerpts ( array ( 'Orange denoncent la politique du dividende fort' ), 'test', $query, array ( 'query_mode' => 1 ) );
+
+$query = ' (orange ("dividende*" | "dividende propose")) ';
+$results [] = $query;
+$results [] = $client->BuildExcerpts ( array ( 'Orange denoncent la politique du dividende fort' ), 'test', $query, array ( 'query_mode' => 1, 'limit' => 40 ) );
+
 ]]></custom_test>
 
 </test>
