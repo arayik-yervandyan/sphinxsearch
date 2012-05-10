@@ -2446,7 +2446,7 @@ bool CSphCharsetDefinitionParser::AddRange ( const CSphRemapRange & tRange, CSph
 	}
 
 	CSphString sError;
-	sError.SetSprintf ( "dest range (U+0x%x) below U+0x20, not allowed", tRange.m_iRemapStart );
+	sError.SetSprintf ( "dest range (U+%x) below U+20, not allowed", tRange.m_iRemapStart );
 	Error ( sError.cstr() );
 	return false;
 }
@@ -2779,6 +2779,38 @@ bool ISphTokenizer::SetCaseFolding ( const char * sConfig, CSphString & sError )
 	{
 		sError = tParser.GetLastError();
 		return false;
+	}
+
+	const int MIN_CODE = 0x21;
+	ARRAY_FOREACH ( i, dRemaps )
+	{
+		CSphRemapRange & tMap = dRemaps[i];
+
+		if ( tMap.m_iStart<MIN_CODE || tMap.m_iStart>=m_tLC.MAX_CODE )
+		{
+			sphWarning ( "wrong character mapping start specified: U+%x, should be between U+%x and U+%x (inclusive); CLAMPED", tMap.m_iStart, MIN_CODE, m_tLC.MAX_CODE-1 );
+			tMap.m_iStart = Min ( Max ( tMap.m_iStart, MIN_CODE ), m_tLC.MAX_CODE-1 );
+		}
+
+		if ( tMap.m_iEnd<MIN_CODE || tMap.m_iEnd>=m_tLC.MAX_CODE )
+		{
+			sphWarning ( "wrong character mapping end specified: U+%x, should be between U+%x and U+%x (inclusive); CLAMPED", tMap.m_iEnd, MIN_CODE, m_tLC.MAX_CODE-1 );
+			tMap.m_iEnd = Min ( Max ( tMap.m_iEnd, MIN_CODE ), m_tLC.MAX_CODE-1 );
+		}
+
+		if ( tMap.m_iRemapStart<MIN_CODE || tMap.m_iRemapStart>=m_tLC.MAX_CODE )
+		{
+			sphWarning ( "wrong character remapping start specified: U+%x, should be between U+%x and U+%x (inclusive); CLAMPED", tMap.m_iRemapStart, MIN_CODE, m_tLC.MAX_CODE-1 );
+			tMap.m_iRemapStart = Min ( Max ( tMap.m_iRemapStart, MIN_CODE ), m_tLC.MAX_CODE-1 );
+		}
+
+		int iRemapEnd = tMap.m_iRemapStart+tMap.m_iEnd-tMap.m_iStart;
+		if ( iRemapEnd<MIN_CODE || iRemapEnd>=m_tLC.MAX_CODE )
+		{
+			sphWarning ( "wrong character remapping end specified: U+%x, should be between U+%x and U+%x (inclusive); IGNORED", iRemapEnd, MIN_CODE, m_tLC.MAX_CODE-1 );
+			dRemaps.Remove(i);
+			i--;
+		}
 	}
 
 	m_tLC.Reset ();
@@ -15255,7 +15287,7 @@ rd) );
 	}
 
 	// check the checkpoints
-	if ( dCheckpoints.GetLength()!=m_tWordlist.m_dCheckpoints.GetLength() )
+	if ( dCheckpoints.GetLength()!=dlist.m_dCheckpoints.GetLength() )
 		LOC_FAIL(( fp, "checkpoint count mismatch (read=%d, calc=%d)",
 			m_tWordlist.m_dCheckpoints.GetLength(), dCheckpoints.GetLength() ));
 
@@ -15270,7 +15302,7 @@ rd) );
 				i, tCP.m_sWord, (DWORD)strlen ( tCP.m_sWord ), (int64_t)tCP.m_iWordlistOffset,
 					tRefCP.m_sWord, (DWORD)strlen ( tRefCP.m_sWord ), (int64_t)tRefCP.m_iWordlistOffset ));
 
-		} elsesphCheckpointCmpStrictly ( tCP.m_sWord, iLen, tCP.m_iWordID, bWordDict, tRefCPrdDict )
+		} else if ( sphCheckpointCmpStrictly ( tCP.m_sWord, iLen, tCP.m_iWordID, bWordDict, tRefCP )
 			|| tRefCP.m_iWordlistOffset!=tCP.m_iWordlistOffset )
 		{
 			if ( bWordDict )
@@ -15283,7 +15315,7 @@ rd) );
 					(int64_t)tRefCP.m_iWordlistOffset ));
 			} else
 			{
-				LOC_FAIL(( fp, "checkpoint %d differs (readid="UINT64_FMT",os="INT64_FMT", calcid="UINT64_FMT", calcpos="INT64_FMT")",
+				LOC_FAIL(( fp, "checkpoint %d differs (readid="UINT64_FMT", readpos="INT64_FMT", calcid="UINT64_FMT", calcpos="INT64_FMT")",
 					i,
 					(uint64_t)tCP.m_iWordID,
 					(int64_t)tCP.m_iWordlistOffset,
@@ -18715,8 +18747,7 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"not", 172},
 		{"isin", 8712},
 		{"sdot", 8901},
-		{""},
-		{"prime", 8242},
+				{"prime", 8242},
 		{"prod", 8719},
 		{"trade", 8482},
 		{"Scaron", 352},
@@ -18795,7 +18826,8 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"thetasym", 977},
 		{""}, {""}, {""},
 		{"Omega", 937},
-		{"Ecirc", 202}"},
+		{"Ecirc", 202},
+		{""},
 		{"lowast", 8727},
 		{"iquest", 191},
 		{"lt", 60},
@@ -22999,7 +23031,7 @@ bool CSphSource_XMLPipe2::IterateKillListStart ( CSphString & )
 
 bool CSphSource_XMLPipe2::IterateKillListNext ( SphDocID_t & tDocId )
 {
-	if ( m_iKillListIterator>=m_dKillList.GetLength () )
+	ifKillListIterator>=m_dKillList.GetLength () )
 		return false;
 
 	tDocId = m_dKillList [ m_iKillListIterator++ ];
@@ -23057,7 +23089,7 @@ void CSphSource_XMLPipe2::StartElement ( const char * szName, const char ** pAtt
 			} else if ( !strcmp ( *dAttrs, "attr" ) )
 			{
 				bIsAttr = true;
-				if ( !strcmp ( dAttrs[1], "st) )
+				if ( !strcmp ( dAttrs[1], "string" ) )
 					Info.m_eAttrType = SPH_ATTR_STRING;
 				else if ( !strcmp ( dAttrs[1], "wordcount" ) )
 					Info.m_eAttrType = SPH_ATTR_WORDCOUNT;
