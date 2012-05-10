@@ -1886,8 +1886,9 @@ public:
 
 protected:
 	// query keywords and parsing stuff
-	CSphVector<SphWordID_t>					m_dQueryWords;
-	CSphVector<ExcerptGen_c::Keyword_t>		m_dStarWords;
+	CSphVector<SphWordID_t>					m_dTerms;
+	CSphVector<SphWordID_t>					m_dStarred;
+	CSphVector<ExcerptGen_c::Keyword_t>		m_dStars;
 	CSphVector<BYTE>						m_dStarBuffer;
 
 	bool									m_bQueryMode;
@@ -1897,8 +1898,9 @@ public:
 	SnippetsDocIndex_c ( bool bQueryMode, const XQQuery_t & tQuery );
 	void		SetupHits ();
 	int			FindWord ( SphWordID_t iWordID, const BYTE * sWord, int iWordLen ) const;
+	int			FindStarred ( const char * sWord, int uStarPosition ) const;
 	void		AddHits ( SphWordID_t iWordID, const BYTE * sWord, int iWordLen, DWORD uPosition );
-	bool		ParseQuery ( const char * sQuery, ISphTokenizer * pTokenizer, CSphDict * pDict, DWORD eExtQuerySPZ );
+	void		ParseQuery ( const char * sQuery, ISphTokenizer * pTokenizer, CSphDict * pDict, DWORD eExtQuerySPZ );
 
 protected:
 	bool		MatchStar ( const ExcerptGen_c::Keyword_t & tTok, const BYTE * sWord, int iWordLen ) const;
@@ -1917,7 +1919,7 @@ SnippetsDocIndex_c::SnippetsDocIndex_c ( bool bQueryMode, const XQQuery_t & tQue
 
 void SnippetsDocIndex_c::SetupHits ()
 {
-	m_dDocHits.Resize ( m_dQueryWords.GetLength() + m_dStarWords.GetLength() );
+	m_dDocHits.Resize ( m_dTerms.GetLength() + m_dStars.GetLength() );
 	m_uLastPos = 0;
 }
 
@@ -1947,14 +1949,31 @@ bool SnippetsDocIndex_c::MatchStar ( const ExcerptGen_c::Keyword_t & tTok, const
 
 int SnippetsDocIndex_c::FindWord ( SphWordID_t iWordID, const BYTE * sWord, int iWordLen ) const
 {
-	const SphWordID_t * pQueryID = iWordID ? m_dQueryWords.BinarySearch ( iWordID ) : NULL;
+	const SphWordID_t * pQueryID = iWordID ? m_dTerms.BinarySearch ( iWordID ) : NULL;
 	if ( pQueryID )
-		return pQueryID - m_dQueryWords.Begin();
+		return pQueryID - m_dTerms.Begin();
 
 	if ( sWord && iWordLen )
-		ARRAY_FOREACH ( i, m_dStarWords )
-			if ( MatchStar ( m_dStarWords[i], sWord, iWordLen ) )
-				return i + m_dQueryWords.GetLength();
+		ARRAY_FOREACH ( i, m_dStars )
+			if ( MatchStar ( m_dStars[i], sWord, iWordLen ) )
+				return i + m_dTerms.GetLength();
+
+	return -1;
+}
+
+int SnippetsDocIndex_c::FindStarred ( const char * sWord, int uStarPosition ) const
+{
+	if ( !sWord || !uStarPosition )
+		return -1;
+
+	const BYTE * pBuf = m_dStarBuffer.Begin();
+	int iLen = strlen ( sWord );
+	ARRAY_FOREACH ( i, m_dStars )
+	{
+		const ExcerptGen_c::Keyword_t & tTok = m_dStars[i];
+		if ( tTok.m_iLength==iLen && tTok.m_uStar==uStarPosition && memcmp ( pBuf+tTok.m_iWord, sWord, iLen )==0 )
+			return i + m_dTerms.GetLength();
+	}
 
 	return -1;
 }
@@ -1962,33 +1981,38 @@ int SnippetsDocIndex_c::FindWord ( SphWordID_t iWordID, const BYTE * sWord, int 
 
 void SnippetsDocIndex_c::AddHits ( SphWordID_t iWordID, const BYTE * sWord, int iWordLen, DWORD uPosition )
 {
-	assert ( m_dDocHits.GetLength()==m_dQueryWords.GetLength()+m_dStarWords.GetLength() );
+	assert ( m_dDocHits.GetLength()==m_dTerms.GetLength()+m_dStars.GetLength() );
 
-	const SphWordID_t * pQueryWord = ( iWordID ? m_dQueryWords.BinarySearch ( iWordID ) : NULL );
+	// FIXME!!! replace to 6well formed full-blown infix keyword dict
+	const SphWordID_t * pQueryWord = ( iWordID ? m_dTerms.BinarySearch ( iWordID ) : NULL );
 	if ( pQueryWord )
 	{
-		m_dDocHits [ pQueryWord - m_dQueryWords.Begin() ].Add ( uPosition );
-		return;
+		m_dDocHits [ pQueryWord - m_dTerms.Begin() ].Add ( uPosition );
+
+		// might add hit to star hit-list too
+		if ( !m_dStarred.BinarySearch ( iWordID ) )
+			return;
 	}
 
 	if ( sWord && iWordLen )
-		ARRAY_FOREACH ( i, m_dStarWords )
-			if ( MatchStar ( m_dStarWords[i], sWord, iWordLen ) )
-				m_dDocHits [ m_dQueryWords.GetLength() + i ].Add ( uPosition );
+		ARRAY_FOREACH ( i, m_dStars )
+			if ( MatchStar ( m_dStars[i], sWord, iWordLen ) )
+				m_dDocHits [ m_dTerms.GetLength() + i ].Add ( uPosition );
 }
 
 
-bool SnippetsDocIndex_c::ParseQuery ( const char * sQuery, ISphTokenizer * pTokenizer, CSphDict * pDict, DWORD eExtQuerySPZ )
+void SnippetsDocIndex_c::ParseQuery ( const char * sQuery, ISphTokenizer * pTokenizer, CSphDict * pDict, DWORD eExtQuerySPZ )
 {
+	int iQueryLen = 0;
 	if ( !m_bQueryMode )
 	{
 		// parse bag-of-words query
-		int iQueryLen = strlen ( sQuery ); // FIXME!!! get length as argument
+		iQueryLen = strlen ( sQuery ); // FIXME!!! get length as argument
 		pTokenizer->SetBuffer ( (BYTE *)sQuery, iQueryLen );
 
 		BYTE * sWord = NULL;
 		// FIXME!!! add warning on query words overflow
-		while ( ( sWord = pTokenizer->GetToken() )!=NULL && ( m_dQueryWords.GetLength() + m_dStarWords.GetLength() )<MAX_HIGHLIGHT_WORDS )
+		while ( ( sWord = pTokenizer->GetToken() )!=NULL && ( m_dTerms.GetLength() + m_dStars.GetLength() )<MAX_HIGHLIGHT_WORDS )
 		{
 			SphWordID_t uWordID = pDict->GetWordID ( sWord );
 			if ( !uWordID )
@@ -2028,17 +2052,52 @@ bool SnippetsDocIndex_c::ParseQuery ( const char * sQuery, ISphTokenizer * pToke
 		}
 	}
 
-	// all ok, remove dupes, and return
-	m_dQueryWords.Uniq();
-	assert ( !m_dStarWords.GetLength() || m_dStarBuffer.GetLength() );
-	return true;
+	// all ok, remove dupes
+	m_dTerms.Uniq();
+	assert ( !m_dStars.GetLength() || m_dStarBuffer.GetLength() );
+
+	// plain terms could also match as starred terms
+	if ( m_dStars.GetLength() && m_dTerms.GetLength() && m_bQueryMode )
+	{
+		CSphVector<const XQNode_t *> dChildren;
+		dChildren.Add ( m_tQuery.m_pRoot );
+		ARRAY_FOREACH ( i, dChildren )
+		{
+			const XQNode_t * pChild = dChildren[i];
+			if ( !pChild )
+				continue;
+
+			ARRAY_FOREACH ( j, pChild->m_dChildren )
+				dChildren.Add ( pChild->m_dChildren[j] );
+
+			ARRAY_FOREACH ( j, pChild->m_dWords )
+			{
+				if ( pChild->m_dWords[j].m_uStarPosition )
+					continue;
+
+				const BYTE * sWord = (const BYTE *)pChild->m_dWords[j].m_sWord.cstr();
+				int iLen = pChild->m_dWords[j].m_sWord.Length();
+				ARRAY_FOREACH ( k, m_dStars )
+				{
+					if ( MatchStar ( m_dStars[k], sWord, iLen ) )
+					{
+						memcpy ( m_sTmpWord, sWord, iLen );
+						m_dStarred.Add ( pDict->GetWordID ( m_sTmpWord ) );
+						break;
+					}
+				}
+			}
+		}
+
+		m_dStarred.Uniq();
+	}
 }
 
 
 void SnippetsDocIndex_c::AddWord ( SphWordID_t iWordID )
 {
 	assert ( iWordID );
-	m_dQueryWords.Add ( iWordID );
+	m_dTerms.Add ( iWordID );
 }
 
 
@@ -2051,7 +2110,7 @@ void SnippetsDocIndex_c::AddWord ( const char * sWord, int iStarPosition )
 	memcpy ( &m_dStarBuffer[iOff], sWord, iLen );
 	m_dStarBuffer[iOff+iLen] = 0;
 
-	ExcerptGen_c::Keyword_t & tTok = m_dStarWords.Add();
+	ExcerptGen_c::Keyword_t & tTok = m_dStars.Add();
 	tTok.m_iWord = iOff;
 	tTok.m_iLength = iLen;
 	tTok.m_uStar = iStarPosition;
@@ -2216,7 +2275,7 @@ public:
 		int iWord = -1;
 		if ( tWord.m_uStarPosition )
 		{
-			iWord = m_tContainer.FindWord ( 0, (const BYTE *)tWord.m_sWord.cstr(), tWord.m_sWord.Length() );
+			iWord = m_tContainer.FindStarred ( tWord.m_sWord.cstr(), tWord.m_uStarPosition );
 		} else
 		{
 			strncpy ( (char *)m_sTmpWord, tWord.m_sWord.cstr(), sizeof(m_sTmpWord) );
@@ -2673,7 +2732,7 @@ public:
 		m_iDocs = 0;
 		m_iHits = 0;
 		m_uLastPos = uLastPos;
-		if ( m_pHits )
+		if ( m_pHits && m_pHits->GetLength() )
 		{
 			m_iDocs = 1;
 			m_iHits = m_pHits->GetLength();
@@ -2796,8 +2855,7 @@ static char * HighlightAllFastpath ( const ExcerptQuery_t & tQuerySettings,
 
 	// create query and hit lists container, parse query
 	SnippetsDocIndex_c tContainer ( tFixedSettings.m_bHighlightQuery, ( bPhraseEmulation ? tExactPhraseQuery : tExtQuery ) );
-	if ( !tContainer.ParseQuery ( tFixedSettings.m_sWords.cstr(), pQueryTokenizer, pDict, eExtQuerySPZ ) )
-		return NULL;
+	tContainer.ParseQuery ( tFixedSettings.m_sWords.cstr(), pQueryTokenizer, pDict, eExtQuerySPZ );
 
 	// do highlighting
 	if ( !tFixedSettings.m_bHighlightQuery )
