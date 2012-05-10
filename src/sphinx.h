@@ -356,6 +356,7 @@ inline bool operator < ( const CSphRemapRange & a, const CSphRemapRange & b )
 /// lowercaser
 class CSphLowercaser
 {
+	friend class ISphTokenizer;
 public:
 				CSphLowercaser ();
 				~CSphLowercaser ();
