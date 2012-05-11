@@ -2904,7 +2904,10 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 	// now lets add @groupby etc if needed
 	if ( bGotGroupby && tSorterSchema.GetAttrIndex ( "@groupby" )<0 )
 	{
-		CSphColumnInfo tGroupby ( "@groupby", tSettings.m_pGrouper->GetResultType() );
+		ESphAttr eGroupByResult = tSettings.m_pGrouper->GetResultType();
+		if ( tSettings.m_bMva64 )
+			eGroupByResult = SPH_ATTR_BIGINT;
+		CSphColumnInfo tGroupby ( "@groupby", eGroupByResult );
 		CSphColumnInfo tCount ( "@count", SPH_ATTR_INTEGER );
 		CSphColumnInfo tDistinct ( "@distinct", SPH_ATTR_INTEGER );
 
