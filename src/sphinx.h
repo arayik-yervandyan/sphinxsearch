@@ -2492,6 +2492,9 @@ public:
 	/// check if this sorter needs attr values
 	virtual bool		UsesAttrs () const = 0;
 
+	// check if sorter might be used in multi-queue
+	virtual bool		CanMulti () const = 0;
+
 	/// check if this sorter does groupby
 	virtual bool		IsGroupby () const = 0;
 
