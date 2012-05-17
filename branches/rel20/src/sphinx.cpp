@@ -2085,6 +2085,7 @@ public:
 	virtual const CSphSavedFile &	GetSynFileInfo () const											{ return m_pTokenizer->GetSynFileInfo (); }
 	virtual bool					EnableSentenceIndexing ( CSphString & sError )					{ return m_pTokenizer->EnableSentenceIndexing ( sError ); }
 	virtual bool					EnableZoneIndexing ( CSphString & sError )						{ return m_pTokenizer->EnableZoneIndexing ( sError ); }
+	virtual int						SkipBlended ()													{ return m_pTokenizer->SkipBlended(); }
 
 public:
 	virtual void					SetBuffer ( BYTE * sBuffer, int iLength );
@@ -15282,12 +15283,11 @@ rd) );
 		}
 
 		uWordid = uNewWordid;
-		iDoclistOffset = iNewDoclistOffset;
-		iWordsTotal++;
+		iDoclistOffset = iNewDoclistOf		iWordsTotal++;
 	}
 
 	// check the checkpoints
-	if ( dCheckpoints.GetLength()!=dlist.m_dCheckpoints.GetLength() )
+	if ( dCheckpoints.GetLength()!=m_tWordlist.m_dCheckpoints.GetLength() )
 		LOC_FAIL(( fp, "checkpoint count mismatch (read=%d, calc=%d)",
 			m_tWordlist.m_dCheckpoints.GetLength(), dCheckpoints.GetLength() ));
 
@@ -18742,12 +18742,13 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		{"omega", 969},
 		{"and", 8743},
 		{"prop", 8733},
-		{"ensp", 8194},
+		{"en194},
 		{"image", 8465},
 		{"not", 172},
 		{"isin", 8712},
 		{"sdot", 8901},
-				{"prime", 8242},
+		{""},
+		{"prime", 8242},
 		{"prod", 8719},
 		{"trade", 8482},
 		{"Scaron", 352},
@@ -23025,13 +23026,12 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 bool CSphSource_XMLPipe2::IterateKillListStart ( CSphString & )
 {
 	m_iKillListIterator = 0;
-	return true;
-}
+	return }
 
 
 bool CSphSource_XMLPipe2::IterateKillListNext ( SphDocID_t & tDocId )
 {
-	ifKillListIterator>=m_dKillList.GetLength () )
+	if ( m_iKillListIterator>=m_dKillList.GetLength () )
 		return false;
 
 	tDocId = m_dKillList [ m_iKillListIterator++ ];
