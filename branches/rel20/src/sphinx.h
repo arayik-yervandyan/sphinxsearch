@@ -633,6 +633,7 @@ struct CSphDictSettings
 
 /// abstract word dictionary interface
 struct CSphWordHit;
+class CSphAutofile;
 struct CSphDict
 {
 	/// virtualizing dtor
@@ -712,7 +713,7 @@ public:
 
 public:
 	/// begin creating dictionary file, setup any needed internal structures
-	virtual void			DictBegin ( int iTmpDictFD, int iDictFD, int iDictLimit );
+	virtual void			DictBegin ( CSphAutofile & tTempDict, CSphAutofile & tDict, int iDictLimit );
 
 	/// add next keyword entry to final dict
 	virtual void			DictEntry ( SphWordID_t uWordID, BYTE * sKeyword, int iDocs, int iHits, SphOffset_t iDoclistOffset, SphOffset_t iDoclistLength );
