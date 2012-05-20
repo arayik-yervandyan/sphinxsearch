@@ -36,8 +36,11 @@ index test
 
 <sphqueries>
 <sphinxql>SELECT * FROM test WHERE MATCH('3+rd text')</sphinxql>
+<sphinxql>SHOW META</sphinxql>
 <sphinxql>SELECT * FROM test WHERE MATCH('3-rd text')</sphinxql>
+<sphinxql>SHOW META</sphinxql>
 <sphinxql>SELECT * FROM test WHERE MATCH('3\\@rd text')</sphinxql>
+<sphinxql>SHOW META</sphinxql>
 </sphqueries>
 
 </test>
