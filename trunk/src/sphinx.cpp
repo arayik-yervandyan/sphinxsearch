@@ -15046,7 +15046,7 @@ static XQNode_t * ExpandKeywords ( XQNode_t * pNode, const CSphIndexSettings & t
 
 static inline bool IsWild ( char c )
 {
-	return c=='*' || c=='?';
+	return c=='*' || c=='?' || c=='%';
 }
 
 
@@ -22587,7 +22587,7 @@ bool CSphSource_SQL::IterateStart ( CSphString & sError )
 		{
 			m_tParams.m_iRangeStep = m_tParams.m_iRefRangeStep;
 			// run range-query; setup ranges
-			if ( !SetupRanges ( m_tParams.m_sQuer.cstr(), m_tParams.m_sQuery.cstr(), "sql_query_range: ", sError ) )
+			if ( !SetupRanges ( m_tParaQueryRange.cstr(), m_tParams.m_sQuery.cstr(), "sql_query_range: ", sError ) )
 				return false;
 
 			// issue query
