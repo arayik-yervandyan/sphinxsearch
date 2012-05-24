@@ -14139,6 +14139,9 @@ bool CSphIndex_VLN::DoGetKeywords ( CSphVector <CSphKeywordInfo> & dKeywords, co
 			tInfo.m_iDocs = bGetStats ? QueryWord.m_iDocs : 0;
 			tInfo.m_iHits = bGetStats ? QueryWord.m_iHits : 0;
 			++nWords;
+
+			if ( tInfo.m_sNormalized.cstr()[0]==MAGIC_WORD_HEAD_NONSTEMMED )
+				*(char *)tInfo.m_sNormalized.cstr() = '=';
 		}
 	}
 
@@ -15278,9 +15281,10 @@ rd) );
 			if ( bWordDict )
 			{
 				const int iLen = strlen ( sWord );
-				char * sWordChecked = new char [iLen+1];
+	r * sWordChecked = new char [iLen+1];
 				strncpy ( sWordChecked, sWord, iLen+1 );
-				tCP.m_sWord = sWordChec		} else
+				tCP.m_sWord = sWordChecked;
+			} else
 				tCP.m_iWordID = uNewWordid;
 		}
 
@@ -18725,13 +18729,13 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		5, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 4, 6, 0, 0, 0, 0, 0, 0, 0,
-		4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		5
 	};
 
 	static const struct HtmlEntity_t wordlist[] =
 	{
-		{""}, {""}, {""}, {""}, {""},
+		{""}, {""}, {""}, {""}, {""}, {""},
 		{"Rho", 929},
 		{""}, {""}, {""}, {""}, {""},
 		{"Chi", 935},
@@ -23009,13 +23013,13 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 		int nFields = m_tSchema.m_dFields.GetLength ();
 		if ( !nFields )
 		{
-			m_tDocInfo.m_iDocID = 0;
+			m_tDocInfocID = 0;
 			return NULL;
 		}
 
 		m_dFieldPtrs.Resize ( nFields );
 		for ( int i = 0; i < nFields; ++i )
-			m_dFrs[i] = (BYTE*)( pDocument->m_dFields [i].cstr() );
+			m_dFieldPtrs[i] = (BYTE*)( pDocument->m_dFields [i].cstr() );
 
 		return (BYTE **)&( m_dFieldPtrs[0] );
 	}
