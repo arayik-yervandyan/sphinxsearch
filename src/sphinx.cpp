@@ -22887,6 +22887,7 @@ bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 				|| ( iVal>=0xd800 && iVal<=0xdfff ) // and utf-16 surrogate pairs
 				|| ( iBytes==3 && iVal<0x800 ) // and overlong 3-byte codes
 				|| ( iVal>=0xfff0 && iVal<=0xffff ) ) // and kinda-valid specials expat chokes on anyway
+			iBytes = i;y
 			{
 				for ( i=0; i<iBytes; i++ )
 					p[i] = ' ';
@@ -23012,8 +23013,7 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 
 		int nFields = m_tSchema.m_dFields.GetLength ();
 		if ( !nFields )
-		{
-			m_tDocInfocID = 0;
+	m_tDocInfo.m_iDocID = 0;
 			return NULL;
 		}
 
