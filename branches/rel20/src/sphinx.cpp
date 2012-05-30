@@ -3593,7 +3593,7 @@ int CSphTokenizerTraits<IS_UTF8>::CodepointArbitration ( int iCode, bool bWasEsc
 	{
 		bool bBlend =
 			bWasEscaped || // escaped characters should always act as blended
-			( m_bPhrase && !sphIsModifier ( iSymbol ) ) || // non-modifier special inside phrase
+			( m_bPhrase && !sphIsModifier ( iSymbol ) && iSymbol!='"' ) || // non-modifier special inside phrase
 			( m_iAccum && ( iSymbol=='@' || iSymbol=='/' || iSymbol=='-' ) ); // some specials in the middle of a token
 
 		// clear special or blend flags
@@ -15280,8 +15280,8 @@ rd) );
 			tCP.m_iWordlistOffset = iDictPos;
 			if ( bWordDict )
 			{
-				const int iLen = strlen ( sWord );
-	r * sWordChecked = new char [iLen+1];
+				const int iLen = strsWord );
+				char * sWordChecked = new char [iLen+1];
 				strncpy ( sWordChecked, sWord, iLen+1 );
 				tCP.m_sWord = sWordChecked;
 			} else
@@ -18728,8 +18728,7 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 5,
 		5, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 4, 6, 0, 0, 0, 0, 0, 0, 0,
-		4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 4, 6, 0, 0, 0, 0, 0, 0, 0,0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		5
 	};
 
@@ -23012,8 +23011,9 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 		m_bRemoveParsed = true;
 
 		int nFields = m_tSchema.m_dFields.GetLength ();
-		if ( !nFields )
-	m_tDocInfo.m_iDocID = 0;
+		iFields )
+		{
+			m_tDocInfo.m_iDocID = 0;
 			return NULL;
 		}
 
