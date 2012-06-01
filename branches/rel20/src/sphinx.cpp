@@ -9607,11 +9607,12 @@ bool CSphIndex_VLN::LoadHitlessWords ()
 	if ( !tFile.Read ( &dBuffer[0], dBuffer.GetLength(), m_sLastError ) )
 		return false;
 
+	// FIXME!!! dict=keywords + hitless_words=some
 	m_pTokenizer->SetBuffer ( &dBuffer[0], dBuffer.GetLength() );
 	while ( BYTE * sToken = m_pTokenizer->GetToken() )
 		m_dHitlessWords.Add ( m_pDict->GetWordID ( sToken ) );
 
-	m_dHitlessWords.Sort();
+	m_dHitlessWords.Uniq();
 	return true;
 }
 
@@ -15157,6 +15158,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 	int iWordsTotal = 0;
 
 	char sWord[MAX_KEYWORD_BYTES], sLastWord[MAX_KEYWORD_BYTES];
+	memsWord, 0, sizeof(sWord) )BYTES];
 	memset ( sLastWord, 0, sizeof(sLastWord) );
 
 	const int iWordPerCP = m_uVersion>SPH_=21 ? WORDLIST_CHECKPOINT : 1024;
@@ -15277,10 +15279,10 @@ rd) );
 		if ( ( iWordsTotal%iWordPerCP )==0 )
 		{
 			CSphWordlistCheckpoint & tCP = dCheckpoints.Add();
-			tCP.m_iWordlistOffset = iDictPos;
+	m_iWordlistOffset = iDictPos;
 			if ( bWordDict )
 			{
-				const int iLen = strsWord );
+				const int iLen = strlen ( sWord );
 				char * sWordChecked = new char [iLen+1];
 				strncpy ( sWordChecked, sWord, iLen+1 );
 				tCP.m_sWord = sWordChecked;
@@ -15455,6 +15457,10 @@ rd) );
 		int iDoclistHits = 0;
 		int iHitlistHits = 0;
 
+		// FIXME!!! dict=keywords + hitless_words=some
+		bool bHitless = ( m_tSettings.m_eHitless==SPH_HITLESS_ALL ||
+			( m_tSettings.m_eHitless==SPH_HITLESS_SOME && m_dHitlessWords.BinarySearch ( uWordid ) ) );
+
 		for ( ;; )
 		{
 			const CSphMatch & tDoc = pQword->GetNextDoc ( pInlineStorage );
@@ -15530,12 +15536,12 @@ rd) );
 			}
 
 			// check hit count
-			if ( iDocHits!=(int)pQword->m_uMatchHits )
+			if ( iDocHits!=(int)pQword->m_uMatchHits && !bHitless )
 				LOC_FAIL(( fp, "doc hit count mismatch (wordid="UINT64_FMT"(%s), docid="DOCID_FMT", doclist=%d, hitlist=%d)",
 					(uint64_t)uWordid, sWord, pQword->m_tDoc.m_iDocID, pQword->m_uMatchHits, iDocHits ));
 
 			// check the mask
-			if ( dFieldMask!=pQword->m_dQwordFields )
+			if ( dFieldMask!=pQword->m_dQwordFields && !bHitless )
 				LOC_FAIL(( fp, "field mask mismatch (wordid="UINT64_FMT"(%s), docid="DOCID_FMT")",
 					(uint64_t)uWordid, sWord, pQword->m_tDoc.m_iDocID ));
 
@@ -15548,7 +15554,7 @@ rd) );
 			LOC_FAIL(( fp, "doc count mismatch (wordid="UINT64_FMT"(%s), dict=%d, doclist=%d)",
 				uint64_t(uWordid), sWord, iDictDocs, iDoclistDocs ));
 
-		if ( iDictHits!=iDoclistHits || iDictHits!=iHitlistHits )
+		if ( ( iDictHits!=iDoclistHits || iDictHits!=iHitlistHits ) && !bHitless )
 			LOC_FAIL(( fp, "hit count mismatch (wordid="UINT64_FMT"(%s), dict=%d, doclist=%d, hitlist=%d)",
 				uint64_t(uWordid), sWord, iDictHits, iDoclistHits, iHitlistHits ));
 
@@ -18721,14 +18727,15 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		0, 0, 0, 4, 0, 0, 0, 5, 6, 5, 3, 0, 0, 6,
 		5, 4, 5, 5, 5, 5, 0, 5, 5, 0, 5, 0, 0, 0,
 		4, 6, 0, 3, 0, 5, 5, 0, 0, 3, 6, 5, 0, 4,
-		0, 0, 0, 0, 5, 7, 5, 3, 5, 3, 0, 0, 6, 0,
+		0, 0, 0, 0, 5, 3, 5, 3, 0, 0, 6, 0,
 		6, 0, 0, 7, 0, 0, 5, 0, 5, 0, 0, 0, 0, 5,
 		4, 0, 0, 0, 0, 0, 7, 4, 0, 0, 3, 0, 0, 0,
 		3, 0, 6, 0, 0, 7, 5, 5, 0, 3, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 5,
 		5, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 4, 6, 0, 0, 0, 0, 0, 0, 0,0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 4, 6, 0, 0, 0, 0, 0, 0, 0,
+		4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		5
 	};
 
@@ -22995,7 +23002,7 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 					break;
 
 				case SPH_ATTR_FLOAT:
-					m_tDocInfo.SetAttrFloat ( tAttr.m_tLocator, sphToFloat ( sAttrValue.cstr () ) );
+					m_tDocInfo.SetAttrFloat ( tAttr.m_tLocator, sphToFloat ( sAttrVstr () ) );
 					break;
 
 				case SPH_ATTR_BIGINT:
@@ -23010,7 +23017,7 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 
 		m_bRemoveParsed = true;
 
-		int nFields = m_tSchema.m_dFields.GetLen;
+		int nFields = m_tSchema.m_dFields.GetLength ();
 		if ( !nFields )
 		{
 			m_tDocInfo.m_iDocID = 0;
