@@ -1249,7 +1249,7 @@ public:
 	virtual void		Disconnect ();
 
 	virtual bool		HasAttrsConfigured () { return false; }
-	virtual bool		IterateStart ( CSphString & ) { return true; }
+	virtual bool		IterateStart ( CSphString & ) { m_iPlainFieldsLength = m_tSchema.m_dFields.GetLength(); return true; }
 
 	virtual bool		IterateMultivaluedStart ( int, CSphString & ) { return false; }
 	virtual bool		IterateMultivaluedNext () { return false; }
