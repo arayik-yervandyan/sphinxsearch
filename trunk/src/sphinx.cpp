@@ -26791,6 +26791,9 @@ void sphDictBuildInfixes ( const char * sPath )
 	CSphString sFilename, sError;
 	int64_t tmWall = sphMicroTimer();
 
+	if ( INDEX_FORMAT_VERSION!=27 )
+		sphDie ( "infix upgrade: only works in v.27 builds for now; get an older indextool or contact support", sError.cstr() );
+
 	//////////////////////////////////////////////////
 	// load (interesting parts from) the index header
 	//////////////////////////////////////////////////
