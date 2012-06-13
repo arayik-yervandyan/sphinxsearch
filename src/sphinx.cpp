@@ -6771,7 +6771,7 @@ int CSphArena::RawAlloc ( int iBytes )
 	if ( iBytes<=0 || iBytes>( ( 1 << MAX_BITS ) - (int)sizeof(int) ) )
 		return -1;
 
-	int iSizeBits = sphLog2 ( iBytes+sizeof(int)-1 ); // always reserve sizeof(int) for the tag; NOLINT
+	int iSizeBits = sphLog2 ( iBytes+2*sizeof(int)-1 ); // always reserve sizeof(int) for the tag and AllocsLogEntry_t backtrack; NOLINT
 	iSizeBits = Max ( iSizeBits, MIN_BITS );
 	assert ( iSizeBits>=MIN_BITS && iSizeBits<=MAX_BITS );
 
@@ -6851,9 +6851,10 @@ int CSphArena::RawAlloc ( int iBytes )
 		CheckFreelists ();
 
 		int iOffset = ( pPage-m_pPages )*PAGE_SIZE + ( i*32+iFree )*( 1<<iSizeBits ); // raw internal byte offset (FIXME! optimize with shifts?)
-		int iIndex = 1 + ( iOffset/sizeof(DWORD) ); // dword index with tag fixup
+		int iIndex = 2 + ( iOffset/sizeof(DWORD) ); // dword index with tag and backtrack fixup
 
 		m_pBasePtr[iIndex-1] = DWORD(-1); // untagged by default
+		m_pBasePtr[iIndex-2] = DWORD(-1); // backtrack nothere
 		return iIndex;
 	}
 
@@ -6866,7 +6867,7 @@ void CSphArena::RawFree ( int iIndex )
 {
 	CheckFreelists ();
 
-	int iOffset = (iIndex-1)*sizeof(DWORD); // remove tag fixup, and go to raw internal byte offset
+	int iOffset = (iIndex-2)*sizeof(DWORD); // remove tag fixup, and go to raw internal byte offset
 	int iPage = iOffset / PAGE_SIZE;
 
 	if ( iPage<0 || iPage>m_iPages )
@@ -6980,6 +6981,7 @@ int CSphArena::TaggedAlloc ( int iTag, int iBytes )
 		if ( iLogHead<0 )
 			return -1; // out of memory
 
+		assert ( iLogHead>=2 );
 		AllocsLogEntry_t * pLog = (AllocsLogEntry_t*) ( m_pBasePtr + iLogHead );
 		pLog->m_iUsed = 0;
 		pLog->m_iNext = -1;
@@ -7003,6 +7005,7 @@ int CSphArena::TaggedAlloc ( int iTag, int iBytes )
 	}
 
 	// grow the log if needed
+	int iLogEntry = pTag->m_iLogHead;
 	AllocsLogEntry_t * pLog = (AllocsLogEntry_t*) ( m_pBasePtr + pTag->m_iLogHead );
 	if ( pLog->m_iUsed==MAX_LOGENTRIES )
 	{
@@ -7010,6 +7013,8 @@ int CSphArena::TaggedAlloc ( int iTag, int iBytes )
 		if ( iNewEntry<0 )
 			return -1; // out of memory
 
+		assert ( iNewEntry>=2 );
+		iLogEntry = iNewEntry;
 		AllocsLogEntry_t * pNew = (AllocsLogEntry_t*) ( m_pBasePtr + iNewEntry );
 		pNew->m_iUsed = 0;
 		pNew->m_iNext = pTag->m_iLogHead;
@@ -7022,8 +7027,11 @@ int CSphArena::TaggedAlloc ( int iTag, int iBytes )
 	if ( iIndex<0 )
 		return -1; // out of memory
 
+	assert ( iIndex>=2 );
 	// tag it
 	m_pBasePtr[iIndex-1] = iTag;
+	// set data->AllocsLogEntry_t backtrack
+	m_pBasePtr[iIndex-2] = iLogEntry;
 
 	// log it
 	assert ( pLog->m_iUsed<MAX_LOGENTRIES );
@@ -7059,7 +7067,49 @@ void CSphArena::TaggedFreeIndex ( int iTag, int iIndex )
 	// free it
 	RawFree ( iIndex );
 
-	// update the tag decsriptor
+	// update AllocsLogEntry_t
+	int iLogEntry = m_pBasePtr[iIndex-2];
+	assert ( iLogEntry>=2 );
+	m_pBasePtr[iIndex-2] = DWORD(-1);
+	AllocsLogEntry_t * pLogEntry = (AllocsLogEntry_t*) ( m_pBasePtr + iLogEntry );
+	for ( int i = 0; i<MAX_LOGENTRIES; i++ )
+	{
+		if ( pLogEntry->m_dEntries[i]!=iIndex )
+			continue;
+
+		pLogEntry->m_dEntries[i] = pLogEntry->m_dEntries[pLogEntry->m_iUsed-1]; // RemoveFast
+		pLogEntry->m_iUsed--;
+		break;
+	}
+	assert ( pLogEntry->m_iUsed>=0 );
+
+	// remove from tag entries list
+	if ( pLogEntry->m_iUsed==0 )
+	{
+		if ( pTag->m_iLogHead==iLogEntry )
+		{
+			pTag->m_iLogHead = pLogEntry->m_iNext;
+		} else
+		{
+			int iLog = pTag->m_iLogHead;
+			while ( iLog>=0 )
+			{
+				AllocsLogEntry_t * pLog = (AllocsLogEntry_t*) ( m_pBasePtr + iLog );
+				if ( iLogEntry!=pLog->m_iNext )
+				{
+					iLog = pLog->m_iNext;
+					continue;
+				} else
+				{
+					pLog->m_iNext = pLogEntry->m_iNext;
+					break;
+				}
+			}
+		}
+		RawFree ( iLogEntry );
+	}
+
+	// update the tag descriptor
 	pTag->m_iAllocs--;
 	assert ( pTag->m_iAllocs>=0 );
 
@@ -7594,12 +7644,13 @@ int CSphIndex_VLN::UpdateAttributes ( const CSphAttrUpdate & tUpd, int iIndex, C
 			{
 				int64_t iNewMin = LLONG_MAX, iNewMax = LLONG_MIN;
 				int iNewIndex = dMvaPtrs[iMvaPtr++];
-
-				SphDocID_t* pDocid = (SphDocID_t*)(g_pMvaArena + iNewIndex);
-				*pDocid++ = bRaw ? DOCINFO2ID ( tUpd.m_dRows[iUpd] ) : tUpd.m_dDocids[iUpd];
-				iNewIndex = (DWORD*)pDocid - g_pMvaArena;
 				if ( uNew )
 				{
+					assert ( iNewIndex>=0 );
+					SphDocID_t* pDocid = (SphDocID_t *)(g_pMvaArena + iNewIndex);
+					*pDocid++ = ( bRaw ? DOCINFO2ID ( tUpd.m_dRows[iUpd] ) : tUpd.m_dDocids[iUpd] );
+					iNewIndex = (DWORD *)pDocid - g_pMvaArena;
+
 					assert ( iNewIndex>=0 );
 					DWORD * pDst = g_pMvaArena + iNewIndex;
 
@@ -15248,13 +15299,15 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 						iDictPos, sLastWord, sWord ));
 
 			if ( iHint<0 )
-				LOC_FAIL(( fp, "invalid word hint (pos="INT64_FMT", word=%s, hint=%d)",
-					iDictPos, sWord, iHint ))if ( iDocs<=0 || iHits<=0 || iHits<iDocs )
+				LOC_FAIL(( fp, "invalid wor (pos="INT64_FMT", word=%s, hint=%d)",
+					iDictPos, sWord, iHint ));
+
+			if ( iDocs<=0 || iHits<=0 || iHits<iDocs )
 				LOC_FAIL(( fp, "invalid docs/hits (pos="INT64_FMT", word=%s, docs="INT64_FMT", hits="INT64_FMT")",
 					(int64_t)iDictPos, sWord, (int64_t)iDocs, (int64_t)iHits ));
 
 			memcpy ( sLastWord, sWord, sizeof(sLastWord) );
-rd) );
+
 		} else
 		{
 			// finish reading the entire entry
@@ -15269,17 +15322,18 @@ rd) );
 
 			if ( iNewDoclistOffset<=iDoclistOffset )
 				LOC_FAIL(( fp, "doclist offset decreased (pos="INT64_FMT", wordid="UINT64_FMT")",
-					(int64_t)iDictPos, (uint64_t)uNewWordi
+					(int64_t)iDictPos, (uint64_t)uNewWordid ));
+
 			if ( iDocs<=0 || iHits<=0 || iHits<iDocs )
 				LOC_FAIL(( fp, "invalid docs/hits (pos="INT64_FMT", wordid="UINT64_FMT", docs="INT64_FMT", hits="INT64_FMT")",
 					(int64_t)iDictPos, (uint64_t)uNewWordid, (int64_t)iDocs, (int64_t)iHits ));
-		}ts ));
+		}
 
 		// update stats, add checkpoint
 		if ( ( iWordsTotal%iWordPerCP )==0 )
 		{
 			CSphWordlistCheckpoint & tCP = dCheckpoints.Add();
-	m_iWordlistOffset = iDictPos;
+			tCP.m_iWordlistOffset = iDictPos;
 			if ( bWordDict )
 			{
 				const int iLen = strlen ( sWord );
@@ -18689,7 +18743,7 @@ static inline DWORD HtmlEntityHash ( const BYTE * str, int len )
 	};
 
 	register int hval = len;
-	switch ( hval )
+	swihval )
 	{
 		default:	hval += asso_values [ str[4] ];
 		case 4:
@@ -18727,7 +18781,7 @@ static inline int HtmlEntityLookup ( const BYTE * str, int len )
 		0, 0, 0, 4, 0, 0, 0, 5, 6, 5, 3, 0, 0, 6,
 		5, 4, 5, 5, 5, 5, 0, 5, 5, 0, 5, 0, 0, 0,
 		4, 6, 0, 3, 0, 5, 5, 0, 0, 3, 6, 5, 0, 4,
-		0, 0, 0, 0, 5, 3, 5, 3, 0, 0, 6, 0,
+		0, 0, 0, 0, 5, 7, 5, 3, 5, 3, 0, 0, 6, 0,
 		6, 0, 0, 7, 0, 0, 5, 0, 5, 0, 0, 0, 0, 5,
 		4, 0, 0, 0, 0, 0, 7, 4, 0, 0, 3, 0, 0, 0,
 		3, 0, 6, 0, 0, 7, 5, 5, 0, 3, 0, 0, 0, 0,
@@ -22960,7 +23014,7 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 #endif
 
 #if USE_LIBXML
-	while ( m_dParsedDocuments.GetLength()==0 && ( iReadResult = ParseNextChunk ( sError ) )==1 );
+	while ( m_dParsedDoc.GetLength()==0 && ( iReadResult = ParseNextChunk ( sError ) )==1 );
 #endif
 
 	while ( m_dParsedDocuments.GetLength()!=0 )
@@ -22977,15 +23031,15 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 			continue;
 		}
 
-		// attribu 0;
+		// attributes
 		for ( int i = 0; i < nAttrs; i++ )
 		{
 			const CSphString & sAttrValue = pDocument->m_dAttrs[i].IsEmpty () && m_dDefaultAttrs.GetLength () ? m_dDefaultAttrs[i] : pDocument->m_dAttrs[i];
 			const CSphColumnInfo & tAttr = m_tSchema.GetAttr ( i );
 
-			if ( tAttr.m_eAttrType==SPH_ATTR_UINT|| tAttr.m_eAttrType==SPH_ATTR_INT64UINT32SET )
+			if ( tAttr.m_eAttrType==SPH_ATTR_UINT32SET || tAttr.m_eAttrType==SPH_ATTR_INT64SET )
 			{
-				m_tDocInfo.SetAttr ( tAttr.m_tLocParseFieldMVA ( m_dMva, sAttrValue.cstr (), tAttr.m_eAttrType==SPH_ATTR_INT64SET cstr () );
+				m_tDocInfo.SetAttr ( tAttr.m_tLocator, ParseFieldMVA ( m_dMva, sAttrValue.cstr (), tAttr.m_eAttrType==SPH_ATTR_INT64SET ) );
 				continue;
 			}
 
@@ -23002,7 +23056,7 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 					break;
 
 				case SPH_ATTR_FLOAT:
-					m_tDocInfo.SetAttrFloat ( tAttr.m_tLocator, sphToFloat ( sAttrVstr () ) );
+					m_tDocInfo.SetAttrFloat ( tAttr.m_tLocator, sphToFloat ( sAttrValue.cstr () ) );
 					break;
 
 				case SPH_ATTR_BIGINT:

@@ -1549,6 +1549,34 @@ void sphBacktrace ( EXCEPTION_POINTERS * pExc, const char * sFile )
 
 #endif // USE_WINDOWS
 
+
+static bool g_bUnlinkOld = true;
+void sphSetUnlinkOld ( bool bUnlink )
+{
+	g_bUnlinkOld = bUnlink;
+}
+
+
+void sphUnlinkIndex ( const char * sName, bool bForce )
+{
+	if ( !( g_bUnlinkOld || bForce ) )
+		return;
+
+	// FIXME! ext list must be in sync with sphinx.cpp, searchd.cpp
+	const int EXT_COUNT = 9;
+	const char * dCurExts[EXT_COUNT] = { ".sph", ".spa", ".spi", ".spd", ".spp", ".spm", ".spk", ".sps", ".mvp" };
+	char sFileName[SPH_MAX_FILENAME_LEN];
+
+	for ( int j=0; j<EXT_COUNT; j++ )
+	{
+		snprintf ( sFileName, sizeof(sFileName), "%s%s", sName, dCurExts[j] );
+		// 'mvp' is optional file
+		if ( ::unlink ( sFileName ) && errno!=ENOENT )
+			sphWarning ( "unlink failed (file '%s', error '%s'", sFileName, strerror(errno) );
+	}
+}
+
+
 //
 // $Id$
 //

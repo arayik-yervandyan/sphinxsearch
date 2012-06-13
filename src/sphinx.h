@@ -2703,7 +2703,9 @@ public:
 	virtual int					DebugCheck ( FILE * fp ) = 0;
 
 	/// getter for name
-	const char * GetName () { return m_sIndexName.cstr(); }
+	const char *				GetName () { return m_sIndexName.cstr(); }
+
+	void						SetName ( const char * sName ) { m_sIndexName = sName; }
 
 public:
 	int64_t						m_iTID;

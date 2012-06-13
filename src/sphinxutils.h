@@ -68,7 +68,6 @@ inline void sphSplit ( CSphVector<CSphString> & dOut, const char * sIn )
 		if ( sNext!=p )
 			dOut.Add().SetBinary ( sNext, p-sNext );
 	}
-
 }
 
 
