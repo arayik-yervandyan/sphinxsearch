@@ -1232,6 +1232,9 @@ void			sphMergeStats ( CSphQueryResultMeta & tDstResult, const SmallStringHash_T
 bool			sphCheckQueryHeight ( const struct XQNode_t * pRoot, CSphString & sError );
 void			sphTransformExtendedQuery ( XQNode_t ** ppNode );
 
+void			sphSetUnlinkOld ( bool bUnlink );
+void			sphUnlinkIndex ( const char * sName, bool bForce );
+
 void			WriteSchema ( CSphWriter & fdInfo, const CSphSchema & tSchema );
 void			ReadSchema ( CSphReader & rdInfo, CSphSchema & m_tSchema, DWORD uVersion, bool bDynamic );
 void			SaveIndexSettings ( CSphWriter & tWriter, const CSphIndexSettings & m_tSettings );
