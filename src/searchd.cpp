@@ -4777,7 +4777,34 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 	// format request as SELECT query
 	///////////////////////////////////
 
-	tBuf.Append ( "SELECT %s FROM %s", q.m_sSelect.cstr(), q.m_sIndexes.cstr() );
+
+	CSphString sIndexes = "";
+	if ( q.m_sIndexes=="*" )
+	{
+		// search through all local indexes
+
+		for ( IndexHashIterator_c it ( g_pIndexes ); it.Next(); )
+		{
+			if ( it.Get ().m_bEnabled )
+			{
+				if ( sIndexes.IsEmpty() )
+					sIndexes = it.GetKey();
+				else
+					sIndexes.SetSprintf ( "%s,%s", sIndexes.cstr(), it.GetKey().cstr() );
+			}
+		}
+	} else
+		sIndexes = q.m_sIndexes;
+
+	CSphString sGeodist = "";
+	ARRAY_FOREACH ( i, q.m_dFilters )
+	{
+		if ( q.m_dFilters[i].m_sAttrName=="@geodist" )
+			sGeodist.SetSprintf ( ", GEODIST(%s,%s,%f,%f) AS _geodist", q.m_sGeoLatAttr.cstr(), q.m_sGeoLongAttr.cstr(), q.m_fGeoLatitude, q.m_fGeoLongitude );
+	}
+
+
+	tBuf.Append ( "SELECT %s%s FROM %s", q.m_sSelect.cstr(), sGeodist.cstr(), sIndexes.cstr() );
 
 	// WHERE clause
 	// (m_sRawQuery is empty when using MySQL handler)
@@ -4801,21 +4828,27 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 				tBuf.Append ( " AND" );
 
 			const CSphFilterSettings & f = q.m_dFilters[i];
+
+			const char* sAttr = "_geodist";
+			if ( f.m_sAttrName!="@geodist" )
+				sAttr = f.m_sAttrName.cstr();
+
+
 			switch ( f.m_eType )
 			{
 				case SPH_FILTER_VALUES:
 					if ( f.m_dValues.GetLength()==1 )
 					{
 						if ( f.m_bExclude )
-							tBuf.Append ( " %s!="INT64_FMT, f.m_sAttrName.cstr(), (int64_t)f.m_dValues[0] );
+							tBuf.Append ( " %s!="INT64_FMT, sAttr, (int64_t)f.m_dValues[0] );
 						else
-							tBuf.Append ( " %s="INT64_FMT, f.m_sAttrName.cstr(), (int64_t)f.m_dValues[0] );
+							tBuf.Append ( " %s="INT64_FMT, sAttr, (int64_t)f.m_dValues[0] );
 					} else
 					{
 						if ( f.m_bExclude )
-							tBuf.Append ( " %s NOT IN (", f.m_sAttrName.cstr() );
+							tBuf.Append ( " %s NOT IN (", sAttr );
 						else
-							tBuf.Append ( " %s IN (", f.m_sAttrName.cstr() );
+							tBuf.Append ( " %s IN (", sAttr );
 
 						ARRAY_FOREACH ( j, f.m_dValues )
 						{
@@ -4831,19 +4864,19 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 				case SPH_FILTER_RANGE:
 					if ( f.m_bExclude )
 						tBuf.Append ( " %s NOT BETWEEN "INT64_FMT" AND "INT64_FMT,
-						f.m_sAttrName.cstr(), f.m_iMinValue, f.m_iMaxValue );
+						sAttr, f.m_iMinValue, f.m_iMaxValue );
 					else
 						tBuf.Append ( " %s BETWEEN "INT64_FMT" AND "INT64_FMT,
-							f.m_sAttrName.cstr(), f.m_iMinValue, f.m_iMaxValue );
+							sAttr, f.m_iMinValue, f.m_iMaxValue );
 					break;
 
 				case SPH_FILTER_FLOATRANGE:
 					if ( f.m_bExclude )
 						tBuf.Append ( " %s NOT BETWEEN %f AND %f",
-						f.m_sAttrName.cstr(), f.m_fMinValue, f.m_fMaxValue );
+						sAttr, f.m_fMinValue, f.m_fMaxValue );
 					else
 						tBuf.Append ( " %s BETWEEN %f AND %f",
-							f.m_sAttrName.cstr(), f.m_fMinValue, f.m_fMaxValue );
+							sAttr, f.m_fMinValue, f.m_fMaxValue );
 					break;
 
 				default:
