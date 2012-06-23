@@ -18327,6 +18327,7 @@ WordformContainer_t * CSphDictCRCTraits::GetWordformContainer ( const CSphVector
 						pStoredMF->m_iNormalTokenLen = pMultiWordform->m_iNormalTokenLen;
 						pStoredMF->m_sNormalForm = pMultiWordform->m_sNormalForm;
 						SafeDelete ( pMultiWordform );
+						break; // otherwise, we crash next turn
 					}
 				}
 			}
