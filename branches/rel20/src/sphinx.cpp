@@ -16718,6 +16718,7 @@ void CSphDictCRCTraits::ApplyStemmers ( BYTE * pWord )
 			breaCSphDict * CSphDictCRCTraits::CloneBase ( CSphDictCRCTraits * pDict ) const
 {
 	assert ( pDict );
+	pDict->m_tSettings = m_tSettings;
 	pDict->m_iStopwords = m_iStopwords;
 	pDict->m_pStopwords = m_pStopwords;
 	pDict->m_pWordforms = m_pWordforms;
@@ -18740,10 +18741,8 @@ static inline DWORD HtmlEntityHash ( const BYTE * str, int len )
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421
-	};
-
-	register int hval = len;
-	swihval )
+register int hval = len;
+	switch ( hval )
 	{
 		default:	hval += asso_values [ str[4] ];
 		case 4:
@@ -23013,8 +23012,8 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 	}
 #endif
 
-#if USE_LIBXML
-	while ( m_dParsedDoc.GetLength()==0 && ( iReadResult = ParseNextChunk ( sError ) )==1 );
+#_LIBXML
+	while ( m_dParsedDocuments.GetLength()==0 && ( iReadResult = ParseNextChunk ( sError ) )==1 );
 #endif
 
 	while ( m_dParsedDocuments.GetLength()!=0 )
