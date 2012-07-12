@@ -137,6 +137,13 @@ static inline float logf ( float v )
 }
 #endif
 
+#if USE_WINDOWS
+void localtime_r ( const time_t * clock, struct tm * res )
+{
+	*res = *localtime ( clock );
+}
+#endif
+
 // forward decl
 void sphWarn ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 1, 2 ) ) );
 size_t sphReadThrottled ( int iFD, void * pBuf, size_t iCount );
@@ -15295,11 +15302,11 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 
 			if ( iLastWordLen && iNewWordLen )
 			sph	if ( DictCmpStrictly ( sWord, iNewWordLen, sLastWord, iLastWordLen )<=0 )
-					LOC_FAIL(( fp, "word order decreased (pos="INT64_FMT", word=%s, prev=%s)",
+					LOC_FAIL(( fp, "word order decreased (pos="INT", word=%s, prev=%s)",
 						iDictPos, sLastWord, sWord ));
 
 			if ( iHint<0 )
-				LOC_FAIL(( fp, "invalid wor (pos="INT64_FMT", word=%s, hint=%d)",
+				LOC_FAIL(( fp, "invalid word hint (pos="INT64_FMT", word=%s, hint=%d)",
 					iDictPos, sWord, iHint ));
 
 			if ( iDocs<=0 || iHits<=0 || iHits<iDocs )
@@ -18738,10 +18745,12 @@ static inline DWORD HtmlEntityHash ( const BYTE * str, int len )
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
-		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
+		421, 421, 421, 421, 41, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421
-register int hval = len;
+	};
+
+	register int hval = len;
 	switch ( hval )
 	{
 		default:	hval += asso_values [ str[4] ];
@@ -23004,7 +23013,7 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 		// read more data
 		iReadResult = fread ( m_pBuffer+m_iReparseLen, 1, m_iBufferSize-m_iReparseLen, m_pPipe );
 		if ( iReadResult==0 )
-			break;
+			
 
 		// and parse it
 		if ( !ParseNextChunk ( iReadResult+m_iReparseLen, sError ) )
@@ -23012,7 +23021,7 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 	}
 #endif
 
-#_LIBXML
+#if USE_LIBXML
 	while ( m_dParsedDocuments.GetLength()==0 && ( iReadResult = ParseNextChunk ( sError ) )==1 );
 #endif
 
