@@ -1529,10 +1529,22 @@ void RtAccum_t::AddDocument ( ISphHits * pHits, const CSphMatch & tDoc, int iRow
 	int iHits = 0;
 	if ( pHits && pHits->Length() )
 	{
+		CSphWordHit tLastHit;
+		tLastHit.m_iDocID = 0;
+		tLastHit.m_iWordID = 0;
+		tLastHit.m_iWordPos = 0;
+
 		iHits = pHits->Length();
 		m_dAccum.Reserve ( m_dAccum.GetLength()+iHits );
 		for ( const CSphWordHit * pHit = pHits->First(); pHit<=pHits->Last(); pHit++ )
+		{
+			// ignore duplicate hits
+			if ( pHit->m_iDocID==tLastHit.m_iDocID && pHit->m_iWordID==tLastHit.m_iWordID && pHit->m_iWordPos==tLastHit.m_iWordPos )
+				continue;
+
 			m_dAccum.Add ( *pHit );
+			tLastHit = *pHit;
+		}
 	}
 	m_dPerDocHitsCount.Add ( iHits );
 
@@ -3703,19 +3715,31 @@ int RtIndex_t::DebugCheck ( FILE * fp )
 	ARRAY_FOREACH ( i, m_pSegments )
 	{
 		SphWordID_t uPrevWordID = 0;
-		RtWordReader_t tSeg ( m_pSegments[i], false, m_iWordsCheckpoint );
+		RtWordReader_t tSeg ( m_pSegments[i], m_bKeywordDict, m_iWordsCheckpoint );
 		const RtWord_t * pWord = NULL;
 		int iWord = 0;
+		BYTE sPrevWord [ SPH_MAX_KEYWORD_LEN ];
+		memset ( sPrevWord, 0, sizeof(sPrevWord) );
 
 		while ( ( pWord = tSeg.UnzipWord() )!=NULL )
 		{
-			if ( pWord->m_uWordID<=uPrevWordID )
+			if ( !m_bKeywordDict && pWord->m_uWordID<=uPrevWordID )
 			{
 				LOC_FAIL(( fp, "wordid decreased (segment=%d, word=%d, wordid="UINT64_FMT", previd="UINT64_FMT")",
 					i, iWord, (uint64_t)pWord->m_uWordID, (uint64_t)uPrevWordID ));
+			} else if ( m_bKeywordDict && iWord && sphDictCmpStrictly ( (const char *)sPrevWord+1, sPrevWord[0], (const char *)pWord->m_sWord+1, pWord->m_sWord[0] )>=0 )
+			{
+				CSphString sPrev, sCur;
+				sPrev.SetBinary ( (const char *)sPrevWord+1, sPrevWord[0] );
+				sCur.SetBinary ( (const char *)pWord->m_sWord+1, pWord->m_sWord[0] );
+				LOC_FAIL(( fp, "wordid decreased (segment=%d, word=%d, current='%s', previous='%s')",
+					i, iWord, sCur.cstr(), sPrev.cstr() ));
 			}
+
 			uPrevWordID = pWord->m_uWordID;
 			iWord++;
+			if ( m_bKeywordDict )
+				memcpy ( sPrevWord, pWord->m_sWord, pWord->m_sWord[0]+1 );
 		}
 	}
 
