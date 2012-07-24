@@ -9770,6 +9770,12 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 		m_tSettings.m_eDocinfo = SPH_DOCINFO_NONE;
 	}
 
+	if ( dSources[0]->HasJoinedFields() && m_tSettings.m_eDocinfo==SPH_DOCINFO_INLINE )
+	{
+		m_sLastError.SetSprintf ( "got joined fields, but docinfo is 'inline' (fix your config file)" );
+		return 0;
+	}
+
 	if ( m_tSchema.GetAttrsCount()>0 && m_tSettings.m_eDocinfo==SPH_DOCINFO_NONE )
 	{
 		m_sLastError.SetSprintf ( "got attributes, but docinfo is 'none' (fix your config file)" );
@@ -10024,12 +10030,20 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 		CSphSource * pSource = dSources[iSource];
 
 		if ( iSource )
+		{
 			if ( !pSource->Connect ( m_sLastError )
 				|| !pSource->IterateStart ( m_sLastError )
 				|| !pSource->UpdateSchema ( &m_tSchema, m_sLastError ) )
 			{
 				return 0;
 			}
+
+			if ( pSource->HasJoinedFields() && m_tSettings.m_eDocinfo==SPH_DOCINFO_INLINE )
+			{
+				m_sLastError.SetSprintf ( "got joined fields, but docinfo is 'inline' (fix your config file)" );
+				return 0;
+			}
+		}
 
 		dFieldMvaIndexes.Resize ( 0 );
 
@@ -15291,7 +15305,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 			iNewDoclistOffset = rdDict.UnzipOffset();
 			iDocs = rdDict.UnzipInt();
 			iHits = rdDict.UnzipInt();
-			int iHint = ( iDocs>=DOCLIST_HINT_THRESH ) ? rdDict.GetByte() : 0;
+			int iHint = ( iDocs>=D_HINT_THRESH ) ? rdDict.GetByte() : 0;
 			iHint = DoclistHintUnpack ( iDocs, (BYTE)iHint );
 
 			const int iNewWordLen = strlen(sWord);
@@ -15301,8 +15315,8 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 					iDictPos ));
 
 			if ( iLastWordLen && iNewWordLen )
-			sph	if ( DictCmpStrictly ( sWord, iNewWordLen, sLastWord, iLastWordLen )<=0 )
-					LOC_FAIL(( fp, "word order decreased (pos="INT", word=%s, prev=%s)",
+				if ( sphDictCmpStrictly ( sWord, iNewWordLen, sLastWord, iLastWordLen )<=0 )
+					LOC_FAIL(( fp, "word order decreased (pos="INT64_FMT", word=%s, prev=%s)",
 						iDictPos, sLastWord, sWord ));
 
 			if ( iHint<0 )
@@ -18737,6 +18751,7 @@ static inline DWORD HtmlEntityHash ( const BYTE * str, int len )
 		3, 161, 2, 3, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
+		421, 421, 421, 42, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
@@ -18745,7 +18760,6 @@ static inline DWORD HtmlEntityHash ( const BYTE * str, int len )
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
-		421, 421, 421, 421, 41, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421
 	};
@@ -22997,7 +23011,7 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 	if ( m_bRemoveParsed )
 	{
 		SafeDelete ( m_dParsedDocuments[0] );
-		m_dParsedDocuments.RemoveFast ( 0 );
+arsedDocuments.RemoveFast ( 0 );
 		m_bRemoveParsed = false;
 	}
 
@@ -23013,7 +23027,7 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 		// read more data
 		iReadResult = fread ( m_pBuffer+m_iReparseLen, 1, m_iBufferSize-m_iReparseLen, m_pPipe );
 		if ( iReadResult==0 )
-			
+			break;
 
 		// and parse it
 		if ( !ParseNextChunk ( iReadResult+m_iReparseLen, sError ) )
