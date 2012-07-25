@@ -5544,7 +5544,6 @@ ISphRanker * sphCreateRanker ( const XQQuery_t & tXQ, const CSphQuery * pQuery, 
 	ARRAY_FOREACH ( i, pIndex->GetMatchSchema().m_dFields )
 		uPayloadMask |= pIndex->GetMatchSchema().m_dFields[i].m_bPayload << i;
 
-	bool bSingleWord = tXQ.m_pRoot->m_dChildren.GetLength()==0 && tXQ.m_pRoot->m_dWords.GetLength()==1;
 	bool bGotDupes = HasQwordDupes ( tXQ.m_pRoot );
 
 	// setup eval-tree
@@ -5554,7 +5553,7 @@ ISphRanker * sphCreateRanker ( const XQQuery_t & tXQ, const CSphQuery * pQuery, 
 		case SPH_RANK_PROXIMITY_BM25:
 			if ( uPayloadMask )
 				pRanker = new ExtRanker_T < RankerState_ProximityPayload_fn<true> > ( tXQ, tTermSetup );
-			else if ( bSingleWord )
+			else if ( tXQ.m_bSingleWord )
 				pRanker = new ExtRanker_WeightSum_c<WITH_BM25> ( tXQ, tTermSetup );
 			else if ( bGotDupes )
 				pRanker = new ExtRanker_T < RankerState_Proximity_fn<true,true> > ( tXQ, tTermSetup );
@@ -5565,7 +5564,7 @@ ISphRanker * sphCreateRanker ( const XQQuery_t & tXQ, const CSphQuery * pQuery, 
 		case SPH_RANK_NONE:				pRanker = new ExtRanker_None_c ( tXQ, tTermSetup ); break;
 		case SPH_RANK_WORDCOUNT:		pRanker = new ExtRanker_T < RankerState_Wordcount_fn > ( tXQ, tTermSetup ); break;
 		case SPH_RANK_PROXIMITY:
-			if ( bSingleWord )
+			if ( tXQ.m_bSingleWord )
 				pRanker = new ExtRanker_WeightSum_c<> ( tXQ, tTermSetup );
 			else if ( bGotDupes )
 				pRanker = new ExtRanker_T < RankerState_Proximity_fn<false,true> > ( tXQ, tTermSetup );
