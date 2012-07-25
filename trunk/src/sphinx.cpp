@@ -10704,6 +10704,12 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 		m_tSettings.m_eDocinfo = SPH_DOCINFO_NONE;
 	}
 
+	if ( dSources[0]->HasJoinedFields() && m_tSettings.m_eDocinfo==SPH_DOCINFO_INLINE )
+	{
+		m_sLastError.SetSprintf ( "got joined fields, but docinfo is 'inline' (fix your config file)" );
+		return 0;
+	}
+
 	if ( m_tSchema.GetAttrsCount()>0 && m_tSettings.m_eDocinfo==SPH_DOCINFO_NONE )
 	{
 		m_sLastError.SetSprintf ( "got attributes, but docinfo is 'none' (fix your config file)" );
@@ -10979,12 +10985,20 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 		CSphSource * pSource = dSources[iSource];
 
 		if ( iSource )
+		{
 			if ( !pSource->Connect ( m_sLastError )
 				|| !pSource->IterateStart ( m_sLastError )
 				|| !pSource->UpdateSchema ( &m_tSchema, m_sLastError ) )
 			{
 				return 0;
 			}
+
+			if ( pSource->HasJoinedFields() && m_tSettings.m_eDocinfo==SPH_DOCINFO_INLINE )
+			{
+				m_sLastError.SetSprintf ( "got joined fields, but docinfo is 'inline' (fix your config file)" );
+				return 0;
+			}
+		}
 
 		dFieldMvaIndexes.Resize ( 0 );
 
@@ -18467,8 +18481,7 @@ SphWordID_t CSphDictCRC<false>::DoCrc ( const BYTE * pWord, int iLen ) const
 
 template < bool CRC32DICT >
 SphWordID_t CSphDictCRC<CRC32DICT>::GetWordID ( BYTE * pWord )
-{
-	// skip stemmers for magic words
+{kip stemmers for magic words
 	if ( pWord[0]>=0x20 )
 		ApplyStemmers ( pWord );
 	return FilterStopword ( DoCrc ( pWord ) );
@@ -18484,7 +18497,7 @@ SphWordID_t CSphDictCRC<CRC32DICT>::GetWordID ( const BYTE * pWord, int iLen, bo
 
 
 template < bool CRC32DICT >
-SphWordID_t CSphDictCRC<CRC32DICtWordIDWithMarkers ( BYTE * pWord )
+SphWordID_t CSphDictCRC<CRC32DICT>::GetWordIDWithMarkers ( BYTE * pWord )
 {
 	ApplyStemmers ( pWord + 1 );
 	SphWordID_t uWordId = DoCrc ( pWord + 1 );
