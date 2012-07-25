@@ -1247,6 +1247,10 @@ bool sphParseExtendedQuery ( XQQuery_t & tParsed, const char * sQuery, const ISp
 	}
 #endif
 
+	// moved here from ranker creation
+	// as at that point term expansion could produce many terms from expanded term and this condition got failed
+	tParsed.m_bSingleWord = ( tParsed.m_pRoot && tParsed.m_pRoot->m_dChildren.GetLength()==0 && tParsed.m_pRoot->m_dWords.GetLength()==1 );
+
 	return bRes;
 }
 
