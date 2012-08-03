@@ -17415,7 +17415,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 					const DWORD uOffset = pAttrs[dMvaItems[iItem]];
 					bHasValues |= uOffset!=0;
 
-					if ( pMvaBase+uOffset>=pMvaMax )
+					if ( uOffset && pMvaBase+uOffset>=pMvaMax )
 					{
 						bIsSpaValid = false;
 						LOC_FAIL(( fp, "MVA index out of bounds (row=%u, mvaattr=%d, docid="DOCID_FMT", index=%u)",
@@ -18468,7 +18468,7 @@ SphWordID_t CSphDictCRC<true>::DoCrc ( const BYTE * pWord ) const
 
 
 template<>
-SphWordID_t CSphDictlse>::DoCrc ( const BYTE * pWord ) const
+SphWordIDhDictCRC<false>::DoCrc ( const BYTE * pWord ) const
 {
 	return (SphWordID_t) sphFNV64 ( pWord );
 }
