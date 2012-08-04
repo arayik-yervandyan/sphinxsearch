@@ -12855,7 +12855,7 @@ bool CSphIndex_VLN::Merge ( CSphIndex * pSource, const CSphVector<CSphFilterSett
 		tKillListFilter.SetExternalValues ( pKillList, nKillListSize );
 
 		ISphFilter * pKillListFilter = sphCreateFilter ( tKillListFilter, m_tSchema, GetMVAPool(), m_sLastError );
-		pFilter = sphJoinFilters ( pFilter.Ptr(), pKillListFilter );
+		pFilter = sphJoinFilters ( pFilter.LeakPtr(), pKillListFilter );
 	}
 
 	return CSphIndex_VLN::DoMerge ( this, dynamic_cast<const CSphIndex_VLN *>( pSource ),
@@ -18468,7 +18468,7 @@ SphWordID_t CSphDictCRC<true>::DoCrc ( const BYTE * pWord ) const
 
 
 template<>
-SphWordIDhDictCRC<false>::DoCrc ( const BYTE * pWord ) const
+SphWo CSphDictCRC<false>::DoCrc ( const BYTE * pWord ) const
 {
 	return (SphWordID_t) sphFNV64 ( pWord );
 }
