@@ -12421,7 +12421,8 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 		// rename current to old
 		for ( int i=0; i<EXT_COUNT; i++ )
 		{
-			if ( TryRename ( sIndex, sPath, g_dCurExts[i], g_dOldExts[i], false ) )
+			snprintf ( sFile, sizeof(sFile), "%s%s", sPath, g_dCurExts[i] );
+			if ( !sphIsReadable ( sFile ) || TryRename ( sIndex, sPath, g_dCurExts[i], g_dOldExts[i], false ) )
 				continue;
 
 			// rollback
@@ -12874,8 +12875,10 @@ static void RotateIndexMT ( const CSphString & sIndex )
 	// FIXME! factor out a common function w/ non-threaded rotation code
 	char sOld [ SPH_MAX_FILENAME_LEN ];
 	snprintf ( sOld, sizeof(sOld), "%s.old", pServed->m_sIndexPath.cstr() );
+	char sCurTest [ SPH_MAX_FILENAME_LEN ];
+	snprintf ( sCurTest, sizeof(sCurTest), "%s.sph", pServed->m_sIndexPath.cstr() );
 
-	if ( !pServed->m_bOnlyNew && !pOld->Rename ( sOld ) )
+	if ( !pServed->m_bOnlyNew && sphIsReadable (sCurTest) && !pOld->Rename ( sOld ) )
 	{
 		// FIXME! rollback inside Rename() call potentially fail
 		sphWarning ( "rotating index '%s': cur to old rename failed: %s", sIndex.cstr(), pOld->GetLastError().cstr() );
@@ -13210,8 +13213,10 @@ void HandlePipePreread ( PipeReader_t & tPipe, bool bFailure )
 
 		char sOld [ SPH_MAX_FILENAME_LEN ];
 		snprintf ( sOld, sizeof(sOld), "%s.old", tServed.m_sIndexPath.cstr() );
+		char sCurTest [ SPH_MAX_FILENAME_LEN ];
+		snprintf ( sCurTest, sizeof(sCurTest), "%s.sph", tServed.m_sIndexPath.cstr() );
 
-		if ( !tServed.m_bOnlyNew && !pOld->Rename ( sOld ) )
+		if ( !tServed.m_bOnlyNew && sphIsReadable ( sCurTest ) && !pOld->Rename ( sOld ) )
 		{
 			// FIXME! rollback inside Rename() call potentially fail
 			sphWarning ( "rotating index '%s': cur to old rename failed: %s", sPrereading, pOld->GetLastError().cstr() );
