@@ -12346,7 +12346,7 @@ void HandleClient ( ProtocolType_e eProto, int iSock, const char * sClientIP, Th
 // INDEX ROTATION
 /////////////////////////////////////////////////////////////////////////////
 
-bool TryRename ( const char * sIndex, const char * sPrefix, const char * sFromPostfix, const char * sToPostfix, bool bFatal )
+bool TryRename ( const char * sIndex, const char * sPrefix, const char * sFromPostfix, const char * sToPostfix, bool bFatal, bool bCheckExist=true )
 {
 	char sFrom [ SPH_MAX_FILENAME_LEN ];
 	char sTo [ SPH_MAX_FILENAME_LEN ];
@@ -12357,6 +12357,10 @@ bool TryRename ( const char * sIndex, const char * sPrefix, const char * sFromPo
 #if USE_WINDOWS
 	::unlink ( sTo );
 #endif
+
+	// if there is no file we have nothing to do
+	if ( !bCheckExist && !sphIsReadable ( sFrom ) )
+		return true;
 
 	if ( rename ( sFrom, sTo ) )
 	{
@@ -12446,7 +12450,7 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 			if ( bNoMVP )
 				break; ///< no file, nothing to hold
 
-			if ( TryRename ( sIndex, sPath, g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false ) )
+			if ( TryRename ( sIndex, sPath, g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false, false ) )
 				break;
 
 			// rollback
@@ -12501,7 +12505,7 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 				TryRename ( sIndex, sPath, g_dCurExts[j], g_dNewExts[j], true );
 				TryRename ( sIndex, sPath, g_dOldExts[j], g_dCurExts[j], true );
 			}
-			TryRename ( sIndex, sPath, g_dOldExts[EXT_MVP], g_dCurExts[EXT_MVP], false );
+			TryRename ( sIndex, sPath, g_dOldExts[EXT_MVP], g_dCurExts[EXT_MVP], false, false );
 			sphLogDebug ( "RotateIndexGreedy: has recovered" );
 
 			if ( !tIndex.m_pIndex->Prealloc ( tIndex.m_bMlock, g_bStripPath, sWarning ) || !tIndex.m_pIndex->Preread() )
@@ -12914,7 +12918,7 @@ static void RotateIndexMT ( const CSphString & sIndex )
 			pServed->m_bEnabled = true;
 
 			// rename current MVP to old one to unlink it
-			TryRename ( sIndex.cstr(), pServed->m_sIndexPath.cstr(), g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false );
+			TryRename ( sIndex.cstr(), pServed->m_sIndexPath.cstr(), g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false, false );
 			// unlink .old
 			sphLogDebug ( "unlink .old" );
 			if ( !pServed->m_bOnlyNew )
@@ -13247,7 +13251,7 @@ void HandlePipePreread ( PipeReader_t & tPipe, bool bFailure )
 				tServed.m_bEnabled = true;
 
 				// rename current MVP to old one to unlink it
-				TryRename ( sPrereading, tServed.m_sIndexPath.cstr(), g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false );
+				TryRename ( sPrereading, tServed.m_sIndexPath.cstr(), g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false, false );
 				// unlink .old
 				if ( !tServed.m_bOnlyNew )
 				{
