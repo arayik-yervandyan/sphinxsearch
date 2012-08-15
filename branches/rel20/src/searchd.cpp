@@ -15229,7 +15229,7 @@ void ConfigureSearchd ( const CSphConfig & hConf, bool bOptPIDFile )
 		"\x01\x02\x03\x04\x05\x06\x07\x08" // scramble buffer (for auth)
 		"\x00" // filler
 		"\x08\x82" // server capabilities; CLIENT_PROTOCOL_41 | CLIENT_CONNECT_WITH_DB | SECURE_CONNECTION
-		"\x00" // server language
+		"\x21" // server language; let it be ut8_general_ci to make different clients happy
 		"\x02\x00" // server status
 		"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" // filler
 		"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d"; // scramble buffer2 (for auth, 4.1+)
