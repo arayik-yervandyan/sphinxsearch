@@ -1435,7 +1435,7 @@ private:
 	CSphSharedBuffer<SphAttr_t>	m_pKillList;			///< killlist
 	DWORD						m_iKillListSize;		///< killlist size (in elements)
 
-	DWORD						m_uMinMaxIndex;			///< stored min/max cache offset (counted in DWORDs)
+	int64_t						m_uMinMaxIndex;			///< stored min/max cache offset (counted in DWORDs)
 
 	CSphAutofile				m_tDoclistFile;			///< doclist file
 	CSphAutofile				m_tHitlistFile;			///< hitlist file
@@ -8432,7 +8432,7 @@ bool CSphIndex_VLN::WriteHeader ( CSphWriter & fdInfo, SphOffset_t iCheckpointsP
 	SaveDictionarySettings ( fdInfo, m_pDict, false );
 
 	fdInfo.PutDword ( m_iKillListSize );
-	fdInfo.PutDword ( m_uMinMaxIndex );
+	fdInfo.PutDword ( (DWORD)m_uMinMaxIndex );
 
 	return true;
 }
@@ -13485,16 +13485,25 @@ bool CSphIndex_VLN::Prealloc ( bool bMlock, bool bStripPath, CSphString & sWarni
 		if ( tDocinfo.GetFD()<0 )
 			return false;
 
-		DWORD iDocinfoSize = DWORD ( tDocinfo.GetSize ( iEntrySize, true, m_sLastError )
-			/ sizeof(DWORD) );
+		// min-max index 32 bit overflow fix-up
+		int64_t iMinMaxIndex = (int64_t)m_tStats.m_iTotalDocuments * iStride;
+		if ( iMinMaxIndex>m_uMinMaxIndex )
+		{
+			bool bClamp = ( (DWORD)iMinMaxIndex==m_uMinMaxIndex );
+			sphWarning ( "min-max offset clamped (stored=0x%llx, real=0x%llx)", m_uMinMaxIndex, iMinMaxIndex );
+			if ( bClamp )
+				m_uMinMaxIndex = iMinMaxIndex;
+		}
+
+		int64_t iDocinfoSize = tDocinfo.GetSize ( iEntrySize, true, m_sLastError ) / sizeof(DWORD);
 		if ( iDocinfoSize<0 )
 			return false;
 
-		DWORD iRealDocinfoSize = m_uMinMaxIndex ? m_uMinMaxIndex : iDocinfoSize;
+		int64_t iRealDocinfoSize = m_uMinMaxIndex ? m_uMinMaxIndex : iDocinfoSize;
 
 		// intentionally losing data; we don't support more than 4B documents per instance yet
 		m_uDocinfo = (DWORD)( iRealDocinfoSize / iStride );
-		if ( iRealDocinfoSize!=m_uDocinfo*iStride && !m_bId32to64 )
+		if ( iRealDocinfoSize!=(int64_t)m_uDocinfo*iStride && !m_bId32to64 )
 		{
 			m_sLastError.SetSprintf ( "docinfo size check mismatch (4B document limit hit?)" );
 			return false;
@@ -13517,7 +13526,7 @@ bool CSphIndex_VLN::Prealloc ( bool bMlock, bool bStripPath, CSphString & sWarni
 		{
 			if ( m_bId32to64 )
 				iDocinfoSize = iDocinfoSize / iStride2 * iStride;
-			m_uDocinfoIndex = ( m_uDocinfo+DOCINFO_INDEX_FREQ-1 ) / DOCINFO_INDEX_FREQ;
+			m_uDocinfoIndex = (DWORD)( ( m_uDocinfo+DOCINFO_INDEX_FREQ-1 ) / DOCINFO_INDEX_FREQ );
 
 			// prealloc docinfo
 			if ( !m_pDocinfo.Alloc ( iDocinfoSize + 2*(1+m_uDocinfoIndex)*iStride + ( m_bId32to64 ? m_uDocinfo : 0 ), m_sLastError, sWarning ) )
@@ -13532,7 +13541,7 @@ bool CSphIndex_VLN::Prealloc ( bool bMlock, bool bStripPath, CSphString & sWarni
 				return false;
 			}
 
-			m_uDocinfoIndex = ( ( iDocinfoSize - iRealDocinfoSize ) / (m_bId32to64?iStride2:iStride) / 2 ) - 1;
+			m_uDocinfoIndex = (DWORD)( ( ( iDocinfoSize - iRealDocinfoSize ) / (m_bId32to64?iStride2:iStride) / 2 ) - 1 );
 
 			// prealloc docinfo
 			if ( !m_pDocinfo.Alloc ( iDocinfoSize + ( m_bId32to64 ? ( 2 + m_uDocinfo + 2*m_uDocinfoIndex ) : 0 ), m_sLastError, sWarning ) )
@@ -15293,7 +15302,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 			const int iLastWordLen = strlen(sLastWord);
 			if ( iMatch+iDelta>=(int)sizeof(sLastWord)-1 || iMatch>iLastWordLen )
 			{
-				LOC_FAIL(( fp, "wrong word-delta (pos="INT64_FMT", word=%s, len=%d, begin=%d, delta=%d)",
+				LOC_FAIL(( fpng word-delta (pos="INT64_FMT", word=%s, len=%d, begin=%d, delta=%d)",
 					iDictPos, sLastWord, iLastWordLen, iMatch, iDelta ));
 				rdDict.SkipBytes ( iDelta );
 			} else
@@ -15305,7 +15314,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 			iNewDoclistOffset = rdDict.UnzipOffset();
 			iDocs = rdDict.UnzipInt();
 			iHits = rdDict.UnzipInt();
-			int iHint = ( iDocs>=D_HINT_THRESH ) ? rdDict.GetByte() : 0;
+			int iHint = ( iDocs>=DOCLIST_HINT_THRESH ) ? rdDict.GetByte() : 0;
 			iHint = DoclistHintUnpack ( iDocs, (BYTE)iHint );
 
 			const int iNewWordLen = strlen(sWord);
@@ -18742,7 +18751,7 @@ static inline DWORD HtmlEntityHash ( const BYTE * str, int len )
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 4,
 		6, 22, 1, 421, 421, 421, 421, 421, 421, 421,
-		421, 421, 421, 421, 421, 170, 48, 0, 5, 44,
+		421, 421, 421,421, 170, 48, 0, 5, 44,
 		0, 10, 10, 86, 421, 7, 0, 1, 42, 93,
 		41, 421, 0, 5, 8, 14, 421, 421, 5, 11,
 		8, 421, 421, 421, 421, 421, 421, 1, 25, 27,
@@ -18751,7 +18760,7 @@ static inline DWORD HtmlEntityHash ( const BYTE * str, int len )
 		3, 161, 2, 3, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
-		421, 421, 421, 42, 421, 421, 421, 421, 421,
+		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
@@ -22988,7 +22997,7 @@ bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 
 		sError.SetSprintf ( "source '%s': XML parse error: %s (line=%d, pos=%d, docid=" DOCID_FMT ")",
 			m_tSchema.m_sName.cstr(), XML_ErrorString ( XML_GetErrorCode ( m_pParser ) ",
-			(int)XML_GetCurrentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ),
+			(int)XML_GentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ),
 			uFailedID );
 		m_tDocInfo.m_iDocID = 1;
 		return false;
@@ -23011,7 +23020,7 @@ BYTE **	CSphSource_XMLPipe2::NextDocument ( CSphString & sError )
 	if ( m_bRemoveParsed )
 	{
 		SafeDelete ( m_dParsedDocuments[0] );
-arsedDocuments.RemoveFast ( 0 );
+		m_dParsedDocuments.RemoveFast ( 0 );
 		m_bRemoveParsed = false;
 	}
 
