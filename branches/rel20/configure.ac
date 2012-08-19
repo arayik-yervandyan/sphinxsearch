@@ -114,6 +114,7 @@ AC_SEARCH_LIBS([XML_Parse],[expat],[have_libexpat=yes],[have_libexpat=no])
 AC_SEARCH_LIBS([iconv],[iconv],[have_libiconv=yes],[have_libiconv=no])
 AC_SEARCH_LIBS([inflate],[z],[have_lz=yes],[have_lz=no])
 AC_SEARCH_LIBS([logf],[m])
+AC_SEARCH_LIBS([SQLDriverConnect],[odbc iodbc],[have_libodbc=yes],[have_libodbc=no])
 AC_CHECK_FUNCS([dup2 gethostbyname gettimeofday memmove memset select socket strcasecmp strchr strerror strncasecmp strstr strtol logf pread])
 AC_CHECK_FUNCS([backtrace backtrace_symbols])
 
@@ -358,7 +359,7 @@ CPPFLAGS="$CPPFLAGS $MYSQL_CFLAGS $PGSQL_CFLAGS $LIBSTEMMER_CFLAGS"
 
 got_expat=0
 AC_MSG_CHECKING([for libexpat])
-if test [ $have_expat_h = yes -a $have_libexpat = yes ]; then
+if test x$have_expat_h = xyes -a x$have_libexpat = xyes; then
 	AC_DEFINE([USE_LIBEXPAT],1,[define to use expat XML library])
 	AC_MSG_RESULT([found])
 	got_expat=1
@@ -374,10 +375,10 @@ AC_ARG_WITH([iconv],
 	[ac_cv_use_iconv=$withval], [ac_cv_use_iconv=yes]
 )
 AC_MSG_CHECKING([for libiconv])
-if test [ $have_iconv_h = yes \
-	-a $have_libiconv = yes \
+if test x$have_iconv_h = xyes \
+	-a x$have_libiconv = xyes \
 	-a $got_expat -eq 1 \
-	-a $ac_cv_use_iconv != no ]; \
+	-a x$ac_cv_use_iconv != xno; \
 then
 	AC_DEFINE([USE_LIBICONV],1,[define to use iconv library])
 	AC_MSG_RESULT([found])
@@ -395,7 +396,7 @@ then
 		[iconv_inbuf_const=yes],
 		[iconv_inbuf_const=no])
 	AC_LANG_POP([C++])
-	if test [ $iconv_inbuf_const = yes ]; then
+	if test x$iconv_inbuf_const = xyes; then
 		AC_DEFINE([ICONV_INBUF_CONST],1,[whether 2nd arg to iconv() is const ptr])
 		AC_MSG_RESULT([const char **])
 	else
@@ -403,8 +404,8 @@ then
 		AC_MSG_RESULT([char **])
 	fi
 else
-	if test [ $got_expat -eq 1 ]; then
-		if test [ $ac_cv_use_iconv = no ]; then
+	if test $got_expat -eq 1; then
+		if test x$ac_cv_use_iconv = xno; then
 			AC_MSG_RESULT([disabled])
 		else
 			AC_MSG_RESULT([not found])
@@ -417,7 +418,7 @@ fi
 
 dnl ---
 
-if test [ $have_zlib_h = yes -a $have_lz = yes ]; then
+if test x$have_zlib_h = xyes -a x$have_lz = xyes; then
    AC_DEFINE([USE_ZLIB],1,[define to use Zlib])
 fi
 
@@ -428,16 +429,13 @@ AC_ARG_WITH([unixodbc],
 	[ac_cv_use_unixodbc=$withval], [ac_cv_use_unixodbc=yes]
 )
 AC_MSG_CHECKING([for UnixODBC])
-if test [ $ac_cv_use_unixodbc != no ]; then
-	if test [ $have_sql_h = yes ]; then
-		AC_SEARCH_LIBS([SQLConnect],[odbc iodbc],[have_libodbc=yes],[have_libodbc=no])
-		if test [ $have_libodbc = yes ]; then
-			AC_DEFINE([USE_ODBC],1,[define to use ODBC library])
-			AC_MSG_RESULT([found])
-		else
-			AC_MSG_RESULT([not found])
-			AC_MSG_WARN([ODBC source support will NOT be available])
-		fi
+if test x$ac_cv_use_unixodbc = xyes; then
+	if test x$have_sql_h = xyes -a x$have_libodbc = xyes; then
+		AC_MSG_RESULT([found])
+		AC_DEFINE([USE_ODBC],1,[define to use ODBC library])
+	else
+		AC_MSG_RESULT([not found])
+		AC_MSG_WARN([ODBC source support will NOT be available])
 	fi
 else
 	AC_MSG_RESULT([disabled])
@@ -450,7 +448,7 @@ sph_enable_mem_override=yes
 AC_ARG_ENABLE([mem-override],
     [   --enable-mem-override        enable to override std c++ mem routines in production build (default is yes). Disabling may help in some rare cases as statically linking with mysql on Mac OS X Lion.],
     [sph_enable_mem_override=$enableval])
-if test x$sph_enable_mem_override != xno; then
+if test x$sph_enable_mem_override = xyes; then
     AC_MSG_RESULT([yes])
 else
     AC_DEFINE(SPH_DONT_OVERRIDE_MEMROUTINES, 1, [Disable overriding of c++ memory routines])
@@ -465,8 +463,8 @@ AC_ARG_WITH([syslog],
 	[ac_cv_use_syslog=$withval], [ac_cv_use_syslog=no]
 )
 AC_MSG_CHECKING([for Syslog])
-if test [ $ac_cv_use_syslog != no ]; then
-	if test [ $have_syslog_h = yes ]; then
+if test x$ac_cv_use_syslog != xno; then
+	if test x$have_syslog_h = xyes; then
 		AC_DEFINE([USE_SYSLOG],1,[define to use POSIX Syslog for logging])
 		AC_MSG_RESULT([yes])
 	else
@@ -526,7 +524,7 @@ dnl --------------------------------------------------------------------------
 
 SPHINX_CONFIGURE_PART([generating configuration files])
 
-if test "$prefix" = "NONE"; then
+if test "x$prefix" = "xNONE"; then
 	my_op_prefix="/var"
 else
 	my_op_prefix="$localstatedir"
