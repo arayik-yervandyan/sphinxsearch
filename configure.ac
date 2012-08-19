@@ -110,11 +110,8 @@ AC_FUNC_STAT
 AC_FUNC_VPRINTF
 AC_SEARCH_LIBS([setsockopt],[socket])
 AC_SEARCH_LIBS([gethostbyname],[nsl socket resolv])
-AC_SEARCH_LIBS([XML_Parse],[expat],[have_libexpat=yes],[have_libexpat=no])
-AC_SEARCH_LIBS([iconv],[iconv],[have_libiconv=yes],[have_libiconv=no])
 AC_SEARCH_LIBS([inflate],[z],[have_lz=yes],[have_lz=no])
 AC_SEARCH_LIBS([logf],[m])
-AC_SEARCH_LIBS([SQLDriverConnect],[odbc iodbc],[have_libodbc=yes],[have_libodbc=no])
 AC_CHECK_FUNCS([dup2 gethostbyname gettimeofday memmove memset select socket strcasecmp strchr strerror strncasecmp strstr strtol logf pread])
 AC_CHECK_FUNCS([backtrace backtrace_symbols])
 
@@ -357,15 +354,25 @@ dnl ---
 # we can now set preprocessor flags for both C and C++ compilers
 CPPFLAGS="$CPPFLAGS $MYSQL_CFLAGS $PGSQL_CFLAGS $LIBSTEMMER_CFLAGS"
 
+
+AC_ARG_WITH([libexpat],
+	AC_HELP_STRING([--with-libexpat], [compile with expat XML library suppport (default is autodetect)]),
+	[ac_cv_use_expat=$withval], [ac_cv_use_expat=yes]
+)
+
 got_expat=0
 AC_MSG_CHECKING([for libexpat])
-if test x$have_expat_h = xyes -a x$have_libexpat = xyes; then
-	AC_DEFINE([USE_LIBEXPAT],1,[define to use expat XML library])
-	AC_MSG_RESULT([found])
-	got_expat=1
+if test x$ac_cv_use_expat = xyes -a x$have_expat_h = xyes; then
+	AC_SEARCH_LIBS([XML_Parse],[expat],[got_expat=1])
+	if test $got_expat -eq 1; then
+		AC_DEFINE([USE_LIBEXPAT],1,[define to use expat XML library])
+		AC_MSG_RESULT([found])
+	else
+		AC_MSG_RESULT([not found])
+		AC_MSG_WARN([xmlpipe2 will NOT be available])
+	fi
 else
-	AC_MSG_RESULT([not found])
-	AC_MSG_WARN([xmlpipe2 will NOT be available])
+	AC_MSG_RESULT([disabled])
 fi
 
 dnl ---
@@ -375,44 +382,44 @@ AC_ARG_WITH([iconv],
 	[ac_cv_use_iconv=$withval], [ac_cv_use_iconv=yes]
 )
 AC_MSG_CHECKING([for libiconv])
-if test x$have_iconv_h = xyes \
-	-a x$have_libiconv = xyes \
-	-a $got_expat -eq 1 \
-	-a x$ac_cv_use_iconv != xno; \
-then
-	AC_DEFINE([USE_LIBICONV],1,[define to use iconv library])
-	AC_MSG_RESULT([found])
+if test x$ac_cv_use_iconv != xno -a x$have_iconv_h = xyes; then
+	AC_SEARCH_LIBS([iconv],[iconv],[have_libiconv=yes],[have_libiconv=no])
+	if test x$have_libiconv = xyes; then
+		AC_MSG_RESULT([found])
+		AC_DEFINE([USE_LIBICONV],1,[define to use iconv library])
 
-	AC_MSG_CHECKING([for iconv() arg types])
-	AC_LANG_PUSH([C++])
-	AC_COMPILE_IFELSE(
-		[AC_LANG_PROGRAM([[
-			#include <iconv.h>	
-			#include <stdio.h>]],
-			[const char * inbuf;
-			iconv_t cd;
-			iconv ( cd, &inbuf, NULL, NULL, NULL );
-			])],
-		[iconv_inbuf_const=yes],
-		[iconv_inbuf_const=no])
-	AC_LANG_POP([C++])
-	if test x$iconv_inbuf_const = xyes; then
-		AC_DEFINE([ICONV_INBUF_CONST],1,[whether 2nd arg to iconv() is const ptr])
-		AC_MSG_RESULT([const char **])
+		AC_MSG_CHECKING([for iconv() arg types])
+		AC_LANG_PUSH([C++])
+		AC_COMPILE_IFELSE(
+			[AC_LANG_PROGRAM([[
+				#include <iconv.h>	
+				#include <stdio.h>]],
+				[const char * inbuf;
+				iconv_t cd;
+				iconv ( cd, &inbuf, NULL, NULL, NULL );
+				])],
+			[iconv_inbuf_const=yes],
+			[iconv_inbuf_const=no])
+		AC_LANG_POP([C++])
+		if test x$iconv_inbuf_const = xyes; then
+			AC_DEFINE([ICONV_INBUF_CONST],1,[whether 2nd arg to iconv() is const ptr])
+			AC_MSG_RESULT([const char **])
+		else
+			AC_DEFINE([ICONV_INBUF_CONST],0,[whether 2nd arg to iconv() is const ptr])
+			AC_MSG_RESULT([char **])
+		fi
 	else
-		AC_DEFINE([ICONV_INBUF_CONST],0,[whether 2nd arg to iconv() is const ptr])
-		AC_MSG_RESULT([char **])
+		if test $got_expat -eq 1; then
+			AC_MSG_RESULT([not found])
+			AC_MSG_WARN([xmlpipe2 will only support default encodings (latin-1, utf-8)])
+		else
+			AC_MSG_RESULT([not required and not found])
+		fi
 	fi
 else
+	AC_MSG_RESULT([disabled])
 	if test $got_expat -eq 1; then
-		if test x$ac_cv_use_iconv = xno; then
-			AC_MSG_RESULT([disabled])
-		else
-			AC_MSG_RESULT([not found])
-		fi
 		AC_MSG_WARN([xmlpipe2 will only support default encodings (latin-1, utf-8)])
-	else
-		AC_MSG_RESULT([not required])
 	fi
 fi
 
@@ -428,9 +435,15 @@ AC_ARG_WITH([unixodbc],
 	AC_HELP_STRING([--with-unixodbc], [compile with UnixODBC support (default is autodetect)]),
 	[ac_cv_use_unixodbc=$withval], [ac_cv_use_unixodbc=yes]
 )
+
 AC_MSG_CHECKING([for UnixODBC])
 if test x$ac_cv_use_unixodbc = xyes; then
-	if test x$have_sql_h = xyes -a x$have_libodbc = xyes; then
+	have_libodbc=no
+	if test x$have_sql_h = xyes; then
+		AC_SEARCH_LIBS([SQLDriverConnect],[odbc iodbc],[have_libodbc=yes])
+	fi
+
+	if test x$have_libodbc = xyes; then
 		AC_MSG_RESULT([found])
 		AC_DEFINE([USE_ODBC],1,[define to use ODBC library])
 	else
