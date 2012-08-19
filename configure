@@ -6155,6 +6155,64 @@ if test "$ac_res" != no; then :
 
 fi
 
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing SQLDriverConnect" >&5
+$as_echo_n "checking for library containing SQLDriverConnect... " >&6; }
+if test "${ac_cv_search_SQLDriverConnect+set}" = set; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_func_search_save_LIBS=$LIBS
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char SQLDriverConnect ();
+int
+main ()
+{
+return SQLDriverConnect ();
+  ;
+  return 0;
+}
+_ACEOF
+for ac_lib in '' odbc iodbc; do
+  if test -z "$ac_lib"; then
+    ac_res="none required"
+  else
+    ac_res=-l$ac_lib
+    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
+  fi
+  if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_search_SQLDriverConnect=$ac_res
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext
+  if test "${ac_cv_search_SQLDriverConnect+set}" = set; then :
+  break
+fi
+done
+if test "${ac_cv_search_SQLDriverConnect+set}" = set; then :
+
+else
+  ac_cv_search_SQLDriverConnect=no
+fi
+rm conftest.$ac_ext
+LIBS=$ac_func_search_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_SQLDriverConnect" >&5
+$as_echo "$ac_cv_search_SQLDriverConnect" >&6; }
+ac_res=$ac_cv_search_SQLDriverConnect
+if test "$ac_res" != no; then :
+  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+  have_libodbc=yes
+else
+  have_libodbc=no
+fi
+
 for ac_func in dup2 gethostbyname gettimeofday memmove memset select socket strcasecmp strchr strerror strncasecmp strstr strtol logf pread
 do :
   as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
@@ -7444,7 +7502,7 @@ CPPFLAGS="$CPPFLAGS $MYSQL_CFLAGS $PGSQL_CFLAGS $LIBSTEMMER_CFLAGS"
 got_expat=0
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for libexpat" >&5
 $as_echo_n "checking for libexpat... " >&6; }
-if test  $have_expat_h = yes -a $have_libexpat = yes ; then
+if test x$have_expat_h = xyes -a x$have_libexpat = xyes; then
 
 $as_echo "#define USE_LIBEXPAT 1" >>confdefs.h
 
@@ -7470,10 +7528,10 @@ fi
 
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for libiconv" >&5
 $as_echo_n "checking for libiconv... " >&6; }
-if test  $have_iconv_h = yes \
-	-a $have_libiconv = yes \
+if test x$have_iconv_h = xyes \
+	-a x$have_libiconv = xyes \
 	-a $got_expat -eq 1 \
-	-a $ac_cv_use_iconv != no ; \
+	-a x$ac_cv_use_iconv != xno; \
 then
 
 $as_echo "#define USE_LIBICONV 1" >>confdefs.h
@@ -7518,7 +7576,7 @@ ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
 ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
 ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
-	if test  $iconv_inbuf_const = yes ; then
+	if test x$iconv_inbuf_const = xyes; then
 
 $as_echo "#define ICONV_INBUF_CONST 1" >>confdefs.h
 
@@ -7532,8 +7590,8 @@ $as_echo "#define ICONV_INBUF_CONST 0" >>confdefs.h
 $as_echo "char **" >&6; }
 	fi
 else
-	if test  $got_expat -eq 1 ; then
-		if test  $ac_cv_use_iconv = no ; then
+	if test $got_expat -eq 1; then
+		if test x$ac_cv_use_iconv = xno; then
 			{ $as_echo "$as_me:${as_lineno-$LINENO}: result: disabled" >&5
 $as_echo "disabled" >&6; }
 		else
@@ -7549,7 +7607,7 @@ $as_echo "not required" >&6; }
 fi
 
 
-if test  $have_zlib_h = yes -a $have_lz = yes ; then
+if test x$have_zlib_h = xyes -a x$have_lz = xyes; then
 
 $as_echo "#define USE_ZLIB 1" >>confdefs.h
 
@@ -7567,78 +7625,18 @@ fi
 
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for UnixODBC" >&5
 $as_echo_n "checking for UnixODBC... " >&6; }
-if test  $ac_cv_use_unixodbc != no ; then
-	if test  $have_sql_h = yes ; then
-		{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing SQLConnect" >&5
-$as_echo_n "checking for library containing SQLConnect... " >&6; }
-if test "${ac_cv_search_SQLConnect+set}" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_func_search_save_LIBS=$LIBS
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char SQLConnect ();
-int
-main ()
-{
-return SQLConnect ();
-  ;
-  return 0;
-}
-_ACEOF
-for ac_lib in '' odbc iodbc; do
-  if test -z "$ac_lib"; then
-    ac_res="none required"
-  else
-    ac_res=-l$ac_lib
-    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
-  fi
-  if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_search_SQLConnect=$ac_res
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext
-  if test "${ac_cv_search_SQLConnect+set}" = set; then :
-  break
-fi
-done
-if test "${ac_cv_search_SQLConnect+set}" = set; then :
-
-else
-  ac_cv_search_SQLConnect=no
-fi
-rm conftest.$ac_ext
-LIBS=$ac_func_search_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_SQLConnect" >&5
-$as_echo "$ac_cv_search_SQLConnect" >&6; }
-ac_res=$ac_cv_search_SQLConnect
-if test "$ac_res" != no; then :
-  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
-  have_libodbc=yes
-else
-  have_libodbc=no
-fi
-
-		if test  $have_libodbc = yes ; then
+if test x$ac_cv_use_unixodbc = xyes; then
+	if test x$have_sql_h = xyes -a x$have_libodbc = xyes; then
+		{ $as_echo "$as_me:${as_lineno-$LINENO}: result: found" >&5
+$as_echo "found" >&6; }
 
 $as_echo "#define USE_ODBC 1" >>confdefs.h
 
-			{ $as_echo "$as_me:${as_lineno-$LINENO}: result: found" >&5
-$as_echo "found" >&6; }
-		else
-			{ $as_echo "$as_me:${as_lineno-$LINENO}: result: not found" >&5
+	else
+		{ $as_echo "$as_me:${as_lineno-$LINENO}: result: not found" >&5
 $as_echo "not found" >&6; }
-			{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: ODBC source support will NOT be available" >&5
+		{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: ODBC source support will NOT be available" >&5
 $as_echo "$as_me: WARNING: ODBC source support will NOT be available" >&2;}
-		fi
 	fi
 else
 	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: disabled" >&5
@@ -7654,7 +7652,7 @@ if test "${enable_mem_override+set}" = set; then :
   enableval=$enable_mem_override; sph_enable_mem_override=$enableval
 fi
 
-if test x$sph_enable_mem_override != xno; then
+if test x$sph_enable_mem_override = xyes; then
     { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 $as_echo "yes" >&6; }
 else
@@ -7678,8 +7676,8 @@ fi
 
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for Syslog" >&5
 $as_echo_n "checking for Syslog... " >&6; }
-if test  $ac_cv_use_syslog != no ; then
-	if test  $have_syslog_h = yes ; then
+if test x$ac_cv_use_syslog != xno; then
+	if test x$have_syslog_h = xyes; then
 
 $as_echo "#define USE_SYSLOG 1" >>confdefs.h
 
@@ -8005,7 +8003,7 @@ $as_echo "$TMP" >&6; }
 $as_echo "" >&6; }
 
 
-if test "$prefix" = "NONE"; then
+if test "x$prefix" = "xNONE"; then
 	my_op_prefix="/var"
 else
 	my_op_prefix="$localstatedir"
