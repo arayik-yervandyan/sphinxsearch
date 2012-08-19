@@ -471,6 +471,11 @@ typedef AttrIndexBuilder_t<> AttrIndexBuilder_c;
 #define LLONG_MIN (-LLONG_MAX-1)
 #endif
 
+#ifndef ULLONG_MAX
+#define ULLONG_MAX	(LLONG_MAX * 2ULL + 1)
+#endif
+
+
 template < typename DOCID >
 void AttrIndexBuilder_t<DOCID>::ResetLocal()
 {
