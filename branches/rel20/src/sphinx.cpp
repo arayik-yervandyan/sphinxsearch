@@ -13485,19 +13485,24 @@ bool CSphIndex_VLN::Prealloc ( bool bMlock, bool bStripPath, CSphString & sWarni
 		if ( tDocinfo.GetFD()<0 )
 			return false;
 
-		// min-max index 32 bit overflow fix-up
-		int64_t iMinMaxIndex = (int64_t)m_tStats.m_iTotalDocuments * iStride;
-		if ( iMinMaxIndex>m_uMinMaxIndex )
-		{
-			bool bClamp = ( (DWORD)iMinMaxIndex==m_uMinMaxIndex );
-			sphWarning ( "min-max offset clamped (stored=0x%llx, real=0x%llx)", m_uMinMaxIndex, iMinMaxIndex );
-			if ( bClamp )
-				m_uMinMaxIndex = iMinMaxIndex;
-		}
-
 		int64_t iDocinfoSize = tDocinfo.GetSize ( iEntrySize, true, m_sLastError ) / sizeof(DWORD);
 		if ( iDocinfoSize<0 )
 			return false;
+
+		// min-max index 32 bit overflow fix-up
+		if ( m_uMinMaxIndex && iDocinfoSize/sizeof(DWORD)>UINT_MAX )
+		{
+			int64_t uFixedMinMax = m_uMinMaxIndex + ( U64C(1)<<32 );
+			if ( uFixedMinMax<iDocinfoSize )
+			{
+				sphWarning ( "clamped min-max offset fixed (offset="INT64_FMT", fixed="UINT64_FMT")", m_uMinMaxIndex, uFixedMinMax );
+				m_uMinMaxIndex = uFixedMinMax;
+			} else
+			{
+				m_sLastError.SetSprintf ( "can't fix clamped min-max offset (offset="INT64_FMT", file size="UINT64_FMT")", m_uMinMaxIndex, iDocinfoSize );
+				return false;
+			}
+		}
 
 		int64_t iRealDocinfoSize = m_uMinMaxIndex ? m_uMinMaxIndex : iDocinfoSize;
 
@@ -15296,13 +15301,12 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 				iMatch = uPack & 15;
 			} else
 			{
-				iDelta = uPack & 127;
-				iMatch = rdDict.GetByte();
+				iDelta = uPack & 127iMatch = rdDict.GetByte();
 			}
 			const int iLastWordLen = strlen(sLastWord);
 			if ( iMatch+iDelta>=(int)sizeof(sLastWord)-1 || iMatch>iLastWordLen )
 			{
-				LOC_FAIL(( fpng word-delta (pos="INT64_FMT", word=%s, len=%d, begin=%d, delta=%d)",
+				LOC_FAIL(( fp, "wrong word-delta (pos="INT64_FMT", word=%s, len=%d, begin=%d, delta=%d)",
 					iDictPos, sLastWord, iLastWordLen, iMatch, iDelta ));
 				rdDict.SkipBytes ( iDelta );
 			} else
@@ -18747,11 +18751,11 @@ static inline DWORD HtmlEntityHash ( const BYTE * str, int len )
 	{
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
-		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
+		421, 421, 421, 421, 421, 421, 421, 21, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 4,
 		6, 22, 1, 421, 421, 421, 421, 421, 421, 421,
-		421, 421, 421,421, 170, 48, 0, 5, 44,
+		421, 421, 421, 421, 421, 170, 48, 0, 5, 44,
 		0, 10, 10, 86, 421, 7, 0, 1, 42, 93,
 		41, 421, 0, 5, 8, 14, 421, 421, 5, 11,
 		8, 421, 421, 421, 421, 421, 421, 1, 25, 27,
@@ -22995,9 +22999,9 @@ bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 		if ( m_dParsedDocuments.GetLength() )
 			uFailedID = m_dParsedDocuments.Last()->m_iDocID;
 
-		sError.SetSprintf ( "source '%s': XML parse error: %s (line=%d, pos=%d, docid=" DOCID_FMT ")",
-			m_tSchema.m_sName.cstr(), XML_ErrorString ( XML_GetErrorCode ( m_pParser ) ",
-			(int)XML_GentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ),
+		sError.Setf ( "source '%s': XML parse error: %s (line=%d, pos=%d, docid=" DOCID_FMT ")",
+			m_tSchema.m_sName.cstr(), XML_ErrorString ( XML_GetErrorCode ( m_pParser ) ),
+			(int)XML_GetCurrentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ),
 			uFailedID );
 		m_tDocInfo.m_iDocID = 1;
 		return false;
