@@ -5489,8 +5489,7 @@ void RemapResult ( CSphSchema * pTarget, AggrResult_t * pRes, bool bMultiSchema=
 		iCur = iLimit;
 	}
 
-	if ( bMultiSchema )
-		assert ( iCur==pRes->m_dMatches.GetLength() );
+	assert ( !bMultiSchema || iCur==pRes->m_dMatches.GetLength() );
 	if ( &pRes->m_tSchema!=pTarget )
 		AdoptSchema ( pRes, pTarget );
 }
@@ -5710,8 +5709,8 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery, bool bH
 	// the final sorter needs the schema fields in specific order:
 
 	// shortcuts
-	CSphString sCount("@count");
-	CSphString sWeight("@weight");
+	const char * sCount = "@count";
+	const char * sWeight = "@weight";
 
 	// truly virtual schema which contains unique necessary fields.
 	CVirtualSchema tInternalSchema;
@@ -5760,10 +5759,14 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery, bool bH
 				ARRAY_FOREACH ( j, (*pSelectItems) )
 				{
 					const CSphQueryItem & tQueryItem = (*pSelectItems)[j];
-					const CSphString & sExpr = ( tQueryItem.m_sExpr=="count(*)" ) ? sCount
-						: ( ( tQueryItem.m_sExpr=="weight()" ) ? sWeight : tQueryItem.m_sExpr );
+					const char * sExpr = tQueryItem.m_sExpr.cstr();
+					if ( tQueryItem.m_sExpr=="count(*)" )
+						sExpr = sCount;
+					else if ( tQueryItem.m_sExpr=="weight()" )
+						sExpr = sWeight;
+
 					if ( tFrontendSchema.GetAttr(j).m_iIndex<0
-						&& ( ( sExpr.cstr() && sExpr==tCol.m_sName && tQueryItem.m_eAggrFunc==SPH_AGGR_NONE )
+						&& ( ( sExpr && tCol.m_sName==sExpr && tQueryItem.m_eAggrFunc==SPH_AGGR_NONE )
 						|| ( tQueryItem.m_sAlias.cstr() && tQueryItem.m_sAlias==tCol.m_sName ) ) )
 					{
 						bAdd = true;
@@ -5785,12 +5788,16 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery, bool bH
 					if ( pExtraSchema->GetAttrsCount() )
 					{
 						for ( int j=0; j<pExtraSchema->GetAttrsCount(); j++ )
+						{
 							if ( pExtraSchema->GetAttr(j).m_sName==tCol.m_sName )
 								bAdd = true;
+						}
 					// the extra schema is not null, but empty - and we have no local agents
 					// so, the schema of result is already aligned to the extra, just add it
 					} else if ( !bHadLocalIndexes )
+					{
 						bAdd = true;
+					}
 				}
 				if ( !bAdd && bUsualApi && *tCol.m_sName.cstr()=='@' )
 					bAdd = true;
