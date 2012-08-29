@@ -981,6 +981,7 @@ void sphLog ( ESphLogLevel eLevel, const char * sFmt, va_list ap )
 	{
 		const int levels[] = { LOG_EMERG, LOG_WARNING, LOG_INFO, LOG_DEBUG, LOG_DEBUG, LOG_DEBUG };
 		vsyslog ( levels[eLevel], sFmt, ap );
+		return;
 	}
 #endif
 
@@ -15327,7 +15328,7 @@ void ConfigureAndPreload ( const CSphConfig & hConf, const char * sOptIndex )
 		fprintf ( stdout, "precached %d indexes in %0.3f sec\n", iCounter-1, float(tmLoad)/1000000 );
 }
 
-void OpenDaemonLog ( const CSphConfigSection & hSearchd )
+void OpenDaemonLog ( const CSphConfigSection & hSearchd, bool bCloseIfOpened=false )
 {
 	// create log
 		const char * sLog = "searchd.log";
@@ -15352,6 +15353,11 @@ void OpenDaemonLog ( const CSphConfigSection & hSearchd )
 		}
 
 		umask ( 066 );
+		if ( bCloseIfOpened && g_iLogFile!=STDOUT_FILENO )
+		{
+			close ( g_iLogFile );
+			g_iLogFile = STDOUT_FILENO;
+		}
 		if ( !g_bLogSyslog )
 		{
 			g_iLogFile = open ( sLog, O_CREAT | O_RDWR | O_APPEND, S_IREAD | S_IWRITE );
@@ -15768,8 +15774,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 		if ( !g_bOptNoLock )
 			OpenDaemonLog ( hConf["searchd"]["searchd"] );
 		bVisualLoad = SetWatchDog ( iDevNull );
-		close ( g_iLogFile ); // just the 'IT Happens' magic - switch off, then on.
-		OpenDaemonLog ( hConf["searchd"]["searchd"] );
+		OpenDaemonLog ( hConf["searchd"]["searchd"], true ); // just the 'IT Happens' magic - switch off, then on.
 	}
 #endif
 
@@ -15913,45 +15918,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	if ( !g_bOptNoLock )
 	{
 		// create log
-		const char * sLog = "searchd.log";
-		if ( hSearchd.Exists ( "log" ) )
-		{
-			if ( hSearchd["log"]=="syslog" )
-			{
-#if !USE_SYSLOG
-				if ( g_iLogFile<0 )
-				{
-					g_iLogFile = STDOUT_FILENO;
-					sphWarning ( "failed to use syslog for logging. You have to reconfigure --with-syslog and rebuild the daemon!" );
-					sphInfo ( "will use default file 'searchd.log' for logging." );
-				}
-#else
-				g_bLogSyslog = true;
-#endif
-			} else
-			{
-				sLog = hSearchd["log"].cstr();
-			}
-		}
-
-		umask ( 066 );
-		if ( g_iLogFile!=STDOUT_FILENO )
-		{
-			close ( g_iLogFile );
-			g_iLogFile = STDOUT_FILENO;
-		}
-		if ( !g_bLogSyslog )
-		{
-			g_iLogFile = open ( sLog, O_CREAT | O_RDWR | O_APPEND, S_IREAD | S_IWRITE );
-			if ( g_iLogFile<0 )
-			{
-				g_iLogFile = STDOUT_FILENO;
-				sphFatal ( "failed to open log file '%s': %s", sLog, strerror(errno) );
-			}
-		}
-
-		g_sLogFile = sLog;
-		g_bLogTty = isatty ( g_iLogFile )!=0;
+		OpenDaemonLog ( hSearchd, true );
 
 		// create query log if required
 		if ( hSearchd.Exists ( "query_log" ) )
