@@ -3651,6 +3651,7 @@ ExtUnit_c::~ExtUnit_c ()
 {
 	SafeDelete ( m_pArg1 );
 	SafeDelete ( m_pArg2 );
+	SafeDelete ( m_pDot );
 }
 
 
