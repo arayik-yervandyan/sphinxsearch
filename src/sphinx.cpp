@@ -22954,6 +22954,28 @@ bool CSphSource_Document::AddAutoAttrs ( CSphString & sError )
 }
 
 
+void CSphSource_Document::AllocDocinfo()
+{
+	// tricky bit
+	// with in-config schema, attr storage gets allocated in Setup() when source is initially created
+	// so when this AddAutoAttrs() additionally changes the count, we have to change the number of attributes
+	// but Reset() prohibits that, because that is usually a programming mistake, hence the Swap() dance
+	CSphMatch tNew;
+	tNew.Reset ( m_tSchema.GetRowSize() );
+	Swap ( m_tDocInfo, tNew );
+
+	m_dStrAttrs.Resize ( m_tSchema.GetAttrsCount() );
+
+	if ( m_bIndexFieldLens )
+	{
+		int iFirst = m_tSchema.GetAttrsCount() - m_tSchema.m_dFields.GetLength();
+		assert ( m_tSchema.GetAttr ( iFirst ).m_eAttrType==SPH_ATTR_TOKENCOUNT );
+		assert ( m_tSchema.GetAttr ( iFirst+m_tSchema.m_dFields.GetLength()-1 ).m_eAttrType==SPH_ATTR_TOKENCOUNT );
+
+		m_pFieldLengthAttrs = m_tDocInfo.m_pDynamic + ( m_tSchema.GetAttr ( iFirst ).m_tLocator.m_iBitOffset / 32 );
+	}
+}
+
 //////////////////////////////////////////////////////////////////////////
 // HIT GENERATORS
 //////////////////////////////////////////////////////////////////////////
@@ -23814,17 +23836,7 @@ bool CSphSource_SQL::IterateStart ( CSphString & sError )
 		return false;
 
 	// alloc storage
-	m_tDocInfo.Reset ( m_tSchema.GetRowSize() );
-	m_dStrAttrs.Resize ( m_tSchema.GetAttrsCount() );
-
-	if ( m_bIndexFieldLens )
-	{
-		int iFirst = m_tSchema.GetAttrsCount() - m_tSchema.m_dFields.GetLength();
-		assert ( m_tSchema.GetAttr ( iFirst ).m_eAttrType==SPH_ATTR_TOKENCOUNT );
-		assert ( m_tSchema.GetAttr ( iFirst+m_tSchema.m_dFields.GetLength()-1 ).m_eAttrType==SPH_ATTR_TOKENCOUNT );
-
-		m_pFieldLengthAttrs = m_tDocInfo.m_pDynamic + ( m_tSchema.GetAttr ( iFirst ).m_tLocator.m_iBitOffset / 32 );
-	}
+	AllocDocinfo();
 
 	// check it
 	if ( m_tSchema.m_dFields.GetLength()>SPH_MAX_FIELDS )
@@ -25777,13 +25789,11 @@ bool CSphSource_XMLPipe2::Setup ( FILE * pPipe, const CSphConfigSection & hSourc
 	ConfigureAttrs ( hSource("xmlpipe_field_string"),		SPH_ATTR_STRING );
 	ConfigureAttrs ( hSource("xmlpipe_field_wordcount"),	SPH_ATTR_WORDCOUNT );
 
-	m_tDocInfo.Reset ( m_tSchema.GetRowSize () );
-
 	ConfigureFields ( hSource("xmlpipe_field") );
 	ConfigureFields ( hSource("xmlpipe_field_string") );
 	ConfigureFields ( hSource("xmlpipe_field_wordcount") );
 
-	m_dStrAttrs.Resize ( m_tSchema.GetAttrsCount() );
+	AllocDocinfo();
 	return true;
 }
 
@@ -25796,17 +25806,9 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 		tCol.m_eWordpart = GetWordpart ( tCol.m_sName.cstr(), m_pDict && m_pDict->GetSettings().m_bWordDict );
 	}
 
-	// tricky bit
-	// with in-config schema, attr storage gets allocated in Setup() when source is initially created
-	// so when this AddAutoAttrs() additionally changes the count, we have to change the number of attributes
-	// but Reset() prohibits that, because that is usually a programming mistake, hence the Swap() dance
 	if ( !AddAutoAttrs ( sError ) )
 		return false;
-	CSphMatch tNewDoc;
-	tNewDoc.Reset ( m_tSchema.GetRowSize () );
-	Swap ( m_tDocInfo, tNewDoc );
-
-	m_dStrAttrs.Resize ( m_tSchema.GetAttrsCount() );
+	AllocDocinfo();
 
 #if USE_LIBEXPAT
 	m_pParser = XML_ParserCreate(NULL);
@@ -26419,10 +26421,9 @@ void CSphSource_XMLPipe2::EndElement ( const char * szName )
 		m_bInDocset = false;
 	else if ( !strcmp ( szName, "sphinx:schema" ) )
 	{
-		AddAutoAttrs ( m_sError );
 		m_bInSchema = false;
-		m_tDocInfo.Reset ( m_tSchema.GetRowSize () );
-		m_dStrAttrs.Resize ( m_tSchema.GetAttrsCount() );
+		AddAutoAttrs ( m_sError );
+		AllocDocinfo();
 
 	} else if ( !strcmp ( szName, "sphinx:document" ) )
 	{
