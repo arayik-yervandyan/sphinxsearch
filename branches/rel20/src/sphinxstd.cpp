@@ -1182,7 +1182,8 @@ bool CSphMutex::Unlock ()
 // Windows rwlock implementation
 
 CSphRwlock::CSphRwlock ()
-	: m_hWriteMutex ( NULL )
+	: m_bInitialized ( false )
+	, m_hWriteMutex ( NULL )
 	, m_hReadEvent ( NULL )
 	, m_iReaders ( 0 )
 {}
@@ -1190,6 +1191,7 @@ CSphRwlock::CSphRwlock ()
 
 bool CSphRwlock::Init ()
 {
+	assert ( !m_bInitialized );
 	assert ( !m_hWriteMutex && !m_hReadEvent && !m_iReaders );
 
 	m_hReadEvent = CreateEvent ( NULL, TRUE, FALSE, NULL );
@@ -1203,12 +1205,16 @@ bool CSphRwlock::Init ()
 		m_hReadEvent = NULL;
 		return false;
 	}
+	m_bInitialized = true;
 	return true;
 }
 
 
 bool CSphRwlock::Done ()
 {
+	if ( !m_bInitialized )
+		return true;
+
 	if ( !CloseHandle ( m_hReadEvent ) )
 		return false;
 	m_hReadEvent = NULL;
@@ -1218,12 +1224,15 @@ bool CSphRwlock::Done ()
 	m_hWriteMutex = NULL;
 
 	m_iReaders = 0;
+	m_bInitialized = false;
 	return true;
 }
 
 
 bool CSphRwlock::ReadLock ()
 {
+	assert ( m_bInitialized );
+
 	DWORD uWait = WaitForSingleObject ( m_hWriteMutex, INFINITE );
 	if ( uWait==WAIT_FAILED || uWait==WAIT_TIMEOUT )
 		return false;
@@ -1244,6 +1253,8 @@ bool CSphRwlock::ReadLock ()
 
 bool CSphRwlock::WriteLock ()
 {
+	assert ( m_bInitialized );
+
 	// try to acquire writer mutex
 	DWORD uWait = WaitForSingleObject ( m_hWriteMutex, INFINITE );
 	if ( uWait==WAIT_FAILED || uWait==WAIT_TIMEOUT )
@@ -1267,6 +1278,8 @@ bool CSphRwlock::WriteLock ()
 
 bool CSphRwlock::Unlock ()
 {
+	assert ( m_bInitialized );
+
 	// are we unlocking a writer?
 	if ( ReleaseMutex ( m_hWriteMutex ) )
 		return true; // yes we are
@@ -1291,30 +1304,44 @@ bool CSphRwlock::Unlock ()
 // UNIX rwlock implementation (pthreads wrapper)
 
 CSphRwlock::CSphRwlock ()
+	: m_bInitialized ( false )
 {}
 
 bool CSphRwlock::Init ()
 {
-	return pthread_rwlock_init ( &m_tLock, NULL )==0;
+	assert ( !m_bInitialized );
+
+	m_bInitialized = ( pthread_rwlock_init ( &m_tLock, NULL )==0 );
+	return m_bInitialized;
 }
 
 bool CSphRwlock::Done ()
 {
-	return pthread_rwlock_destroy ( &m_tLock )==0;
+	if ( !m_bInitialized )
+		return true;
+
+	m_bInitialized = !( pthread_rwlock_destroy ( &m_tLock )==0 );
+	return !m_bInitialized;
 }
 
 bool CSphRwlock::ReadLock ()
 {
+	assert ( m_bInitialized );
+
 	return pthread_rwlock_rdlock ( &m_tLock )==0;
 }
 
 bool CSphRwlock::WriteLock ()
 {
+	assert ( m_bInitialized );
+
 	return pthread_rwlock_wrlock ( &m_tLock )==0;
 }
 
 bool CSphRwlock::Unlock ()
 {
+	assert ( m_bInitialized );
+
 	return pthread_rwlock_unlock ( &m_tLock )==0;
 }
 
