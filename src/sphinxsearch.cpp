@@ -4330,7 +4330,7 @@ SphZoneHit_e ExtRanker_c::IsInZone ( int iZone, const ExtHit_t * pHit )
 			SphDocID_t uCur = pStartHits->m_uDocid;
 
 			tKey.m_uDocid = uCur;
-			pZone = m_hZoneInfo.AddUnique ( ZoneInfo_t(), tKey );
+			pZone = &m_hZoneInfo.AddUnique ( tKey );
 
 			// load all the start hits for it
 			while ( pStartHits )
