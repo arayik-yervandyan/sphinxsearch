@@ -2358,6 +2358,8 @@ public:
 		m_sBuf[0] = 0;
 		m_pSecond = NULL;
 		m_eState = BIGRAM_CLEAN;
+		m_eMode = pBase->m_eMode;
+		m_iMaxLen = pBase->m_iMaxLen;
 		memcpy ( m_dWordsHash, pBase->m_dWordsHash, sizeof(m_dWordsHash) );
 		m_dWords = pBase->m_dWords;
 	}
@@ -18381,7 +18383,8 @@ bool CSphDictCRCTraits::ToNormalForm ( BYTE *, bool bBefore pWord )
 	if ( !pIndex )
 		return false;
 
-	if ( *pIndex<0 || *pIndex>=m_pWordforms->m_dNormalForms.GetLength		return false;
+	if ( x<0 || *pIndex>=m_pWordforms->m_dNormalForms.GetLength () )
+		return false;
 
 	if ( bBefore==m_pWordforms->m_dNormalForms[*pIndex].m_bAfterMorphology )
 		return false;
