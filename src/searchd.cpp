@@ -11839,6 +11839,11 @@ void HandleMysqlSet ( NetOutputBuffer_c & tOut, BYTE & uPacketID, SqlStmt_t & tS
 }
 
 
+// fwd
+void PreCreatePlainIndex ( ServedDesc_t & tServed, const char * sName );
+bool PrereadNewIndex ( ServedIndex_t & tIdx, const CSphConfigSection & hIndex, const char * szIndexName );
+
+
 void HandleMysqlAttach ( const SqlStmt_t & tStmt, NetOutputBuffer_c & tOut, BYTE uPacketID )
 {
 	const CSphString & sFrom = tStmt.m_sIndex;
@@ -11880,10 +11885,17 @@ void HandleMysqlAttach ( const SqlStmt_t & tStmt, NetOutputBuffer_c & tOut, BYTE
 		return;
 	}
 
-	pFrom->m_pIndex = NULL; // after a succesfull Attach() RT index owns it
-	pFrom->m_bEnabled = false; // so we need to disable the disk index until further notice
-	pFrom->Unlock();
 	pTo->Unlock();
+
+	// after a succesfull Attach() RT index owns it
+	// so we need to create dummy disk index until further notice
+	pFrom->m_pIndex = NULL;
+	pFrom->m_bEnabled = false;
+	PreCreatePlainIndex ( *pFrom, sFrom.cstr() );
+	if ( pFrom->m_pIndex )
+		pFrom->m_bEnabled = PrereadNewIndex ( *pFrom, g_pCfg->m_tConf["index"][sFrom], sFrom.cstr() );
+	pFrom->Unlock();
+
 	SendMysqlOkPacket ( tOut, uPacketID );
 }
 
@@ -13575,6 +13587,18 @@ void FreeAgentStats ( DistributedIndex_t & tIndex )
 }
 
 
+void PreCreatePlainIndex ( ServedDesc_t & tServed, const char * sName )
+{
+	tServed.m_pIndex = sphCreateIndexPhrase ( sName, tServed.m_sIndexPath.cstr() );
+	tServed.m_pIndex->SetEnableStar ( tServed.m_bStar );
+	tServed.m_pIndex->m_bExpandKeywords = tServed.m_bExpand;
+	tServed.m_pIndex->m_iExpansionLimit = g_iExpansionLimit;
+	tServed.m_pIndex->SetPreopen ( tServed.m_bPreopen || g_bPreopenIndexes );
+	tServed.m_pIndex->SetWordlistPreload ( !tServed.m_bOnDiskDict && !g_bOnDiskDicts );
+	tServed.m_bEnabled = false;
+}
+
+
 ESphAddIndex AddIndex ( const char * szIndexName, const CSphConfigSection & hIndex )
 {
 	if ( hIndex("type") && hIndex["type"]=="distributed" )
@@ -13703,17 +13727,10 @@ ESphAddIndex AddIndex ( const char * szIndexName, const CSphConfigSection & hInd
 		ConfigureIndex ( tIdx, hIndex );
 
 		// try to create index
-		CSphString sWarning;
-		tIdx.m_pIndex = sphCreateIndexPhrase ( szIndexName, hIndex["path"].cstr() );
-		tIdx.m_pIndex->SetEnableStar ( tIdx.m_bStar );
-		tIdx.m_pIndex->m_bExpandKeywords = tIdx.m_bExpand;
-		tIdx.m_pIndex->m_iExpansionLimit = g_iExpansionLimit;
-		tIdx.m_pIndex->SetPreopen ( tIdx.m_bPreopen || g_bPreopenIndexes );
-		tIdx.m_pIndex->SetWordlistPreload ( !tIdx.m_bOnDiskDict && !g_bOnDiskDicts );
-		tIdx.m_bEnabled = false;
+		tIdx.m_sIndexPath = hIndex["path"];
+		PreCreatePlainIndex ( tIdx, szIndexName );
 
 		// done
-		tIdx.m_sIndexPath = hIndex["path"];
 		if ( !g_pIndexes->Add ( tIdx, szIndexName ) )
 		{
 			sphWarning ( "INTERNAL ERROR: index '%s': hash add failed - NOT SERVING", szIndexName );
@@ -15572,11 +15589,11 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	CheckConfigChanges ();
 
 	// do parse
-	CSphConfigParser cp;
-	if ( !cp.Parse ( g_sConfigFile.cstr () ) )
+	g_pCfg = new CSphConfigParser;
+	if ( !g_pCfg->Parse ( g_sConfigFile.cstr () ) )
 		sphFatal ( "failed to parse config file '%s'", g_sConfigFile.cstr () );
 
-	const CSphConfig & hConf = cp.m_tConf;
+	const CSphConfig & hConf = g_pCfg->m_tConf;
 
 	if ( !hConf.Exists ( "searchd" ) || !hConf["searchd"].Exists ( "searchd" ) )
 		sphFatal ( "'searchd' config section not found in '%s'", g_sConfigFile.cstr () );
@@ -15801,7 +15818,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	{
 		// reparse the config file
 		sphInfo ( "Reloading the config" );
-		if ( !cp.ReParse ( g_sConfigFile.cstr () ) )
+		if ( !g_pCfg->ReParse ( g_sConfigFile.cstr () ) )
 			sphFatal ( "failed to parse config file '%s'", g_sConfigFile.cstr () );
 
 		sphInfo ( "Reconfigure the daemon" );
