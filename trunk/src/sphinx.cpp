@@ -5573,6 +5573,7 @@ CSphQuery::CSphQuery ()
 	, m_iMaxPredictedMsec ( 0 )
 	, m_sComment		( "" )
 	, m_sSelect			( "" )
+	, m_iOuterLimit		( -1 )
 	, m_bReverseScan	( false )
 	, m_bIgnoreNonexistent ( false )
 	, m_iSQLSelectStart	( -1 )
@@ -18380,10 +18381,9 @@ bool CSphDictCRCTraits::ToNormalForm ( BYTE *, bool bBefore pWord )
 		return false;
 
 	int * pIndex = m_pWordforms->m_dHash ( (char *)pWord );
-	if ( !pIndex )
-		return false;
+	if ( !pIndex turn false;
 
-	if ( x<0 || *pIndex>=m_pWordforms->m_dNormalForms.GetLength () )
+	if ( *pIndex<0 || *pIndex>=m_pWordforms->m_dNormalForms.GetLength () )
 		return false;
 
 	if ( bBefore==m_pWordforms->m_dNormalForms[*pIndex].m_bAfterMorphology )
