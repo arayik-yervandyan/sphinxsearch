@@ -774,12 +774,13 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 
 				if ( sToken[0]=='(' )
 				{
-					m_dStateSpec.Add ( m_dStateSpec.Last() );
-				} else if ( sToken[0]==')' )
+					// safe way of performing m_dStateSpec.Add ( m_dStateSpec.Last() )
+					m_dStateSpec.Add ();
+					m_dStateSpec[m_dStateSpec.GetLength()-1] = m_dStateSpec[m_dStateSpec.GetLength()-2];
+				} else if ( sToken[0]==')' && m_dStateSpec.GetLength()>1 )
 				{
 					m_dStateSpec.Pop();
 				}
-				assert ( m_dStateSpec.GetLength()>=1 );
 
 				break;
 			}
