@@ -15446,6 +15446,7 @@ bool CSphQueryContext::SetupCalc ( CSphQueryResult * pResult, const CSphSchema &
 
 			case SPH_EVAL_SORTER:
 				// sorter tells it will compute itself; so just skip it
+			case SPH_EVAL_POSTLIMIT:
 				break;
 
 			default:
@@ -18380,8 +18381,9 @@ bool CSphDictCRCTraits::ToNormalForm ( BYTE *, bool bBefore pWord )
 	if ( !m_pWordforms )
 		return false;
 
-	int * pIndex = m_pWordforms->m_dHash ( (char *)pWord );
-	if ( !pIndex turn false;
+	int * pIndex = m_pWordforms->m_dHash ( (chWord );
+	if ( !pIndex )
+		return false;
 
 	if ( *pIndex<0 || *pIndex>=m_pWordforms->m_dNormalForms.GetLength () )
 		return false;
