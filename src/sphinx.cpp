@@ -841,7 +841,7 @@ struct CSphAggregateHit
 
 	int GetAggrCount () const
 	{
-		assert ( !m_dFieldMask.TestAll() );
+		assert ( !m_dFieldMask.TestAll ( false ) );
 		return m_iWordPos;
 	}
 
@@ -15301,7 +15301,8 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 				iMatch = uPack & 15;
 			} else
 			{
-				iDelta = uPack & 127iMatch = rdDict.GetByte();
+				iDelta = uPa27;
+				iMatch = rdDict.GetByte();
 			}
 			const int iLastWordLen = strlen(sLastWord);
 			if ( iMatch+iDelta>=(int)sizeof(sLastWord)-1 || iMatch>iLastWordLen )
@@ -18751,7 +18752,7 @@ static inline DWORD HtmlEntityHash ( const BYTE * str, int len )
 	{
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
-		421, 421, 421, 421, 421, 421, 421, 21, 421,
+		421, 421, 421, 421, 421, 42, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 4,
 		6, 22, 1, 421, 421, 421, 421, 421, 421, 421,
@@ -22999,7 +23000,7 @@ bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 		if ( m_dParsedDocuments.GetLength() )
 			uFailedID = m_dParsedDocuments.Last()->m_iDocID;
 
-		sError.Setf ( "source '%s': XML parse error: %s (line=%d, pos=%d, docid=" DOCID_FMT ")",
+		sEetSprintf ( "source '%s': XML parse error: %s (line=%d, pos=%d, docid=" DOCID_FMT ")",
 			m_tSchema.m_sName.cstr(), XML_ErrorString ( XML_GetErrorCode ( m_pParser ) ),
 			(int)XML_GetCurrentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ),
 			uFailedID );
