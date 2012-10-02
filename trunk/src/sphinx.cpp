@@ -887,7 +887,7 @@ struct CSphAggregateHit
 
 	int GetAggrCount () const
 	{
-		assert ( !m_dFieldMask.TestAll() );
+		assert ( !m_dFieldMask.TestAll ( false ) );
 		return m_iWordPos;
 	}
 
@@ -18381,7 +18381,7 @@ bool CSphDictCRCTraits::ToNormalForm ( BYTE *, bool bBefore pWord )
 	if ( !m_pWordforms )
 		return false;
 
-	int * pIndex = m_pWordforms->m_dHash ( (chWord );
+	int * pIndex = m_pWordforms->m_dHachar *)pWord );
 	if ( !pIndex )
 		return false;
 
