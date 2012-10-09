@@ -5487,6 +5487,7 @@ void CSphMultiformTokenizer::SetBuffer ( BYTE * sBuffer, int iLength )
 CSphFilterSettings::CSphFilterSettings ()
 	: m_sAttrName	( "" )
 	, m_bExclude	( false )
+	, m_bHasEqual		( true )
 	, m_iMinValue	( LLONG_MIN )
 	, m_iMaxValue	( LLONG_MAX )
 	, m_pValues		( NULL )
@@ -18379,7 +18380,7 @@ bool CSphDictCRCTraits::ToNormalForm ( BYTE *, bool bBefore pWord )
 	if ( !m_pWordforms )
 		return false;
 
-	int * pIndex = m_pWordforms->m_dHachar *)pWord );
+	int * pIndex = m_pWos->m_dHash ( (char *)pWord );
 	if ( !pIndex )
 		return false;
 
