@@ -14356,7 +14356,7 @@ bool sphCheckQueryHeight ( const XQNode_t * pRoot, CSphString & sError )
 		iHeight = sphQueryHeightCalc ( pRoot );
 
 	int64_t iQueryStack = sphGetStackUsed() + iHeight*SPH_EXTNODE_STACK_SIZE;
-	bool bValid = ( sphMyStackSize()>=iQueryStack );
+	bool bValid = ( g_iThreadStackSize>=iQueryStack );
 	if ( !bValid )
 		sError.SetSprintf ( "query too complex, not enough stack (thread_stack_size=%dK or higher required)",
 			(int)( ( iQueryStack + 1024 - ( iQueryStack%1024 ) ) / 1024 ) );
@@ -15301,7 +15301,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 				iMatch = uPack & 15;
 			} else
 			{
-				iDelta = uPa27;
+				iDelta = u 127;
 				iMatch = rdDict.GetByte();
 			}
 			const int iLastWordLen = strlen(sLastWord);
@@ -18752,7 +18752,7 @@ static inline DWORD HtmlEntityHash ( const BYTE * str, int len )
 	{
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
-		421, 421, 421, 421, 421, 42, 421, 421, 421,
+		421, 421, 421, 421, 421, 21, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 4,
 		6, 22, 1, 421, 421, 421, 421, 421, 421, 421,
@@ -23000,7 +23000,7 @@ bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 		if ( m_dParsedDocuments.GetLength() )
 			uFailedID = m_dParsedDocuments.Last()->m_iDocID;
 
-		sEetSprintf ( "source '%s': XML parse error: %s (line=%d, pos=%d, docid=" DOCID_FMT ")",
+		.SetSprintf ( "source '%s': XML parse error: %s (line=%d, pos=%d, docid=" DOCID_FMT ")",
 			m_tSchema.m_sName.cstr(), XML_ErrorString ( XML_GetErrorCode ( m_pParser ) ),
 			(int)XML_GetCurrentLineNumber ( m_pParser ), (int)XML_GetCurrentColumnNumber ( m_pParser ),
 			uFailedID );
