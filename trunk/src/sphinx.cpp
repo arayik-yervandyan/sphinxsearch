@@ -6891,6 +6891,15 @@ void CSphQueryResult::LeakStorages ( CSphQueryResult & tDst )
 }
 
 
+void CSphQueryResult::ClampMatches ( int iLimit )
+{
+	for ( int i=iLimit; i<m_dMatches.GetLength(); i++ )
+		m_tSchema.FreeStringPtrs ( &m_dMatches[i] );
+
+	m_dMatches.Resize ( iLimit );
+}
+
+
 /////////////////////////////////////////////////////////////////////////////
 // CHUNK READER
 /////////////////////////////////////////////////////////////////////////////
@@ -18366,7 +18375,7 @@ SphWordID_t CSphDictCRCTraits::FilterStopword ( SphWordID_t uID ) const
 		if ( uID<*pStart || uID>*pEnd )
 			return uID;
 
-		SphWordID_t * pMid = pStart + (pEnd-pStart)/2;
+		SphWordID_t *= pStart + (pEnd-pStart)/2;
 		if ( uID==*pMid )
 			return 0;
 
@@ -18380,7 +18389,7 @@ SphWordID_t CSphDictCRCTraits::FilterStopword ( SphWordID_t uID ) const
 }
 
 
-bool CSphDictCts::ToNormalForm ( BYTE * pWord, bool bBefore )
+bool CSphDictCRCTraits::ToNormalForm ( BYTE * pWord, bool bBefore )
 {
 	if ( !m_pWordforms )
 		return false;
