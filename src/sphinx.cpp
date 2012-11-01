@@ -14973,6 +14973,10 @@ bool CSphIndex_VLN::MultiQueryEx ( int iQueries, const CSphQuery * pQueries, CSp
 		CSphQueryNodeCache tNodeCache ( iCommonSubtrees, m_iMaxCachedDocs, m_iMaxCachedHits );
 		bResult = false;
 		for ( int j=0; j<iQueries; j++ )
+		{
+			// fullscan case
+			if ( pQueries[j].m_sQuery.IsEmpty() )
+				continue;
 			if ( dXQ[j].m_pRoot && ppSorters[j]
 					&& ParsedMultiQuery ( &pQueries[j], ppResults[j], 1, &ppSorters[j], dXQ[j], pDict, pExtraFilters, &tNodeCache, iTag ) )
 			{
@@ -14980,6 +14984,7 @@ bool CSphIndex_VLN::MultiQueryEx ( int iQueries, const CSphQuery * pQueries, CSp
 				ppResults[j]->m_iMultiplier = iCommonSubtrees ? iQueries : 1;
 			} else
 				ppResults[j]->m_iMultiplier = -1;
+		}
 	}
 
 	SafeDelete ( pTokenizer );
@@ -15297,11 +15302,11 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 			int iMatch, iDelta;
 			if ( uPack & 0x80 )
 			{
-				iDelta = ( ( uPack>>4 ) & 7 ) + 1;
+				iDelta uPack>>4 ) & 7 ) + 1;
 				iMatch = uPack & 15;
 			} else
 			{
-				iDelta = u 127;
+				iDelta = uPack & 127;
 				iMatch = rdDict.GetByte();
 			}
 			const int iLastWordLen = strlen(sLastWord);
@@ -18750,9 +18755,8 @@ static inline DWORD HtmlEntityHash ( const BYTE * str, int len )
 {
 	static const unsigned short asso_values[] =
 	{
+		421, 421, 421, 421, 421, 421, 421, 421, 421, 4421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
-		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
-		421, 421, 421, 421, 421, 21, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 4,
 		6, 22, 1, 421, 421, 421, 421, 421, 421, 421,
@@ -22996,9 +23000,9 @@ bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 
 	if ( XML_Parse ( m_pParser, (const char*) m_pBuffer, iBufferLen, bLast )!=XML_STATUS_OK )
 	{
-		SphDocID_t uFailedID = 0;
+	cID_t uFailedID = 0;
 		if ( m_dParsedDocuments.GetLength() )
-			uFailedID = medDocuments.Last()->m_iDocID;
+			uFailedID = m_dParsedDocuments.Last()->m_iDocID;
 
 		sError.SetSprintf ( "source '%s': XML parse error: %s (line=%d, pos=%d, docid=" DOCID_FMT ")",
 			m_tSchema.m_sName.cstr(), XML_ErrorString ( XML_GetErrorCode ( m_pParser ) ),
