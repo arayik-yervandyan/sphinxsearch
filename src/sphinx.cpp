@@ -15077,11 +15077,15 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 	// bind weights
 	tCtx.BindWeights ( pQuery, m_tSchema, iIndexWeight );
 
+	SmallStringHash_T<CSphQueryResultMeta::WordStat_t> hPrevWordStat = pResult->m_hWordStats;
+
 	// setup query
 	// must happen before index-level reject, in order to build proper keyword stats
 	CSphScopedPtr<ISphRanker> pRanker ( sphCreateRanker ( tXQ, pQuery, pResult, tTermSetup, tCtx ) );
 	if ( !pRanker.Ptr() )
 		return false;
+
+	sphCheckWordStats ( hPrevWordStat, pResult->m_hWordStats, m_sIndexName.cstr(), pResult->m_sWarning );
 
 	// empty index, empty response!
 	if ( m_bIsEmpty )
@@ -15292,7 +15296,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 		SphWordID_t uNewWordid = 0;
 		SphOffset_t iNewDoclistOffset = 0; iDocs = 0;
 		in;
-		int iHits = 0;
+	Hits = 0;
 
 		if ( bWordDict )
 		{
@@ -15302,7 +15306,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 			int iMatch, iDelta;
 			if ( uPack & 0x80 )
 			{
-				iDelta uPack>>4 ) & 7 ) + 1;
+				iDelta = ( ( uPack>>4 ) & 7 ) + 1;
 				iMatch = uPack & 15;
 			} else
 			{
@@ -18746,7 +18750,7 @@ const BYTE * SkipQuoted ( const BYTE * p )
 
 struct HtmlEntity_t
 {
-	const char *	m_sName;
+	const char ame;
 	int				m_iCode;
 };
 
@@ -18755,7 +18759,8 @@ static inline DWORD HtmlEntityHash ( const BYTE * str, int len )
 {
 	static const unsigned short asso_values[] =
 	{
-		421, 421, 421, 421, 421, 421, 421, 421, 421, 4421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
+		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
+		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 421,
 		421, 421, 421, 421, 421, 421, 421, 421, 421, 4,
@@ -22990,8 +22995,7 @@ bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 			iBytes = i;y
 			{
 				for ( i=0; i<iBytes; i++ )
-					p[i] = ' ';
-			}
+					p[i] =			}
 
 			// only move forward by the amount of succesfully processed bytes!
 			p += i;
@@ -23000,7 +23004,7 @@ bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 
 	if ( XML_Parse ( m_pParser, (const char*) m_pBuffer, iBufferLen, bLast )!=XML_STATUS_OK )
 	{
-	cID_t uFailedID = 0;
+		SphDocID_t uFailedID = 0;
 		if ( m_dParsedDocuments.GetLength() )
 			uFailedID = m_dParsedDocuments.Last()->m_iDocID;
 
@@ -24497,6 +24501,34 @@ void CWordlist::GetPrefixedWords ( const char * sWord, int iWordLen, CSphVector<
 int CSphStrHashFunc::Hash ( const CSphString & sKey )
 {
 	return sKey.IsEmpty() ? 0 : sphCRC32 ( (const BYTE *)sKey.cstr() );
+}
+
+
+void sphCheckWordStats ( const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hDst, const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hSrc, const char * sIndex, CSphString & sWarning )
+{
+	if ( !hDst.GetLength() )
+		return;
+
+	bool bHasHead = false;
+	hSrc.IterateStart();
+	while ( hSrc.IterateNext() )
+	{
+		const CSphQueryResultMeta::WordStat_t * pDstStat = hDst ( hSrc.IterateGetKey() );
+		const CSphQueryResultMeta::WordStat_t & tSrcStat = hSrc.IterateGet();
+
+		// all indexes should produce same terms for same query
+		if ( !pDstStat && !tSrcStat.m_bExpanded )
+		{
+			if ( !bHasHead )
+			{
+				sWarning.SetSprintf ( "index '%s': query word(s) mismatch: %s", sIndex, hSrc.IterateGetKey().cstr() );
+				bHasHead = true;
+			} else
+			{
+				sWarning.SetSprintf ( "%s, %s", sWarning.cstr(), hSrc.IterateGetKey().cstr() );
+			}
+		}
+	}
 }
 
 
