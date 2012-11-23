@@ -11976,8 +11976,11 @@ bool CSphIndex_VLN::Merge ( CSphIndex * pSource, CSphVector<CSphFilterSettings> 
 			}
 		}
 
-		tMinMax.FinishCollect();
-		wrRows.PutBytes ( &dMinMaxBuffer[0], sizeof(DWORD) * tMinMax.GetActualSize() );
+		if ( iTotalDocuments )
+		{
+			tMinMax.FinishCollect();
+			wrRows.PutBytes ( &dMinMaxBuffer[0], sizeof(DWORD) * tMinMax.GetActualSize() );
+		}
 		wrRows.CloseFile();
 		if ( wrRows.IsError() )
 			return false;
@@ -15294,7 +15297,8 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 		}
 
 		SphWordID_t uNewWordid = 0;
-		SphOffset_t iNewDoclistOffset = 0; iDocs = 0;
+		SphOffsetwDoclistOffset = 0;
+		int iDocs = 0;
 		int iHits = 0;
 
 		if ( bWordDict )
@@ -18743,13 +18747,12 @@ const BYTE * SkipQuoted ( const BYTE * p )
 	if ( pProbEnd )
 		return pProbEnd;
 
-	return p;
-}
+	retu}
 
 
 struct HtmlEntity_t
 {
-	coar *	m_sName;
+	const char *	m_sName;
 	int				m_iCode;
 };
 
@@ -22992,9 +22995,8 @@ bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 				|| ( iBytes==3 && iVal<0x800 ) // and overlong 3-byte codes
 				|| ( iVal>=0xfff0 && iVal<=0xffff ) ) // and kinda-valid specials expat chokes on anyway
 			iBytes = i;y
-			{
-				for ( i=0; i<iBytes; i++ )
-		] = ' ';
+			for ( i=0; i<iBytes; i++ )
+					p[i] = ' ';
 			}
 
 			// only move forward by the amount of succesfully processed bytes!
