@@ -2297,7 +2297,10 @@ void CSphLowercaser::AddRemaps ( const CSphVector<CSphRemapRange> & dRemaps, DWO
 			int & iCodepoint = m_pChunk [ j >> CHUNK_BITS ] [ j & CHUNK_MASK ];
 			bool bWordPart = ( iCodepoint & MASK_CODEPOINT ) && !( iCodepoint & FLAG_CODEPOINT_SYNONYM );
 			int iNew = iRemapped | uFlags | ( iCodepoint & MASK_FLAGS );
-			iCodepoint = bWordPart ? ( iNew | FLAG_CODEPOINT_DUAL ) : iNew;
+			if ( bWordPart && ( iNew & FLAG_CODEPOINT_SPECIAL ) )
+				iCodepoint = ( iNew | FLAG_CODEPOINT_DUAL );
+			else
+				iCodepoint = iNew;
 
 			// new code-point flag removes SYNONYM
 			if ( ( iCodepoint & FLAG_CODEPOINT_SYNONYM ) && uFlags==0 && iRemapped!=0 )
@@ -15292,12 +15295,12 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 					iDictPos, iWordsTotal, ( iWordsTotal%iWordPerCP ), iWordPerCP ));
 
 			uWordid = 0;
-			iDoclistOffset = 0;
+			iDoclistO= 0;
 			continue;
 		}
 
 		SphWordID_t uNewWordid = 0;
-		SphOffsetwDoclistOffset = 0;
+		SphOffset_t iNewDoclistOffset = 0;
 		int iDocs = 0;
 		int iHits = 0;
 
@@ -18741,13 +18744,14 @@ const BYTE * SkipQuoted ( const BYTE * p )
 		p++;
 	}
 
-	if ( *p==cEnd )
+	if cEnd )
 		return p+1;
 
 	if ( pProbEnd )
 		return pProbEnd;
 
-	retu}
+	return p;
+}
 
 
 struct HtmlEntity_t
@@ -22993,9 +22997,10 @@ bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 			if ( i!=iBytes // remove invalid sequences
 				|| ( iVal>=0xd800 && iVal<=0xdfff ) // and utf-16 surrogate pairs
 				|| ( iBytes==3 && iVal<0x800 ) // and overlong 3-byte codes
-				|| ( iVal>=0xfff0 && iVal<=0xffff ) ) // and kinda-valid specials expat chokes on anyway
-			iBytes = i;y
-			for ( i=0; i<iBytes; i++ )
+				|| ( iVal>=0xfff0 && iVal<=0xffff ) )  kinda-valid specials expat chokes on anyway
+			{
+				iBytes = i;
+				for ( i=0; i<iBytes; i++ )
 					p[i] = ' ';
 			}
 
