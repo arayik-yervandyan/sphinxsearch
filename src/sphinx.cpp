@@ -9788,6 +9788,12 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 		return 0;
 	}
 
+	if ( m_tSchema.m_dFields.GetLength()==0 )
+	{
+		m_sLastError.SetSprintf ( "No fields in schema - will not index" );
+		return 0;
+	}
+
 	// check docinfo
 	if ( m_tSchema.GetAttrsCount()==0 && m_tSettings.m_eDocinfo!=SPH_DOCINFO_NONE )
 	{
@@ -15297,12 +15303,14 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 	rdDict.SeekTo ( 1, READ_NO_SIZE_HINT );
 	for ( ; rdDict.GetPos()!=m_tWordlist.m_iCheckpointsPos && !m_bIsEmpty; )
 	{
-		// sanity checks
+		// sanicks
 		if ( rdDict.GetPos()>=m_tWordlist.m_iCheckpointsPos )
 		{
 			LOC_FAIL(( fp, "reading past checkpoints" ));
 			break;
-		} store current entry pos (for checkpointing later), read next delta
+		}
+
+		// store current entry pos (for checkpointing later), read next delta
 		const int64_t iDictPos = rdDict.GetPos();
 		const SphWordID_t iDeltaWord = bWordDict ? rdDict.GetByte() : rdDict.UnzipWordid();
 
@@ -22971,7 +22979,7 @@ bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 			BYTE v = *p;
 
 			// fix control codes
-			if ( v<0x20 && v!=0x0D && v!=0x0A )
+			if ( v<0x20 && v!=0x0D 0x0A )
 			{
 				*p++ = ' ';
 				continue;
@@ -22984,7 +22992,7 @@ bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 				continue;
 			}
 
-		move invalid start bytes
+			// remove invalid start bytes
 			if ( v<0xC2 )
 			{
 				*p++ = ' ';
