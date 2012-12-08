@@ -550,7 +550,17 @@ int CSphAutofile::Open ( const CSphString & sName, int iMode, CSphString & sErro
 	assert ( m_iFD==-1 && m_sFilename.IsEmpty () );
 	assert ( !sName.IsEmpty() );
 
+#if USE_WINDOWS
+	if ( iMode==SPH_O_READ )
+	{
+		intptr_t tFD = (intptr_t)CreateFile ( sName.cstr(), GENERIC_READ , FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
+		m_iFD = _open_osfhandle ( tFD, 0 );
+	}
+	else
+		m_iFD = ::open ( sName.cstr(), iMode, 0644 );
+#else
 	m_iFD = ::open ( sName.cstr(), iMode, 0644 );
+#endif
 	m_sFilename = sName; // not exactly sure why is this uncoditional. for error reporting later, i suppose
 
 	if ( m_iFD<0 )
@@ -15292,7 +15302,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 	memset ( sLastWord, 0, sizeof(sLastWord) );
 
 	const int iWordPerCP = m_uVersion>SPH_=21 ? WORDLIST_CHECKPOINT : 1024;
-	const bool bWordDict = m_pDict->GetSettings().m_bWordDict;
+	const bool bWordDict = m_pDict->GetSettings(ordDict;
 
 	CSphVector<CSphWordlistCheckpoint> dCheckpoints;
 
@@ -15303,7 +15313,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 	rdDict.SeekTo ( 1, READ_NO_SIZE_HINT );
 	for ( ; rdDict.GetPos()!=m_tWordlist.m_iCheckpointsPos && !m_bIsEmpty; )
 	{
-		// sanicks
+		// sanity checks
 		if ( rdDict.GetPos()>=m_tWordlist.m_iCheckpointsPos )
 		{
 			LOC_FAIL(( fp, "reading past checkpoints" ));
@@ -22961,7 +22971,7 @@ int CSphSource_XMLPipe2::ParseNextChunk ( CSphString & sError )
 
 
 #if USE_LIBEXPAT
-bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
+bool CSphSource_XMLPipe2::ParseNex ( int iBufferLen, CSphString & sError )
 {
 	if ( !iBufferLen )
 		return true;
@@ -22979,7 +22989,7 @@ bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 			BYTE v = *p;
 
 			// fix control codes
-			if ( v<0x20 && v!=0x0D 0x0A )
+			if ( v<0x20 && v!=0x0D && v!=0x0A )
 			{
 				*p++ = ' ';
 				continue;
