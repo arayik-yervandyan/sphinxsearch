@@ -9441,7 +9441,7 @@ bool CSphIndex_VLN::WriteHeader ( const BuildHeader_t & tBuildHeader, CSphWriter
 	fdInfo.PutDword ( tBuildHeader.m_iInfixBlocksWordsSize );
 
 	// index stats
-	fdInfo.PutDword ( tBuildHeader.m_iTotalDocuments );
+	fdInfo.PutDword ( (DWORD)tBuildHeader.m_iTotalDocuments ); // FIXME? we don't expect over 4G docs per just 1 local index
 	fdInfo.PutOffset ( tBuildHeader.m_iTotalBytes );
 
 	// index settings
@@ -18319,9 +18319,11 @@ struct CSphDictCRC : public CSphDictCRCTraits
 	virtual CSphDict *		Clone () const { return CloneBase ( new CSphDictCRC<CRC32DICT>() ); }
 };
 
-///////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
 
-uint64_t sphFNV64 ( const BYTE * sreturn sphFNV64cont ( s, SPH_FNV64_SEED );
+uint64_t sphFNV64 ( const BYTE * s )
+{
+	return sphFNV64cont ( s, SPH_FNV64_SEED );
 }
 
 
@@ -28245,7 +28247,7 @@ void sphDictBuildInfixes ( const char * sPath )
 	CSphString sFilename, sError;
 	int64_t tmStart = sphMicroTimer();
 
-if ( INDEX_FORMAT_VERSION!=27 )
+	if ( INDEX_FORMAT_VERSION!=27 )
 		sphDie ( "infix upgrade: only works in v.27 builds for now; get an older indextool or contact support" );
 
 	//////////////////////////////////////////////////
@@ -28406,7 +28408,7 @@ if ( INDEX_FORMAT_VERSION!=27 )
 	wrHeader.PutByte ( tDictHeader.m_iInfixCodepointBytes );
 	wrHeader.PutDword ( tDictHeader.m_iInfixBlocksOffset );
 	wrHeader.PutDword ( tDictHeader.m_iInfixBlocksWordsSize );
-	wrHeader.PutDword ( tStats.m_iTotalDocuments );
+	wrHeader.PutDword ( (DWORD)tStats.m_iTotalDocuments ); // FIXME? we don't expect over 4G docs per just 1 local index
 	wrHeader.PutOffset ( tStats.m_iTotalBytes );
 	SaveIndexSettings ( wrHeader, tIndexSettings );
 	SaveTokenizerSettings ( wrHeader, pTokenizer, tIndexSettings.m_iEmbeddedLimit );
@@ -28445,7 +28447,7 @@ void sphDictBuildSkiplists ( const char * sPath )
 	CSphString sFilename, sError;
 	int64_t tmStart = sphMicroTimer();
 
-if ( INDEX_FORMAT_VERSION<31 || INDEX_FORMAT_VERSION>35 )
+	if ( INDEX_FORMAT_VERSION<31 || INDEX_FORMAT_VERSION>35 )
 		sphDie ( "skiplists upgrade: ony works in v.31 to v.35 builds for now; get an older indextool or contact support" );
 
 	// load (interesting parts from) the index header
@@ -28972,7 +28974,7 @@ if ( INDEX_FORMAT_VERSION<31 || INDEX_FORMAT_VERSION>35 )
 	wrHeader.PutByte ( tDictHeader.m_iInfixCodepointBytes );
 	wrHeader.PutDword ( tDictHeader.m_iInfixBlocksOffset );
 	wrHeader.PutDword ( tDictHeader.m_iInfixBlocksWordsSize );
-	wrHeader.PutDword ( tStats.m_iTotalDocuments );
+	wrHeader.PutDword ( (DWORD)tStats.m_iTotalDocuments ); // FIXME? we don't expect over 4G docs per just 1 local index
 	wrHeader.PutOffset ( tStats.m_iTotalBytes );
 	SaveIndexSettings ( wrHeader, tIndexSettings );
 	SaveTokenizerSettings ( wrHeader, pTokenizer, tIndexSettings.m_iEmbeddedLimit );
