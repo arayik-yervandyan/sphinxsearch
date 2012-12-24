@@ -192,6 +192,38 @@ int64_t		g_iIndexerCurrentRangeMax	= 0;
 int64_t		g_iIndexerPoolStartDocID	= 0;
 int64_t		g_iIndexerPoolStartHit		= 0;
 
+/// global idf
+class CSphGlobalIDF
+{
+public:
+	CSphGlobalIDF ()
+		: m_iTotalDocuments ( 0 )
+	{}
+
+	bool			Preload ( const CSphString & sFilename, CSphString & sError );
+	const int		GetCount ( const CSphString & sWord );
+	float			GetIDF ( const CSphString & sWord, int iDocsLocal, int iQwords, bool bPlainIDF );
+
+protected:
+#pragma pack(push,4)
+	struct IDFWord_t
+	{
+		uint64_t			m_uWordID;
+		DWORD				m_iCount;
+	};
+#pragma pack(pop)
+	STATIC_SIZE_ASSERT		( IDFWord_t, 12 );
+
+	static const int		HASH_BITS = 16;
+
+	CSphVector<IDFWord_t>	m_dWords;
+	CSphVector<int>			m_dHash;
+	int64_t					m_iTotalDocuments;
+
+public:
+	CSphSavedFile			m_tFileInfo;
+};
+
 /// global idf definitions hash
 static SmallStringHash_T<CSphGlobalIDF>		g_hGlobalIDFs;
 static CSphMutex							g_tGlobalIDFLock;
@@ -8129,14 +8161,6 @@ float CSphIndex::GetGlobalIDF ( const CSphString & sWord, int iDocsLocal, int iQ
 	return fIDF;
 }
 
-
-void CSphIndex::RotateGlobalIDF ()
-{
-	g_tGlobalIDFLock.Lock ();
-	g_hGlobalIDFs.Delete ( m_sGlobalIDFPath );
-	g_tGlobalIDFLock.Unlock ();
-}
-
 /////////////////////////////////////////////////////////////////////////////
 
 CSphIndex * sphCreateIndexPhrase ( const char* szIndexName, const char * sFilename )
@@ -15385,19 +15409,33 @@ bool CSphIndex_VLN::Preread ()
 	}
 #endif // PARANOID
 
-	g_tGlobalIDFLock.Lock ();
-	if ( !m_sGlobalIDFPath.IsEmpty() && !g_hGlobalIDFs ( m_sGlobalIDFPath ) )
+	// prereading global idf
+	if ( !m_sGlobalIDFPath.IsEmpty() )
 	{
-		sphLogDebug ( "Prereading global idf" );
-		g_hGlobalIDFs.Add ( CSphGlobalIDF(), m_sGlobalIDFPath );
-		if ( !g_hGlobalIDFs ( m_sGlobalIDFPath )->Preload ( m_sGlobalIDFPath, m_sLastError ) )
+		g_tGlobalIDFLock.Lock ();
+		CSphGlobalIDF * pGlobalIDF = g_hGlobalIDFs ( m_sGlobalIDFPath );
+		if ( pGlobalIDF )
 		{
-			g_hGlobalIDFs.Delete ( m_sGlobalIDFPath );
-			g_tGlobalIDFLock.Unlock ();
-			return false;
+			CSphSavedFile tNewFile;
+			GetFileStats ( m_sGlobalIDFPath.cstr(), tNewFile );
+			CSphSavedFile & tOldFile = pGlobalIDF->m_tFileInfo;
+			if ( tNewFile.m_uMTime!=tOldFile.m_uMTime || tNewFile.m_uSize!=tOldFile.m_uSize )
+				g_hGlobalIDFs.Delete ( m_sGlobalIDFPath );
 		}
+
+		if ( !g_hGlobalIDFs ( m_sGlobalIDFPath ) )
+		{
+			sphLogDebug ( "Prereading global idf" );
+			g_hGlobalIDFs.Add ( CSphGlobalIDF(), m_sGlobalIDFPath );
+			if ( !g_hGlobalIDFs ( m_sGlobalIDFPath )->Preload ( m_sGlobalIDFPath, m_sLastError ) )
+			{
+				g_hGlobalIDFs.Delete ( m_sGlobalIDFPath );
+				g_tGlobalIDFLock.Unlock ();
+				return false;
+			}
+		}
+		g_tGlobalIDFLock.Unlock ();
 	}
-	g_tGlobalIDFLock.Unlock ();
 
 	*m_pPreread = 1;
 	sphLogDebug ( "Preread successfully finished" );
@@ -18302,9 +18340,10 @@ private:
 	static CSphVector<WordformContainer_t*>		m_dWordformContaineWordformContainer_t * r_t *	GetWordformContainer ( CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbeddedWordforms, const ISphTokenizer * pTokenizer, const char * sIndex );
 	WordformContainer_t * aits::LoadWordformContainer ( CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbeddedWordforms, const ISphTokenizer * pTokenizer, const char * sIndex );
 
-	bool				aits::InitMorph ( const char * szMorph, int iLength, bool bUseUTF8, CSphString & sError );
+	bool				InitMorph ( const char * szMorph, int iLength, bool bUseUTF8, CSphString & sError );
 	bool				AddMorph ( int iMorph );
-	bool				StemById ( BYTE * pWord, int iStemm	void				AddWordform ( WordformContainer_t * pContainer, char * sBuffer, int iLen, ISphTokenizer * pTokenizer, const char * szFiletemmer );
+	bool				StemById ( BYTE * pWord, int iStemmer );
+	void				AddWordform ( WordformContainer_t * pContainer, char * sBuffer, int iLen, ISphTokenizer * pTokenizer, const char * szFile );
 };
 
 CSphVector < WordformContainer_t * > CSphDictCRCTraits::m_dWordformContainers;
@@ -18319,7 +18358,7 @@ struct CSphDictCRC : public CSphDictCRCTraits
 
 	virtual SphWordID_t		GetWordID ( BYTE * pWord );
 	virtual SphWordID_t		GetWordID ( const BYTE * pWord, int iLen, bool bFilterStops );
-	virtual SID_t		GetWordIDWithMarkers ( BYTE * pWord );
+	virtual SphWordID_t		GetWordIDWithMarkers ( BYTE * pWord );
 	virtual SphWordID_t		GetWordIDNonStemmed ( BYTE * pWord );
 	virtual bool			IsStopWord ( const BYTE * pWord ) const;
 
@@ -29038,6 +29077,8 @@ void sphDictBuildSkiplists ( const char * sPath )
 
 bool CSphGlobalIDF::Preload ( const CSphString & sFilename, CSphString & sError )
 {
+	GetFileStats ( sFilename.cstr(), m_tFileInfo );
+
 	CSphAutoreader tReader;
 	if ( !tReader.Open ( sFilename, sError ) )
 		return false;
