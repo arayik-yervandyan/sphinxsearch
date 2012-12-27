@@ -5856,6 +5856,36 @@ static CSphString sphDumpAttr ( const CSphColumnInfo & tAttr )
 }
 
 
+/// make string lowercase but keep case of JSON.field
+void sphColumnToLowercase ( char * sVal )
+{
+	if ( !sVal || !*sVal )
+		return;
+
+	// make all chars lowercase but only prior to '.' delimiter
+	for ( ; *sVal && *sVal!='.'; sVal++ )
+		*sVal = (char) tolower ( *sVal );
+}
+
+
+CSphColumnInfo::CSphColumnInfo ( const char * sName, ESphAttr eType )
+	: m_sName ( sName )
+	, m_eAttrType ( eType )
+	, m_eWordpart ( SPH_WORDPART_WHOLE )
+	, m_bIndexed ( false )
+	, m_iIndex ( -1 )
+	, m_eSrc ( SPH_ATTRSRC_NONE )
+	, m_pExpr ( NULL )
+	, m_eAggrFunc ( SPH_AGGR_NONE )
+	, m_eStage ( SPH_EVAL_STATIC )
+	, m_bPayload ( false )
+	, m_bFilename ( false )
+	, m_bWeight ( false )
+{
+	sphColumnToLowercase ( const_cast<char *>( m_sName.cstr() ) );
+}
+
+
 bool CSphSchema::CompareTo ( const CSphSchema & rhs, CSphString & sError, bool bFullComparison ) const
 {
 	// check attr count
@@ -18330,15 +18360,18 @@ Tight
 	CSphString			m_sWriterError;		///< writer error message storage
 	int					m_iEntries;			///< dictionary entries stored
 	SphOffset_t			m_iLastDoclistPos;
-	SphWordID_t_t							m_iLastWordID;
+	SphWordID_t			m_iLastWordID;
 
 private:
 	WordformContainer_t *		m_pWordforms;
-	CSphVector<CSphSavedFile>	m_dSWFileInfos;Vector<CSphSavedFile>	m_dWFFileInfosleInfo;
+	CSphVector<CSphSavedFile>	m_dSWFileInfos;
+	CSphVector<CSphSavedFile>	m_dWFFileInfos;
 	CSphDictSettings			m_tSettings;
 
-	static CSphVector<WordformContainer_t*>		m_dWordformContaineWordformContainer_t * r_t *	GetWordformContainer ( CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbeddedWordforms, const ISphTokenizer * pTokenizer, const char * sIndex );
-	WordformContainer_t * aits::LoadWordformContainer ( CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbeddedWordforms, const ISphTokenizer * pTokenizer, const char * sIndex );
+	static CSphVector<WordformContainer_t*>		m_dWordformContainers;
+
+	WordformContainer_t * GetWordformContainer ( const CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbeddedWordforms, const ISphTokenizer * pTokenizer, const char * sIndex );
+	WordformContainer_t * LoadWordformContainer ( const CSphVector<CSphSavedFile> & dFileInfos, const CSphVector<CSphString> * pEmbeddedWordforms, const ISphTokenizer * pTokenizer, const char * sIndex );
 
 	bool				InitMorph ( const char * szMorph, int iLength, bool bUseUTF8, CSphString & sError );
 	bool				AddMorph ( int iMorph );
