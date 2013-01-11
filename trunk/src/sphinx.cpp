@@ -221,7 +221,7 @@ protected:
 	int64_t					m_iTotalDocuments;
 
 public:
-	CSphSavedFile			m_tFileInfo;
+	SphOffset_t				m_uMTime;
 };
 
 /// global idf definitions hash
@@ -15443,16 +15443,23 @@ bool CSphIndex_VLN::Preread ()
 	if ( !m_sGlobalIDFPath.IsEmpty() )
 	{
 		g_tGlobalIDFLock.Lock ();
-		CSphGlobalIDF * pGlobalIDF = g_hGlobalIDFs ( m_sGlobalIDFPath );
-		if ( pGlobalIDF )
+
+		// get file modification time
+		struct_stat tStat;
+		memset ( &tStat, 0, sizeof ( tStat ) );
+		if ( stat ( m_sGlobalIDFPath.cstr(), &tStat ) < 0 )
+			memset ( &tStat, 0, sizeof ( tStat ) );
+
+		SphOffset_t uMTime = tStat.st_mtime;
+
+		// if modified then delete from the global hash
+		if ( g_hGlobalIDFs ( m_sGlobalIDFPath ) )
 		{
-			CSphSavedFile tNewFile;
-			GetFileStats ( m_sGlobalIDFPath.cstr(), tNewFile );
-			CSphSavedFile & tOldFile = pGlobalIDF->m_tFileInfo;
-			if ( tNewFile.m_uMTime!=tOldFile.m_uMTime || tNewFile.m_uSize!=tOldFile.m_uSize )
+			if ( uMTime!=g_hGlobalIDFs ( m_sGlobalIDFPath )->m_uMTime )
 				g_hGlobalIDFs.Delete ( m_sGlobalIDFPath );
 		}
 
+		// preread if wasn't added or was deleted from the hash
 		if ( !g_hGlobalIDFs ( m_sGlobalIDFPath ) )
 		{
 			sphLogDebug ( "Prereading global idf" );
@@ -15463,6 +15470,8 @@ bool CSphIndex_VLN::Preread ()
 				g_tGlobalIDFLock.Unlock ();
 				return false;
 			}
+			// set file modification time
+			g_hGlobalIDFs ( m_sGlobalIDFPath )->m_uMTime = uMTime;
 		}
 		g_tGlobalIDFLock.Unlock ();
 	}
@@ -18347,9 +18356,10 @@ protected:
 	bool				ToNormalForm ( BYTE *, bool bBefore pWord );
 	bool				ParseMorphology ( const char * szMorph, bool bUseUTF8, CSphString & sError );
 	SphWordID_t			FilterStopword ( SphWordID_t uID ) const;	///< filter ID against stopwords	CSphDict *			CloneBase ( CSphDictCRCTraits * pDict ) const;
-	virtual bool		HasState () const;s list
-Tight
-	CSphVector<CSphWordlistCheckpoint>	m_dCheckpoints;		///< checkpoint of
+	virtual bool		HasState () const;
+
+	CSphTightVector<CSphWordlistCheckpoint>	m_dCheckpoints;		///< checkpoint offsets
+
 	CSphWriter			m_wrDict;			///< final dict file writer
 	CSphString			m_sWriterError;		///< writer error message storage
 	int					m_iEntries;			///< dictionary entries stored
@@ -29104,8 +29114,6 @@ void sphDictBuildSkiplists ( const char * sPath )
 
 bool CSphGlobalIDF::Preload ( const CSphString & sFilename, CSphString & sError )
 {
-	GetFileStats ( sFilename.cstr(), m_tFileInfo );
-
 	CSphAutoreader tReader;
 	if ( !tReader.Open ( sFilename, sError ) )
 		return false;
