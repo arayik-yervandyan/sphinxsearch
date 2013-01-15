@@ -1544,6 +1544,7 @@ public:
 
 	virtual const CSphSourceStats &		GetStats () const { return m_tStats; }
 	virtual int64_t *					GetFieldLens() const { return m_tSettings.m_bIndexFieldLens ? m_dFieldLens.Begin() : NULL; }
+	virtual CSphIndexStatus				GetStatus () const;
 
 private:
 
@@ -17224,6 +17225,28 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
  }
 
 //////////////////////////////////////////////////////////////////////
+// INDEX STATUS
+ES
+/////////////////////////////////////////////////////////////////////////CSphIndexStatus CSphIndex_VLN::GetStatus () const
+{
+	CSphIndexStatus tRes;
+	tRes.m_iRamUse = sizeof(CSphIndex_VLN)
+		+ m_dMinRow.GetLength()*int(sizeof(CSphRowitem))
+		+ m_dFieldLens.GetLength()*8
+		+ m_pDocinfo.GetLength()
+		+ m_pDocinfoHash.GetLength()
+		+ m_pMva.GetLength()
+		+ m_pStrings.GetLength()
+		+ m_tWordlist.m_pBuf.GetLength()
+		+ m_pKillList.GetLength()
+		+ m_pSkiplists.GetLength()
+		+ m_dShared.GetLength();
+	return tRes;
+}
+
+ }
+
+//////////////////////////////////////////////////////////////////////
 // INDEX CHECKING
 
 
@@ -18365,14 +18388,14 @@ struct CSphDictCRCTraits : CSphDict
 	vivoid		LoadStopwords ( const CSphVector<SphWordID_t> & dStopwords );
 	virtual void		WriteStopwords ( CSphWriter & tWriter );
 	virtual bool		LoadWordforms ( const CSphVector<CSphString> & dFiles, const CSphEmbeddedFiles * pEmbedded, const ISphTokenizer * pTokenizer, const char * sIndex );
-	virtual void		WriteWordforms ( CSphWriter & tWriterenizer );
-	virtual bool		SetMorphology ( const char * szMorph, bool bUsError );
-	vibool		HasMorphology() constrror );
+	virtual void		WriteWordforms ( CSphWriter & tWriter );
+	virtual bool		SetMorphology ( const char * szMorph, bool bUseUTF8 );
+	virtual bool		HasMorphology() const;
 	virtual void		ApplyStemmers ( BYTE * pWord );
 
 	virtual void		Setup ( const CSphDictSettings & tSettings ) { m_tSettings = tSettings; }
 	virtual const CSphDictSettings & GetSettings () const { return m_tSettings; }
-	virtual cophVector <CSphSavedFile> & GetStopwordsFileInfos () { return m_dSWFileInfos; }
+	virtual const CSphVector <CSphSavedFile> & GetStopwordsFileInfos () { return m_dSWFileInfos; }
 	virtual const CSphVector <CSphSavedFile> & GetWordformsFileInfos () { return m_dWFFileInfos; }
 	virtual const CSphMultiformContainer * GetMultiWordforms () const;
 
