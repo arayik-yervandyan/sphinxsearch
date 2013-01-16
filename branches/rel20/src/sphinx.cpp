@@ -146,7 +146,6 @@ void localtime_r ( const time_t * clock, struct tm * res )
 
 // forward decl
 void sphWarn ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 1, 2 ) ) );
-size_t sphReadThrottled ( int iFD, void * pBuf, size_t iCount );
 static bool sphTruncate ( int iFD );
 
 /////////////////////////////////////////////////////////////////////////////
@@ -475,37 +474,104 @@ void sphSetProcessInfo ( bool bHead )
 
 #endif // USE_WINDOWS
 
-static bool g_bIOStats = false;
-static CSphIOStats g_IOStats;
+// whatever to collect IO stats
+static bool g_bCollectIOStats = false;
+static SphThreadKey_t g_tIOStatsTls;
 
 
-void sphStartIOStats ()
+bool sphInitIOStats ()
 {
-	g_bIOStats = true;
-	memset ( &g_IOStats, 0, sizeof ( g_IOStats ) );
+	if ( !sphThreadKeyCreate ( &g_tIOStatsTls ) )
+		return false;
+
+	g_bCollectIOStats = true;
+	return true;
 }
 
 
-const CSphIOStats & sphStopIOStats ()
+void sphDoneIOStats ()
 {
-	g_bIOStats = false;
-	return g_IOStats;
+	sphThreadKeyDelete ( g_tIOStatsTls );
+	g_bCollectIOStats = false;
+}
+
+
+CSphIOStats::CSphIOStats ()
+	: m_iReadTime ( 0 )
+	, m_iReadOps ( 0 )
+	, m_iReadBytes ( 0 )
+	, m_iWriteTime ( 0 )
+	, m_iWriteOps ( 0 )
+	, m_iWriteBytes ( 0 )
+	, m_pPrev ( NULL )
+{}
+
+
+CSphIOStats::~CSphIOStats ()
+{
+	Stop();
+}
+
+
+void CSphIOStats::Start()
+{
+	if ( !g_bCollectIOStats )
+		return;
+
+	m_pPrev = (CSphIOStats *)sphThreadGet ( g_tIOStatsTls );
+	sphThreadSet ( g_tIOStatsTls, this );
+	m_bEnabled = true;
+}
+
+void CSphIOStats::Stop()
+{
+	if ( !g_bCollectIOStats )
+		return;
+
+	m_bEnabled = false;
+	sphThreadSet ( g_tIOStatsTls, m_pPrev );
+}
+
+
+void CSphIOStats::Add ( const CSphIOStats & b )
+{
+	m_iReadTime += b.m_iReadTime;
+	m_iReadOps += b.m_iReadOps;
+	m_iReadBytes += b.m_iReadBytes;
+	m_iWriteTime += b.m_iWriteTime;
+	m_iWriteOps += b.m_iWriteOps;
+	m_iWriteBytes += b.m_iWriteBytes;
+}
+
+
+static CSphIOStats * GetIOStats ()
+{
+	if ( !g_bCollectIOStats )
+		return NULL;
+
+	CSphIOStats * pIOStats = (CSphIOStats *)sphThreadGet ( g_tIOStatsTls );
+
+	if ( !pIOStats || !pIOStats->IsEnabled() )
+		return NULL;
+	else
+		return pIOStats;
 }
 
 
 static size_t sphRead ( int iFD, void * pBuf, size_t iCount )
 {
+	CSphIOStats * pIOStats = GetIOStats();
 	int64_t tmStart = 0;
-	if ( g_bIOStats )
+	if ( pIOStats )
 		tmStart = sphMicroTimer();
 
 	size_t uRead = (size_t) ::read ( iFD, pBuf, iCount );
 
-	if ( g_bIOStats )
+	if ( pIOStats )
 	{
-		g_IOStats.m_iReadTime += sphMicroTimer() - tmStart;
-		g_IOStats.m_iReadOps++;
-		g_IOStats.m_iReadBytes += iCount;
+		pIOStats->m_iReadTime += sphMicroTimer() - tmStart;
+		pIOStats->m_iReadOps++;
+		pIOStats->m_iReadBytes += iCount;
 	}
 
 	return uRead;
@@ -555,8 +621,7 @@ int CSphAutofile::Open ( const CSphString & sName, int iMode, CSphString & sErro
 	{
 		intptr_t tFD = (intptr_t)CreateFile ( sName.cstr(), GENERIC_READ , FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
 		m_iFD = _open_osfhandle ( tFD, 0 );
-	}
-	else
+	} else
 		m_iFD = ::open ( sName.cstr(), iMode, 0644 );
 #else
 	m_iFD = ::open ( sName.cstr(), iMode, 0644 );
@@ -1598,6 +1663,8 @@ bool sphWriteThrottled ( int iFD, const void * pBuf, int64_t iCount, const char 
 	if ( g_iMaxIOSize>=4096 )
 		iChunkSize = Min ( iChunkSize, g_iMaxIOSize );
 
+	CSphIOStats * pIOStats = GetIOStats();
+
 	// while there's data, write it chunk by chunk
 	const BYTE * p = (const BYTE*) pBuf;
 	while ( iCount>0 )
@@ -1607,7 +1674,7 @@ bool sphWriteThrottled ( int iFD, const void * pBuf, int64_t iCount, const char 
 
 		// write (and maybe time)
 		int64_t tmTimer = 0;
-		if ( g_bIOStats )
+		if ( pIOStats )
 			tmTimer = sphMicroTimer();
 
 		int iToWrite = iChunkSize;
@@ -1616,11 +1683,11 @@ bool sphWriteThrottled ( int iFD, const void * pBuf, int64_t iCount, const char 
 
 		int iWritten = ::write ( iFD, p, iToWrite );
 
-		if ( g_bIOStats )
+		if ( pIOStats )
 		{
-			g_IOStats.m_iWriteTime += sphMicroTimer() - tmTimer;
-			g_IOStats.m_iWriteOps++;
-			g_IOStats.m_iWriteBytes += iToWrite;
+			pIOStats->m_iWriteTime += sphMicroTimer() - tmTimer;
+			pIOStats->m_iWriteOps++;
+			pIOStats->m_iWriteBytes += iToWrite;
 		}
 
 		// success? rinse, repeat
@@ -5794,8 +5861,9 @@ int sphPread ( int iFD, void * pBuf, int iBytes, SphOffset_t iOffset )
 	if ( iBytes==0 )
 		return 0;
 
+	CSphIOStats * pIOStats = GetIOStats();
 	int64_t tmStart = 0;
-	if ( g_bIOStats )
+	if ( pIOStats )
 		tmStart = sphMicroTimer();
 
 	HANDLE hFile;
@@ -5819,11 +5887,11 @@ int sphPread ( int iFD, void * pBuf, int iBytes, SphOffset_t iOffset )
 		return -1;
 	}
 
-	if ( g_bIOStats )
+	if ( pIOStats )
 	{
-		g_IOStats.m_iReadTime += sphMicroTimer() - tmStart;
-		g_IOStats.m_iReadOps++;
-		g_IOStats.m_iReadBytes += iBytes;
+		pIOStats->m_iReadTime += sphMicroTimer() - tmStart;
+		pIOStats->m_iReadOps++;
+		pIOStats->m_iReadBytes += iBytes;
 	}
 
 	return uRes;
@@ -5835,14 +5903,18 @@ int sphPread ( int iFD, void * pBuf, int iBytes, SphOffset_t iOffset )
 // atomic seek+read for non-Windows systems with pread() call
 int sphPread ( int iFD, void * pBuf, int iBytes, SphOffset_t iOffset )
 {
-	if ( !g_bIOStats )
+	CSphIOStats * pIOStats = GetIOStats();
+	if ( !pIOStats )
 		return ::pread ( iFD, pBuf, iBytes, iOffset );
 
 	int64_t tmStart = sphMicroTimer();
 	int iRes = (int) ::pread ( iFD, pBuf, iBytes, iOffset );
-	g_IOStats.m_iReadTime += sphMicroTimer() - tmStart;
-	g_IOStats.m_iReadOps++;
-	g_IOStats.m_iReadBytes += iBytes;
+	if ( pIOStats )
+	{
+		pIOStats->m_iReadTime += sphMicroTimer() - tmStart;
+		pIOStats->m_iReadOps++;
+		pIOStats->m_iReadBytes += iBytes;
+	}
 	return iRes;
 }
 
@@ -14972,6 +15044,8 @@ bool CSphIndex_VLN::MultiQueryEx ( int iQueries, const CSphQuery * pQueries, CSp
 			continue;
 		}
 
+		ppResults[i]->m_tIOStats.Start();
+
 		// parse query
 		if ( sphParseExtendedQuery ( dXQ[i], pQueries[i].m_sQuery.cstr(), pTokenizer, &m_tSchema, pDict, m_tSettings.m_iStopwordStep ) )
 		{
@@ -15005,6 +15079,8 @@ bool CSphIndex_VLN::MultiQueryEx ( int iQueries, const CSphQuery * pQueries, CSp
 			ppResults[i]->m_sError = dXQ[i].m_sParseError;
 			ppResults[i]->m_iMultiplier = -1;
 		}
+
+		ppResults[i]->m_tIOStats.Stop();
 	}
 
 	// continue only if we have at least one non-failed
@@ -15021,13 +15097,20 @@ bool CSphIndex_VLN::MultiQueryEx ( int iQueries, const CSphQuery * pQueries, CSp
 			// fullscan case
 			if ( pQueries[j].m_sQuery.IsEmpty() )
 				continue;
+
+			ppResults[j]->m_tIOStats.Start();
+
 			if ( dXQ[j].m_pRoot && ppSorters[j]
 					&& ParsedMultiQuery ( &pQueries[j], ppResults[j], 1, &ppSorters[j], dXQ[j], pDict, pExtraFilters, &tNodeCache, iTag ) )
 			{
 				bResult = true;
 				ppResults[j]->m_iMultiplier = iCommonSubtrees ? iQueries : 1;
 			} else
+			{
 				ppResults[j]->m_iMultiplier = -1;
+			}
+
+			ppResults[j]->m_tIOStats.Stop();
 		}
 	}
 
@@ -15257,7 +15340,7 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 		if ( iFails==FAILS_THRESH ) \
 			fprintf ( fp, "(threshold reached; suppressing further output)\n" ); 2 );
 
-int CSphIndex_VLN::DebugCheck ( FILE * fp )
+int CSphInd::DebugCheck ( FILE * fp )
 {
 	int64_t tmCheck = sphMicroTimer();
 	int iFails = 0;
@@ -15265,15 +15348,17 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 	const int FAILS_THRESH = 100;
 
 	// check if index is ready
-	idShared.GetNumEntries()!=SPH_SHARED_VARS_COUNT || !m_pPreread || !*m_pPrereadead[0] )
+	if ( m_dShared.GetNumEntries()!=SPH_SHARED_VARS_COUNT || !m_pPreread || !*m_pPreread )
 		LOC_FAIL(( fp, "index not preread" ));
 
 	bool bProgress = isatty ( fileno ( fp ) )!=0;
 
 	//////////////
 	// open files
-	///////////if ( !LoadHitlessWords () )
-		LOC_FAIL(( fp, "unable to load hitless words: %s", m_sLastError.cstr() ));//////
+	//////////////
+
+	if ( !LoadHitlessWords () )
+		LOC_FAIL(( fp, "unable to load hitless words: %s", m_sLastError.cstr() ));
 
 	CSphString sError;
 	CSphAutoreader rdDict, rdDocs, rdHits;
@@ -15298,11 +15383,11 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 	int iWordsTotal = 0;
 
 	char sWord[MAX_KEYWORD_BYTES], sLastWord[MAX_KEYWORD_BYTES];
-	memsWord, 0, sizeof(sWord) )BYTES];
+	memset ( sWord, 0, sizeof(sWord) );
 	memset ( sLastWord, 0, sizeof(sLastWord) );
 
-	const int iWordPerCP = m_uVersion>SPH_=21 ? WORDLIST_CHECKPOINT : 1024;
-	const bool bWordDict = m_pDict->GetSettings(ordDict;
+	const int iWordPerCP = m_uVersion>=21 ? SPH_WORDLIST_CHECKPOINT : 1024;
+	const bool bWordDict = m_pDict->GetSettings().m_bWordDict;
 
 	CSphVector<CSphWordlistCheckpoint> dCheckpoints;
 
@@ -18661,8 +18746,7 @@ bool CSphHTMLStripper::SetRemovedElements ( const char * sConfig, CSphString & )
 		sTag.SetBinary ( s, p-s );
 		sTag.ToLower ();
 
-		// mark it
-		int iTag;
+		// ma		int iTag;
 		for ( iTag=0; iTag<m_dTags.GetLength(); iTag++ )
 			if ( m_dTags[iTag].m_sTag==sTag )
 		{
@@ -18715,7 +18799,11 @@ void CSphHTMLStripper::EnableParagraphs ()
 		}
 	}
 
-	UpdateTags ()bool CSphHTMLStripper::SetZones ( const char * sZones, CSphString & sError )
+	UpdateTags ();
+}
+
+
+bool CSphHTMLStripper::SetZones ( const char * sZones, CSphString & sError )
 {
 	// yet another mini parser!
 	// index_zones = {tagname | prefix*} [, ...]
@@ -22902,7 +22990,7 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	m_sError = "";
 
 #if USE_LIBEXPAT
-	int iBytesRead = m_iInitialBufSize;
+	int iBytes m_iInitialBufSize;
 	iBytesRead += fread ( m_pBuffer + m_iInitialBufSize, 1, m_iBufferSize - m_iInitialBufSize, m_pPipe );
 
 	if ( !ParseNextChunk ( iBytesRead, sError ) )
@@ -22920,7 +23008,7 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	for ( int i = 0; i < m_tSchema.GetAttrsCount (); i++ )
 	{
 		const CSphColumnInfo & tCol = m_tSchema.GetAttr ( i );
-	( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_INT64SET )T32SET && tCol.m_eSrc==SPH_ATTRSRC_FIELD )
+		if ( ( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_INT64SET ) && tCol.m_eSrc==SPH_ATTRSRC_FIELD )
 			m_dAttrToMVA.Add ( iFieldMVA++ );
 		else
 			m_dAttrToMVA.Add ( -1 );
@@ -22971,7 +23059,7 @@ int CSphSource_XMLPipe2::ParseNextChunk ( CSphString & sError )
 
 
 #if USE_LIBEXPAT
-bool CSphSource_XMLPipe2::ParseNex ( int iBufferLen, CSphString & sError )
+bool CSphSource_XMLPipe2::ParseNextChunk ( int iBufferLen, CSphString & sError )
 {
 	if ( !iBufferLen )
 		return true;
