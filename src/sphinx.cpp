@@ -2451,7 +2451,7 @@ public:
 			m_eState = BIGRAM_PAIR;
 			m_sBuf [ m_iFirst ] = MAGIC_WORD_BIGRAM;
 			assert ( m_iFirst + strlen ( (const char*)pSecond ) < sizeof(m_sBuf) );
-			strcpy ( (char*)m_sBuf+m_iFirst+1, (const char*)pSecond );
+			strcpy ( (char*)m_sBuf+m_iFirst+1, (const char*)pSecond ); //NOLINT
 			return m_sBuf;
 
 		} else if ( m_eState==BIGRAM_PAIR )
@@ -13793,6 +13793,8 @@ static inline void FreeStrItems ( CSphMatch & tMatch, const CSphVector<CSphQuery
 				tMatch.SetAttr ( tCalc.m_tLoc, 0 );
 			}
 			break;
+		default:
+			break;
 		}
 	}
 }
@@ -17365,8 +17367,9 @@ ES
 {
 	CSphIndexStatus tRes;
 	tRes.m_iRamUse = sizeof(CSphIndex_VLN)
-		+ m_dMinRow.GetLength()*int(sizeof(CSphRowitem))
-		+ m_dFieldLens.GetLength()*8
+		+ m_dMinRow.GetSizeBytes()
+		+ m_dFieldLens.GetSizeBytes()
+
 		+ m_pDocinfo.GetLength()
 		+ m_pDocinfoHash.GetLength()
 		+ m_pMva.GetLength()
@@ -18449,7 +18452,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 	else if ( iFails!=iFailsPrinted )
 		fprintf ( fp, "check FAILED, %d of %d failures reported", iFailsPrinted, iFails );
 	else
-		fprintf ( fp, "check FAILED, %d failurested", iFails );
+		fprintf ( fp, "check FAILED, %ures reported", iFails );
 	fprintf ( fp, ", %d.%d sec elapsed\n", (int)(tmCheck/1000000), (int)((tmCheck/100000)%10) );
 
 	return Min ( iFails, 255 ); // this is the exitcode; so cap it
@@ -18765,8 +18768,8 @@ CSphDictCRCTraits::CSphDictCRCTraits ()
 	, m_iEntries ( 0 )
 	, m_iLastDoclistPos ( 0 )
 	, m_iLastWordID ( 0 )
-	, m_pWordforms	( NULL )
 	, m_bDisableWordforms ( false )
+	, m_pWordforms	( NULL )
 {
 }
 
@@ -23787,9 +23790,9 @@ void CSphSource_Document::BuildRegularHits ( SphDocID_t uDocid, bool bPayload, b
 		if ( iWord )
 		{
 #if 0
-			if ( HITMAN::GetPos(m_tState.m_iHitPos)==1 )
+			if ( HITMAN::GetPos ( m_tState.m_iHitPos )==1 )
 				printf ( "\n" );
-			printf ( "doc %d. pos %d. %s\n", uDocid, HITMAN::GetPos(m_tState.m_iHitPos), sWord );
+			printf ( "doc %d. pos %d. %s\n", uDocid, HITMAN::GetPos ( m_tState.m_iHitPos ), sWord );
 #endif
 			m_tHits.AddHit ( uDocid, iWord, m_tState.m_iHitPos );
 			m_tState.m_iBuildLastStep = m_pTokenizer->TokenIsBlended() ? 0 : 1;
