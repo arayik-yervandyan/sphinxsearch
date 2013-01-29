@@ -17384,13 +17384,45 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 			const int iCount = pTop->GetLength ();
 			CSphMatch * const pTail = pHead + iCount;
 
-			for ( CSphMatch * pCur=pHead; pCur<pTail; pCur++ )
-				if ( pCur->m_iTag<0 )
+			bool bGotUDF = false;
+			ARRAY_FOREACH_COND ( i, tCtx.m_dCalcFinal, !bGotUDF )
+				tCtx.m_dCalcFinal[i].m_pExpr->Command ( SPH_EXPR_GET_UDF, &bGotUDF );
+
+			CSphVector<int> dIndexes;
+			if ( bGotUDF )
 			{
-				if ( bFinalLookup )
-					CopyDocinfo ( &tCtx, *pCur, FindDocinfo ( pCur->m_iDocID ) );
-				tCtx.CalcFinal ( *pCur );
-				pCur->m_iTag = iTag;
+				pTop->BuildFlatIndexes ( dIndexes );
+				bGotUDF = ( dIndexes.GetLength()!=0 );
+			}
+
+			if ( bGotUDF )
+			{
+				// we now promise to UDFs that final-stage calls will be evaluated
+				// a) over the final, pre-limit result set
+				// b) in the final result set order
+				ARRAY_FOREACH ( i, dIndexes )
+				{
+					assert ( dIndexes[i]>=0 && dIndexes[i]<iCount );
+					CSphMatch * pCur = pHead + dIndexes[i];
+					if ( pCur->m_iTag>=0 )
+						continue;
+					if ( bFinalLookup )
+						CopyDocinfo ( &tCtx, *pCur, FindDocinfo ( pCur->m_iDocID ) );
+					tCtx.CalcFinal ( *pCur );
+					pCur->m_iTag = iTag;
+				}
+
+			} else
+			{
+				// just evaluate in heap order
+				for ( CSphMatch * pCur=pHead; pCur<pTail; pCur++ )
+					if ( pCur->m_iTag<0 )
+				{
+					if ( bFinalLookup )
+						CopyDocinfo ( &tCtx, *pCur, FindDocinfo ( pCur->m_iDocID ) );
+					tCtx.CalcFinal ( *pCur );
+					pCur->m_iTag = iTag;
+				}
 			}
 		}
 
@@ -18423,12 +18455,12 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 				case SPH_ATTR_UINT32SET:
 					{
 						const DWORD uMin = (DWORD)sphGetRowAttr ( pMinAttrs, tCol.m_tLocator );
-						const DWORD uMax = (DWORD)sphGetRowAttr ( pMaxAttrs, tCol.m_tLocator );
+						const DWORD uMax = (DWORD)spwAttr ( pMaxAttrs, tCol.m_tLocator );
 
 						// checks is MVA attribute min max range valid
 						if ( uMin > uMax && bIsBordersCheckTime && uMin!=0xffffffff && uMax!=0 )
-							LOC_FAIL(( fp, "invalid MVA range"INT64_FMT", block="INT64_FMT", min=0x%x, max=0x%x)",
-							iIndexEntry, itry, uBlock, uMin, uMax ));
+							LOC_FAIL(( fp, "invalid MVA range (row="INT64_FMT", block="INT64_FMT", min=0x%x, max=0x%x)",
+							iIndexEntry, iBlock, uMin, uMax ));
 
 						SphAttr_t uOff = sphGetRowAttr ( pSpaRow, tCol.m_tLocator );
 						if ( !uOff )
@@ -18438,7 +18470,7 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 						const DWORD * pMvaDocID = bIsFirstMva ? ( pMva - sizeof(SphDocID_t) / sizeof(DWORD) ) : NULL;
 						bIsFirstMva = false;
 
-						if ( (SphAttr_t)m_pMva.GetNumEntries() )
+						if ( uOff>=(SphAttr_t)m_pMva.GetNumEntries() )
 							break;
 
 						if ( pMvaDocID && DOCINFO2ID ( pMvaDocID )!=uDocID )
