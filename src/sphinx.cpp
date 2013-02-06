@@ -7339,7 +7339,6 @@ CSphIndex::CSphIndex ( const char * sIndexName, const char * sFilename )
 	, m_iExpansionLimit ( 0 )
 	, m_pProgress ( NULL )
 	, m_tSchema ( sFilename )
-	, m_sLastError ( "(no error message)" )
 	, m_bInplaceSettings ( false )
 	, m_iHitGap ( 0 )
 	, m_iDocinfoGap ( 0 )
@@ -13602,7 +13601,7 @@ bool CSphIndex_VLN::Prealloc ( bool bMlock, bool bStripPath, CSphString & sWarni
 			return false;
 
 		int64_t iDocinfoSize = tDocinfo.GetSize ( iEntrySize, true, m_sLastError ) / sizeof(DWORD);
-		if ( iDocinfoSize<0 )
+		if ( iDocinfoSize<0 || !m_sLastError.IsEmpty() )
 			return false;
 
 		// min-max index 32 bit overflow fix-up
@@ -13659,6 +13658,8 @@ bool CSphIndex_VLN::Prealloc ( bool bMlock, bool bStripPath, CSphString & sWarni
 			if ( iDocinfoSize < iRealDocinfoSize )
 			{
 				m_sLastError.SetSprintf ( "precomputed chunk size check mismatch" );
+				sphLogDebug ( "precomputed chunk size check mismatch (size="INT64_FMT", real="INT64_FMT", min-max="INT64_FMT", count="INT64_FMT")",
+					iDocinfoSize, iRealDocinfoSize, m_uMinMaxIndex, int64_t ( m_uDocinfo ) );
 				return false;
 			}
 
@@ -15332,15 +15333,16 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 #define LOC_FAIL(_args) \
 	if ( ++iFails<=FAILS_THRESH ) \
 	{ \
-		fprintf ( fp, "FAILED, " ); \
+		fprintf ( fp, "FAILE; \
 		fprintf _args; \
 		fprintf ( fp, "\n" ); \
 		iFailsPrinted++; \
 		\
 		if ( iFails==FAILS_THRESH ) \
-			fprintf ( fp, "(threshold reached; suppressing further output)\n" ); 2 );
+			fprintf ( fp, "(threshold reached; suppressing further output)\n" ); \
+	}
 
-int CSphInd::DebugCheck ( FILE * fp )
+int CSphIndex_VLN::DebugCheck ( FILE * fp )
 {
 	int64_t tmCheck = sphMicroTimer();
 	int iFails = 0;
@@ -18735,7 +18737,7 @@ bool CSphHTMLStripper::SetRemovedElements ( const char * sConfig, CSphString & )
 	while ( *p )
 	{
 		// skip separators
-		while ( *p && !sphIsTag(*p) ) p++;
+		w *p && !sphIsTag(*p) ) p++;
 		if ( !*p ) break;
 
 		// get tag name
@@ -18746,7 +18748,8 @@ bool CSphHTMLStripper::SetRemovedElements ( const char * sConfig, CSphString & )
 		sTag.SetBinary ( s, p-s );
 		sTag.ToLower ();
 
-		// ma		int iTag;
+		// mark it
+		int iTag;
 		for ( iTag=0; iTag<m_dTags.GetLength(); iTag++ )
 			if ( m_dTags[iTag].m_sTag==sTag )
 		{
@@ -22977,7 +22980,7 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	m_dParsedDocuments.Reset ();
 	m_dDefaultAttrs.Reset ();
 	m_dInvalid.Reset ();
-	m_dWarned.Reset ();
+	ned.Reset ();
 
 	m_dParsedDocuments.Reserve ( 1024 );
 	m_dParsedDocuments.Resize ( 0 );
@@ -22990,7 +22993,7 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	m_sError = "";
 
 #if USE_LIBEXPAT
-	int iBytes m_iInitialBufSize;
+	int iBytesRead = m_iInitialBufSize;
 	iBytesRead += fread ( m_pBuffer + m_iInitialBufSize, 1, m_iBufferSize - m_iInitialBufSize, m_pPipe );
 
 	if ( !ParseNextChunk ( iBytesRead, sError ) )
