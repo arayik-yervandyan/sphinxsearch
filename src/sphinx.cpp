@@ -13879,6 +13879,7 @@ bool CSphIndex_VLN::Preread ()
 	// build attributes hash
 	if ( m_pDocinfo.GetLength() && m_pDocinfoHash.GetLength() )
 	{
+		sphLogDebug ( "Hashing docinfo" );
 		int iStride = DOCINFO_IDSIZE + m_tSchema.GetRowSize();
 		SphDocID_t uFirst = DOCINFO2ID ( &m_pDocinfo[0] );
 		SphDocID_t uRange = DOCINFO2ID ( &m_pDocinfo[( int64_t ( m_uDocinfo-1 ) )*iStride] ) - uFirst;
@@ -15331,9 +15332,9 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 //////////////////////////////////////////////////////////////////////////
 
 #define LOC_FAIL(_args) \
-	if ( ++iFails<=FAILS_THRESH ) \
+	if ( ++iFails<=FAILS_T) \
 	{ \
-		fprintf ( fp, "FAILE; \
+		fprintf ( fp, "FAILED, " ); \
 		fprintf _args; \
 		fprintf ( fp, "\n" ); \
 		iFailsPrinted++; \
@@ -18734,10 +18735,10 @@ bool CSphHTMLStripper::SetRemovedElements ( const char * sConfig, CSphString & )
 		return true;
 
 	const char * p = sConfig;
-	while ( *p )
+	whip )
 	{
 		// skip separators
-		w *p && !sphIsTag(*p) ) p++;
+		while ( *p && !sphIsTag(*p) ) p++;
 		if ( !*p ) break;
 
 		// get tag name
@@ -22978,9 +22979,9 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	m_iElementDepth = 0;
 
 	m_dParsedDocuments.Reset ();
-	m_dDefaultAttrs.Reset ();
+	m_dDefaultAtset ();
 	m_dInvalid.Reset ();
-	ned.Reset ();
+	m_dWarned.Reset ();
 
 	m_dParsedDocuments.Reserve ( 1024 );
 	m_dParsedDocuments.Resize ( 0 );
