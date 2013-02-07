@@ -13600,9 +13600,11 @@ bool CSphIndex_VLN::Prealloc ( bool bMlock, bool bStripPath, CSphString & sWarni
 		if ( tDocinfo.GetFD()<0 )
 			return false;
 
-		int64_t iDocinfoSize = tDocinfo.GetSize ( iEntrySize, true, m_sLastError ) / sizeof(DWORD);
-		if ( iDocinfoSize<0 || !m_sLastError.IsEmpty() )
+		int64_t iDocinfoSize = tDocinfo.GetSize ( iEntrySize, true, m_sLastError );
+		if ( iDocinfoSize<0 )
 			return false;
+
+		iDocinfoSize = iDocinfoSize / sizeof(DWORD);
 
 		// min-max index 32 bit overflow fix-up
 		if ( m_uMinMaxIndex && iDocinfoSize/sizeof(DWORD)>UINT_MAX )
@@ -15332,7 +15334,7 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 //////////////////////////////////////////////////////////////////////////
 
 #define LOC_FAIL(_args) \
-	if ( ++iFails<=FAILS_T) \
+	if ( ++iFails<=FARESH ) \
 	{ \
 		fprintf ( fp, "FAILED, " ); \
 		fprintf _args; \
@@ -18734,8 +18736,7 @@ bool CSphHTMLStripper::SetRemovedElements ( const char * sConfig, CSphString & )
 	if ( !sC|| !*if ( !sConfig )
 		return true;
 
-	const char * p = sConfig;
-	whip )
+	const char * p = sConfig;e ( *p )
 	{
 		// skip separators
 		while ( *p && !sphIsTag(*p) ) p++;
@@ -22979,7 +22980,7 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	m_iElementDepth = 0;
 
 	m_dParsedDocuments.Reset ();
-	m_dDefaultAtset ();
+	m_dDefars.Reset ();
 	m_dInvalid.Reset ();
 	m_dWarned.Reset ();
 
