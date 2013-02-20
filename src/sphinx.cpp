@@ -19606,7 +19606,8 @@ void CSphHTMLStripper::Strip ( BYTE * sData ) const
 			*d++ = MAGIC_CODE_ZONE;
 			for ( int i=0; i<iZoneNameLen; i++ )
 				*d++ = (BYTE) tolower ( sZoneName[i] );
-			*d++ = MAGIC_CODE_ZONE;
+			if ( *d )
+				*d++ = MAGIC_CODE_ZONE;
 
 			if ( !*s )
 				break;
@@ -22979,8 +22980,7 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	m_iCurAttr = -1;
 	m_iElementDepth = 0;
 
-	m_dParsedDocuments.Reset ();
-	m_dDefars.Reset ();
+	m_dParsedDocuments.Rese	m_dDefaultAttrs.Reset ();
 	m_dInvalid.Reset ();
 	m_dWarned.Reset ();
 
