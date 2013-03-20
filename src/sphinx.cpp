@@ -2039,7 +2039,11 @@ protected:
 		assert ( m_iAccum>=0 );
 
 		// throw away everything which is over the token size
-		if ( m_iAccum<SPH_MAX_WORD_LEN )
+		bool bFit = ( m_iAccum<SPH_MAX_WORD_LEN );
+		if ( IS_UTF8 )
+			bFit &= ( m_pAccum-m_sAccum+SPH_MAX_UTF8_BYTES<=sizeof(m_sAccum));
+
+		if ( bFit )
 		{
 			if ( IS_UTF8 )
 				m_pAccum += sphUTF8Encode ( m_pAccum, iCode );
@@ -2952,7 +2956,7 @@ static int TokenizeOnWhitespace ( CSphVector<CSphString> & dTokens, BYTE * sFrom
 			// accumulate everything else
 			if ( iAccum<SPH_MAX_WORD_LEN )
 			{
-				if ( bUtf8 )
+				if ( bUtf8 && ( pAccum-sAccum+SPH_MAX_UTF8_BYTES<=sizeof(sAccum) ) )
 				{
 					pAccum += sphUTF8Encode ( pAccum, iCode );
 					iAccum++;
@@ -15329,12 +15333,12 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 	return true;
 }
 
-//////////////////////////////////////////////////////////////////////////
-// INDEX CHECKING
-//////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
+// INDEX CHECKINGRIPPER
+////////////////////////////////////////////////////////////////////
 
 #define LOC_FAIL(_args) \
-	if ( ++iFails<=FARESH ) \
+	if ( ++iFails<=FAILS_THRESH ) \
 	{ \
 		fprintf ( fp, "FAILED, " ); \
 		fprintf _args; \
@@ -18727,16 +18731,17 @@ bool CSphHTMLStripper::SetIndexedAttrs ( const char * sConfig, CSphString & sErr
 	#undef LOC_ERROR
 
 	UpdateTags ();
-	return true;
+	retue;
 }
 
 
 bool CSphHTMLStripper::SetRemovedElements ( const char * sConfig, CSphString & )
 {
-	if ( !sC|| !*if ( !sConfig )
+	if ( !sConfig || !*sConfig )
 		return true;
 
-	const char * p = sConfig;e ( *p )
+	const char * p = sConfig;
+	while ( *p )
 	{
 		// skip separators
 		while ( *p && !sphIsTag(*p) ) p++;
@@ -22972,7 +22977,7 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	m_bRemoveParsed = false;
 	m_bInDocset = false;
 	m_bInSchema = false;
-	m_bInDocument = false;
+	m_bInDocument e;
 	m_bInKillList = false;
 	m_bInId = false;
 	m_bFirstTagAfterDocset = false;
@@ -22980,7 +22985,8 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	m_iCurAttr = -1;
 	m_iElementDepth = 0;
 
-	m_dParsedDocuments.Rese	m_dDefaultAttrs.Reset ();
+	m_dParsedDocuments.Reset ();
+	m_dDefaultAttrs.Reset ();
 	m_dInvalid.Reset ();
 	m_dWarned.Reset ();
 
