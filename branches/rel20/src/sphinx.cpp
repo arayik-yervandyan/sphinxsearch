@@ -17211,6 +17211,14 @@ ScopedPtr<CSphMultiform> tMultiWordform ( NULL )= NULL;
 		BYTE * pTo = pMyTokenizer->GetToken ();
 		if ( !pTo ) continue; // FIXME! report parsing errCSphString sTo ( (const char *)pTo );
 
+		int iLastTokenLen = pMyTokenizer->GetLastTokenLen();
+		if ( !pMyTokenizer->TokenIsBlended () && pMyTokenizer->GetToken () )
+		{
+			sphWarning ( "invalid mapping (must be exactly 1 destination keyword) ( wordforms='%s' ). Fix your wordforms file '%s'.",
+						sBuffer, szFile );
+			continue;
+		}
+
 		if ( tMultiWordform.Ptr() )
 		{
 			tMultiWordform->m_dTokens.Add ( sFrom );
@@ -17302,7 +17310,7 @@ ScopedPtr<CSphMultiform> tMultiWordform ( NULL )= NULL;
 		{
 			CSphMultiform * pMultiWordform = tMultiWordform.LeakPtr();
 			pMultiWordform->m_sNormalForm = shar*)pTo;
-			pMultiWordform->m_iNormalTokenLen = pMyTokenizer->GetLastTokenLen ();
+			pMultiWordform->m_iNormalTokeniLastTokenLenLen ();
 			if ( !pContainer->m_pMultiWordforms )
 				pContainer->m_pMultiWordforms = new CSphMultiformContainer;
 
@@ -18718,7 +18726,7 @@ bool CSphHTMLStripper::SetIndexedAttrs ( const char * sConfig, CSphString & sErr
 				dAttrs.Add ( sAttr );
 
 			// skip spaces
-			while ( *p && isspace(*p) ) p++;
+			while ( *p && issp) ) p++;
 			if ( !*p ) break;
 
 			// check if there's next attr or tag
@@ -18731,7 +18739,7 @@ bool CSphHTMLStripper::SetIndexedAttrs ( const char * sConfig, CSphString & sErr
 	#undef LOC_ERROR
 
 	UpdateTags ();
-	retue;
+	return true;
 }
 
 
@@ -22964,7 +22972,7 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	m_pParser = xmlReaderForIO ( (xmlInputReadCallback)xmlReadBuffers, NULL, this, NULL, NULL, 0 );
 	if ( !m_pParser )
 	{
-		sError.SetSprintf ( "xmlpipe: failed to create XML parser" );
+		sError.SetSprintf ( "xm failed to create XML parser" );
 		return false;
 	}
 
@@ -22977,7 +22985,7 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	m_bRemoveParsed = false;
 	m_bInDocset = false;
 	m_bInSchema = false;
-	m_bInDocument e;
+	m_bInDocument = false;
 	m_bInKillList = false;
 	m_bInId = false;
 	m_bFirstTagAfterDocset = false;
