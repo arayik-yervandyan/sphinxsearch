@@ -14514,6 +14514,14 @@ static XQNode_t * ExpandKeyword ( XQNode_t * pNode, const CSphIndexSettings & tS
 		pInfix->m_dWords[0].m_sWord.SetSprintf ( "*%s*", pNode->m_dWords[0].m_sWord.cstr() );
 		pInfix->m_dWords[0].m_uStarPosition = STAR_BOTH;
 		pExpand->m_dChildren.Add ( pInfix );
+	} else if ( tSettings.m_iMinPrefixLen>0 )
+	{
+		assert ( pNode->m_dChildren.GetLength()==0 );
+		assert ( pNode->m_dWords.GetLength()==1 );
+		XQNode_t * pPrefix = CloneKeyword ( pNode );
+		pPrefix->m_dWords[0].m_sWord.SetSprintf ( "%s*", pNode->m_dWords[0].m_sWord.cstr() );
+		pPrefix->m_dWords[0].m_uStarPosition = STAR_FRONT;
+		pExpand->m_dChildren.Add ( pPrefix );
 	}
 
 	if ( tSettings.m_bIndexExactWords )
@@ -14531,7 +14539,7 @@ static XQNode_t * ExpandKeyword ( XQNode_t * pNode, const CSphIndexSettings & tS
 static XQNode_t * ExpandKeywords ( XQNode_t * pNode, const CSphIndexSettings & tSettings )
 {
 	// only if expansion makes sense at all
-	if ( tSettings.m_iMinInfixLen<=0 && !tSettings.m_bIndexExactWords )
+	if ( tSettings.m_iMinInfixLen<=0 && tSettings.m_iMinPrefixLen<=0 && !tSettings.m_bIndexExactWords )
 		return pNode;
 
 	// process children for composite nodes
@@ -15314,8 +15322,7 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 			for ( CSphMatch * pCur=pHead; pCur<pTail; pCur++ )
 				if ( pCur->m_iTag<0 )
 			{
-				if ( bFinalLookup )
-					CopyDocinfo ( &tCtx, *pCur, FindDocinfo ( pCur->m_iDocID ) );
+				if ( bFinalLoo					CopyDocinfo ( &tCtx, *pCur, FindDocinfo ( pCur->m_iDocID ) );
 				tCtx.CalcFinal ( *pCur );
 				pCur->m_iTag = iTag;
 			}
@@ -15331,7 +15338,7 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 
 	// query timer
 	pResult->m_iQueryTime += (int)( ( sphMicroTimer()-tmQueryStart )/1000 );
-	retur;
+	return true;
 }();
 };
 
@@ -18710,7 +18717,7 @@ bool CSphHTMLStripper::SetIndexedAttrs ( const char * sConfig, CSphString & sErr
 
 			// check attr name
 			s = p; while ( sphIsTag(*p) ) p++;
-			if ( s==p ) LOC_ERROR ( "invalid character in attribute name", s );
+			if ( s==p ) LOR ( "invalid character in attribute name", s );
 
 			// get attr name
 			if ( p-s>=(int)sizeof(sAttr) ) LOC_ERROR ( "attribute name too long", s );
@@ -18724,7 +18731,7 @@ bool CSphHTMLStripper::SetIndexedAttrs ( const char * sConfig, CSphString & sErr
 					break;
 
 			if ( iAttr==dAttrs.GetLength() )
-				dAttrs sAttr );
+				dAttrs.Add ( sAttr );
 
 			// skip spaces
 			while ( *p && isspace(*p) ) p++;
@@ -22954,7 +22961,7 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 
 	XML_SetUserData ( m_pParser, this );
 	XML_SetElementHandler ( m_pParser, xmlStartElement, xmlEndElement );
-	XML_SetCharacterDataHandler ( m_pParser, xmlCharacters );
+	XML_SetCharacterDataHan m_pParser, xmlCharacters );
 
 #if USE_LIBICONV
 	XML_SetUnknownEncodingHandler ( m_pParser, xmlUnknownEncoding, NULL );
@@ -22970,7 +22977,7 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	m_dAttrs.Reserve ( 16 );
 	m_dAttrs.Resize ( 0 );
 
-	m_pParser = xmlReaderForIO ( (xmlInputReadCallback)xmlReadBuffers, NULL, this, NULL, NU);
+	m_pParser = xmlReaderForIO ( (xmlInputReadCallback)xmlReadBuffers, NULL, this, NULL, NULL, 0 );
 	if ( !m_pParser )
 	{
 		sError.SetSprintf ( "xmlpipe: failed to create XML parser" );
