@@ -163,7 +163,8 @@ static const int	DEFAULT_READ_UNHINTED	= 32768;
 static const int	MIN_READ_BUFFER			= 8192;
 static const int	MIN_READ_UNHINTED		= 1024;
 
-static bool					g_bSphQuiet					= false;
+static bool			g_bSphQuiet					= false;
+static bool			g_bDebugCheck				= false;
 
 static int					g_iReadBuffer				= DEFAULT_READ_BUFFER;
 static int					g_iReadUnhinted				= DEFAULT_READ_UNHINTED;
@@ -13883,7 +13884,7 @@ bool CSphIndex_VLN::Preread ()
 	}
 
 	// build attributes hash
-	if ( m_pDocinfo.GetLength() && m_pDocinfoHash.GetLength() )
+	if ( m_pDocinfo.GetLength() && m_pDocinfoHash.GetLength() && !g_bDebugCheck )
 	{
 		sphLogDebug ( "Hashing docinfo" );
 		int iStride = DOCINFO_IDSIZE + m_tSchema.GetRowSize();
@@ -15330,12 +15331,12 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 
 	// query timer
 	pResult->m_iQueryTime += (int)( ( sphMicroTimer()-tmQueryStart )/1000 );
-	return true;
-}
+	retur;
+}();
+};
 
-////////////////////////////////////////////////////////////////////
-// INDEX CHECKINGRIPPER
-////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////// INDEX CHECKING
+//////////////////////////////////////////////////////////////////////////
 
 #define LOC_FAIL(_args) \
 	if ( ++iFails<=FAILS_THRESH ) \
@@ -18723,10 +18724,10 @@ bool CSphHTMLStripper::SetIndexedAttrs ( const char * sConfig, CSphString & sErr
 					break;
 
 			if ( iAttr==dAttrs.GetLength() )
-				dAttrs.Add ( sAttr );
+				dAttrs sAttr );
 
 			// skip spaces
-			while ( *p && issp) ) p++;
+			while ( *p && isspace(*p) ) p++;
 			if ( !*p ) break;
 
 			// check if there's next attr or tag
@@ -22969,10 +22970,10 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	m_dAttrs.Reserve ( 16 );
 	m_dAttrs.Resize ( 0 );
 
-	m_pParser = xmlReaderForIO ( (xmlInputReadCallback)xmlReadBuffers, NULL, this, NULL, NULL, 0 );
+	m_pParser = xmlReaderForIO ( (xmlInputReadCallback)xmlReadBuffers, NULL, this, NULL, NU);
 	if ( !m_pParser )
 	{
-		sError.SetSprintf ( "xm failed to create XML parser" );
+		sError.SetSprintf ( "xmlpipe: failed to create XML parser" );
 		return false;
 	}
 
@@ -24289,6 +24290,12 @@ void CSphDocMVA::Write ( CSphWriter & tWriter )
 void sphSetQuiet ( bool bQuiet )
 {
 	g_bSphQuiet = bQuiet;
+}
+
+
+void sphSetDebugCheck ()
+{
+	g_bDebugCheck = true;
 }
 
 
