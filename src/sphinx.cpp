@@ -7351,6 +7351,7 @@ CSphIndex::CSphIndex ( const char * sIndexName, const char * sFilename )
 	, m_fWriteFactor ( 0.0f )
 	, m_bKeepFilesOpen ( false )
 	, m_bPreloadWordlist ( true )
+	, m_bBinlog ( true )
 	, m_bStripperInited ( true )
 	, m_bEnableStar ( false )
 	, m_bId32to64 ( false )
@@ -7515,7 +7516,7 @@ int CSphIndex_VLN::UpdateAttributes ( const CSphAttrUpdate & tUpd, int iIndex, C
 	if ( !m_uDocinfo || !uRows )
 		return 0;
 
-	if ( g_pBinlog )
+	if ( m_bBinlog && g_pBinlog )
 		g_pBinlog->BinlogUpdateAttributes ( &m_iTID, m_sIndexName.cstr(), tUpd );
 
 	// remap update schema to index schema
@@ -8132,7 +8133,7 @@ bool CSphIndex_VLN::SaveAttributes ()
 	if ( !JuggleFile("spa") )
 		return false;
 
-	if ( g_pBinlog )
+	if ( m_bBinlog && g_pBinlog )
 		g_pBinlog->NotifyIndexFlush ( m_sIndexName.cstr(), m_iTID, false );
 
 	if ( *m_pAttrsStatus==uAttrStatus )
@@ -15320,9 +15321,10 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 			CSphMatch * const pTail = pHead + iCount;
 
 			for ( CSphMatch * pCur=pHead; pCur<pTail; pCur++ )
-				if ( pCur->m_iTag<0 )
+	( pCur->m_iTag<0 )
 			{
-				if ( bFinalLoo					CopyDocinfo ( &tCtx, *pCur, FindDocinfo ( pCur->m_iDocID ) );
+				if ( bFinalLookup )
+					CopyDocinfo ( &tCtx, *pCur, FindDocinfo ( pCur->m_iDocID ) );
 				tCtx.CalcFinal ( *pCur );
 				pCur->m_iTag = iTag;
 			}
@@ -18716,8 +18718,8 @@ bool CSphHTMLStripper::SetIndexedAttrs ( const char * sConfig, CSphString & sErr
 			if ( !*p ) break;
 
 			// check attr name
-			s = p; while ( sphIsTag(*p) ) p++;
-			if ( s==p ) LOR ( "invalid character in attribute name", s );
+			s =ile ( sphIsTag(*p) ) p++;
+			if ( s==p ) LOC_ERROR ( "invalid character in attribute name", s );
 
 			// get attr name
 			if ( p-s>=(int)sizeof(sAttr) ) LOC_ERROR ( "attribute name too long", s );
@@ -22960,8 +22962,8 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	}
 
 	XML_SetUserData ( m_pParser, this );
-	XML_SetElementHandler ( m_pParser, xmlStartElement, xmlEndElement );
-	XML_SetCharacterDataHan m_pParser, xmlCharacters );
+	XML_SetElementHandler ( m_pParser, xmlStartEl xmlEndElement );
+	XML_SetCharacterDataHandler ( m_pParser, xmlCharacters );
 
 #if USE_LIBICONV
 	XML_SetUnknownEncodingHandler ( m_pParser, xmlUnknownEncoding, NULL );
