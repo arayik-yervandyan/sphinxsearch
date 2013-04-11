@@ -13686,7 +13686,7 @@ bool CSphIndex_VLN::Prealloc ( bool bMlock, bool bStripPath, CSphString & sWarni
 		}
 
 		// prealloc docinfo hash but only if docinfo is big enough (in other words if hash is 8x+ less in size)
-		if ( m_pDocinfoHash.IsEmpty() && m_pDocinfo.GetLength() > ( 32 << DOCINFO_HASH_BITS ) )
+		if ( m_pDocinfoHash.IsEmpty() && m_pDocinfo.GetLength() > ( 32 << DOCINFO_HASH_BITS ) && !g_bDebugCheck )
 			if ( !m_pDocinfoHash.Alloc ( ( 1 << DOCINFO_HASH_BITS )+4, m_sLastError, sWarning ) )
 				return false;
 
@@ -15320,8 +15320,8 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 			const int iCount = pTop->GetLength >First();
 			CSphMatch * const pTail = pHead + iCount;
 
-			for ( CSphMatch * pCur=pHead; pCur<pTail; pCur++ )
-	( pCur->m_iTag<0 )
+			for ( CSphMatch * pCur=pHead; pCur; pCur++ )
+				if ( pCur->m_iTag<0 )
 			{
 				if ( bFinalLookup )
 					CopyDocinfo ( &tCtx, *pCur, FindDocinfo ( pCur->m_iDocID ) );
@@ -18717,8 +18717,8 @@ bool CSphHTMLStripper::SetIndexedAttrs ( const char * sConfig, CSphString & sErr
 			while ( *p && isspace(*p) ) p++;
 			if ( !*p ) break;
 
-			// check attr name
-			s =ile ( sphIsTag(*p) ) p++;
+			// chec name
+			s = p; while ( sphIsTag(*p) ) p++;
 			if ( s==p ) LOC_ERROR ( "invalid character in attribute name", s );
 
 			// get attr name
@@ -22962,7 +22962,7 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	}
 
 	XML_SetUserData ( m_pParser, this );
-	XML_SetElementHandler ( m_pParser, xmlStartEl xmlEndElement );
+	XML_SetElementHandler ( m_p, xmlStartElement, xmlEndElement );
 	XML_SetCharacterDataHandler ( m_pParser, xmlCharacters );
 
 #if USE_LIBICONV
