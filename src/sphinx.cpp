@@ -2174,7 +2174,7 @@ public:
 	virtual const CSphSavedFile &	GetSynFileInfo () const											{ return m_pTokenizer->GetSynFileInfo (); }
 	virtual bool					EnableSentenceIndexing ( CSphString & sError )					{ return m_pTokenizer->EnableSentenceIndexing ( sError ); }
 	virtual bool					EnableZoneIndexing ( CSphString & sError )						{ return m_pTokenizer->EnableZoneIndexing ( sError ); }
-	virtual int						SkipBlended ()													{ return m_pTokenizer->SkipBlended(); }
+	virtual int						SkipBlended ()													{ assert ( m_pLastToken->m_bBlended || m_pLastToken->m_bBlendedPart ); return m_pTokenizer->SkipBlended(); }
 
 public:
 	virtual void					SetBuffer ( BYTE * sBuffer, int iLength );
@@ -2187,6 +2187,8 @@ public:
 	virtual bool					WasTokenSpecial ()							{ return m_pLastToken->m_bSpecial; }
 	virtual int						GetOvershortCount ()						{ return m_pLastToken->m_iOvershortCount; }
 	virtual BYTE *					GetTokenizedMultiform ()					{ return m_sTokenizedMultiform[0] ? m_sTokenizedMultiform : NULL; }
+	virtual bool					TokenIsBlended () const { return m_pLastToken->m_bBlended; }
+	virtual bool					TokenIsBlendedPart () const { return m_pLastToken->m_bBlendedPart; }
 
 public:
 	virtual ISphTokenizer *			Clone ( bool bEscaped ) const;
@@ -2210,13 +2212,15 @@ private:
 	struct StoredToken_t
 	{
 		BYTE			m_sToken [3*SPH_MAX_WORD_LEN+4];
-		int				m_iTokenLen;
-		bool			m_bBoundary;
-		bool			m_bSpecial;
-		int				m_iOvershortCount;
 		const char *	m_szTokenStart;
 		const char *	m_szTokenEnd;
 		const char *	m_pBufferPtr;
+		int				m_iTokenLen;
+		int				m_iOvershortCount;
+		bool			m_bBoundary;
+		bool			m_bSpecial;
+		bool			m_bBlended;
+		bool			m_bBlendedPart;
 	};
 
 	CSphVector<StoredToken_t>		m_dStoredTokens;
@@ -4848,13 +4852,15 @@ CSphTokenizer_Filter::~CSphTokenizer_Filter ()
 
 void CSphTokenizer_Filter::FillTokenInfo ( StoredToken_t * pToken )
 {
-	pToken->m_bBoundary = m_pTokenizer->GetBoundary ();
-	pToken->m_bSpecial = m_pTokenizer->WasTokenSpecial ();
-	pToken->m_iOvershortCount = m_pTokenizer->GetOvershortCount ();
-	pToken->m_iTokenLen = m_pTokenizer->GetLastTokenLen ();
 	pToken->m_szTokenStart = m_pTokenizer->GetTokenStart ();
 	pToken->m_szTokenEnd = m_pTokenizer->GetTokenEnd ();
+	pToken->m_iOvershortCount = m_pTokenizer->GetOvershortCount ();
+	pToken->m_iTokenLen = m_pTokenizer->GetLastTokenLen ();
 	pToken->m_pBufferPtr = m_pTokenizer->GetBufferPtr ();
+	pToken->m_bBoundary = m_pTokenizer->GetBoundary ();
+	pToken->m_bSpecial = m_pTokenizer->WasTokenSpecial ();
+	pToken->m_bBlended = m_pTokenizer->TokenIsBlended();
+	pToken->m_bBlendedPart = m_pTokenizer->TokenIsBlendedPart();
 }
 
 
@@ -4915,6 +4921,10 @@ BYTE * CSphTokenizer_Filter::GetToken ()
 		FillTokenInfo ( &(m_dStoredTokens[iIndex]) );
 		strcpy ( (char *)m_dStoredTokens[iIndex].m_sToken, (const char *)pToken ); // NOLINT
 		m_iStoredLen++;
+
+		// FIXME!!! multi-form stops at blended ( not clean what to do with blended parts and complete \ incomplete multi-form matching )
+		if ( m_dStoredTokens[iIndex].m_bBlended || m_dStoredTokens[iIndex].m_bBlendedPart )
+			break;
 	}
 
 	if ( !m_iStoredLen )
@@ -15311,16 +15321,16 @@ bool CSphIndex_VLN::ParsedMultiQuery ( const CSphQuery * pQuery, CSphQueryResult
 	////////////////////
 
 	// adjust result sets
-	if ( bFinalPass )
-		for ( int iSorter=0; iSorter<iSorters; iSorter++ )
+	for ( int iSorter=0; iSorter<iSorters; iSorter++ )
 	{
 		ISphMatchSorter * pTop = ppSorters[iSorter];
-		if ( pTop->GetLength() )
-	CSphMatch * const pHead = pTop->Finalize();
-			const int iCount = pTop->GetLength >First();
+		if ( pTop->GetLength() && bFinalPass )
+		{
+			CSphMatch * const pHead = pTop->Finalize();
+			const int iCount = pTop->GetLength ();
 			CSphMatch * const pTail = pHead + iCount;
 
-			for ( CSphMatch * pCur=pHead; pCur; pCur++ )
+			for ( CSphMatch * pCur=pHead; pCur<pTail; pCur++ )
 				if ( pCur->m_iTag<0 )
 			{
 				if ( bFinalLookup )
@@ -18687,7 +18697,7 @@ bool CSphHTMLStripper::SetIndexedAttrs ( const char * sConfig, CSphString & sErr
 
 		// skip spaces
 		while ( *p && isspace(*p) ) p++;
-		if ( *p++!='=' ) LOC_ERROR ( "'=' expected", p-1 );
+		if ( *p++!='=' )RROR ( "'=' expected", p-1 );
 
 		// add indexed tag entry, if not there yet
 		strlwr ( sTag );
@@ -18717,7 +18727,7 @@ bool CSphHTMLStripper::SetIndexedAttrs ( const char * sConfig, CSphString & sErr
 			while ( *p && isspace(*p) ) p++;
 			if ( !*p ) break;
 
-			// chec name
+			// check attr name
 			s = p; while ( sphIsTag(*p) ) p++;
 			if ( s==p ) LOC_ERROR ( "invalid character in attribute name", s );
 
@@ -22937,7 +22947,7 @@ bool CSphSource_XMLPipe2::Setup ( FILE * pPipe, const CSphConfigSection & hSourc
 	m_tDocInfo.Reset ( m_tSchema.GetRowSize () );
 
 	ConfigureFields ( hSource("xmlpipe_field") );
-	ConfigureFields ( hSource("xmlpipe_field_string") );
+	ConfigureFields ( hSource("xmlpipe_field_stri;
 	ConfigureFields ( hSource("xmlpipe_field_wordcount") );
 
 	m_dStrAttrs.Resize ( m_tSchema.GetAttrsCount() );
@@ -22948,10 +22958,11 @@ bool CSphSource_XMLPipe2::Setup ( FILE * pPipe, const CSphConfigSection & hSourc
 
 bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 {
-	ARRAY_FOREACH ( i, m_tSchema.m_dFiel{
+	ARRAY_FOREACH ( i, m_tSchema.m_dFields )
+	{
 		CSphColumnInfo & tCol = m_tSchema.m_dFields[i];
 		tCol.m_eWordpart = GetWordpart ( tCol.m_sName.cstr(), m_pDict && m_pDict->GetSettings().m_bWordDict );
-	}[i] );
+	}
 
 #if USE_LIBEXPAT
 	m_pParser = XML_ParserCreate(NULL);
@@ -22962,7 +22973,7 @@ bool CSphSource_XMLPipe2::Connect ( CSphString & sError )
 	}
 
 	XML_SetUserData ( m_pParser, this );
-	XML_SetElementHandler ( m_p, xmlStartElement, xmlEndElement );
+	XML_SetElementHandler ( m_pParser, xmlStartElement, xmlEndElement );
 	XML_SetCharacterDataHandler ( m_pParser, xmlCharacters );
 
 #if USE_LIBICONV
