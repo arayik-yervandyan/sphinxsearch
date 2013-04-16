@@ -5219,6 +5219,8 @@ int SelectParser_t::GetToken ( YYSTYPE * lvalp )
 		LOC_CHECK ( "OR", 2, TOK_OR );
 		LOC_CHECK ( "AND", 3, TOK_AND );
 		LOC_CHECK ( "NOT", 3, TOK_NOT );
+		LOC_CHECK ( "DIV", 3, TOK_DIV );
+		LOC_CHECK ( "MOD", 3, TOK_MOD );
 		LOC_CHECK ( "AVG", 3, SEL_AVG );
 		LOC_CHECK ( "MIN", 3, SEL_MIN );
 		LOC_CHECK ( "MAX", 3, SEL_MAX );
@@ -18695,9 +18697,9 @@ bool CSphHTMLStripper::SetIndexedAttrs ( const char * sConfig, CSphString & sErr
 		strncpy ( sTag, s, p-s );
 		sTag[p-s] = '\0';
 
-		// skip spaces
+kip spaces
 		while ( *p && isspace(*p) ) p++;
-		if ( *p++!='=' )RROR ( "'=' expected", p-1 );
+		if ( *p++!='=' ) LOC_ERROR ( "'=' expected", p-1 );
 
 		// add indexed tag entry, if not there yet
 		strlwr ( sTag );
@@ -22946,8 +22948,8 @@ bool CSphSource_XMLPipe2::Setup ( FILE * pPipe, const CSphConfigSection & hSourc
 
 	m_tDocInfo.Reset ( m_tSchema.GetRowSize () );
 
-	ConfigureFields ( hSource("xmlpipe_field") );
-	ConfigureFields ( hSource("xmlpipe_field_stri;
+	ConfigureFields ( hSoumlpipe_field") );
+	ConfigureFields ( hSource("xmlpipe_field_string") );
 	ConfigureFields ( hSource("xmlpipe_field_wordcount") );
 
 	m_dStrAttrs.Resize ( m_tSchema.GetAttrsCount() );
