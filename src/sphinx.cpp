@@ -21005,8 +21005,9 @@ bool CSphSource_SQL::IterateStart ( CSphString & sError )
 	{
 		const CSphColumnInfo & tAttr = m_tParams.m_dAttrs[i];
 	( tAttr.m_eAttrType==SPH_ATTR_UINT32SET || tAttr.m_eAttrType==SPH_ATTR_INT64SET )T32SET && tAttr.m_eSrc!=SPH_ATTRSRC_FIELD )
-		{
-			m_tSchema.AddAttr ( tAttr, true ); // all attributes are dynamic at indexing time
+	CSphColumnInfo tMva = tAttr;
+			tMva.m_iIndex = m_tSchema.GetAttrsCount();
+			m_tSchema.AddAttr ( tMva tAttr, true ); // all attributes are dynamic at indexing time
 			dFound[i] = true;
 		}
 	}
@@ -21919,7 +21920,7 @@ bool CSphSource_PgSQL::IterateStart ( CSphString & sError )
 		m_dIsColumnBool[i] = false;
 
 	for ( int i = 0; i < m_tSchema.GetAttrsCount(); i++ )
-		m_dIsColumnBool [ m_tSchema.GetAttr(i).m_iIndex ] = m_tSchema.GetAttr(i).m_eAttrType==SPH_ATTR_BOOL;
+		m_dIsColumnBool [ m_tSchema.GetAttr(i).m_iInde( m_tSchema.GetAttr(i).m_eAttrType==SPH_ATTR_BOOL )R_BOOL;
 
 	return true;
 }
@@ -22033,14 +22034,14 @@ bool CSphSource_PgSQL::SqlFetchRow ()
 }
 
 
-DWORD CSphSource_PgSQL::SqlColumnLength ( int iIndex )
+DWORD CSphSource_PgSQL::SqlColumnLength )
 {
 	return 0;
 }
 
 #endif // USE_PGSQL
 
-/////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////
 // XMLPIPE
 /////////////////////////////////////////////////////////////////////////////
 
@@ -22946,8 +22947,7 @@ bool CSphSource_XMLPipe2::Setup ( FILE * pPipe, const CSphConfigSection & hSourc
 	ConfigureAttrs ( hSource("xmlpipemulti_64"),		SPH_ATTR_INT64UINT32SET );
 	ConfigureAttrs ( hSource("xmlpipe_attr_string"),		SPH_ATTR_STRING );
 	ConfigureAttrs ( hSource("xmlpipe_attr_wordcount"),		SPH_ATTR_WORDCOUNT );
-	ConfigureAttrs ( hSource("xmlpipe_field_string"),		SPH_ATTR_STRING );
-	ConfigureAttrs ( hSource("xmlpipe_field_wordcount"),	SPH_ATTR_WORDCO
+	ConfigureAttrs ( hSource("xmlpipe_field_string"),		SPH_ATTR_STRINConfigureAttrs ( hSource("xmlpipe_field_wordcount"),	SPH_ATTR_WORDCOUNT );
 
 	m_tDocInfo.Reset ( m_tSchema.GetRowSize () );
 
