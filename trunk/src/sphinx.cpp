@@ -2452,6 +2452,8 @@ static bool sphRLPInit ( const char * szRootPath, const char * szEnvPath, CSphSt
 		if ( iRes!=BT_OK )
 		{
 			sError = "Unable to initialize the RLP environment";
+			BT_RLP_Environment_Destroy ( g_pRLPEnv );
+			g_pRLPEnv = NULL;
 			return false;
 		}
 	}
@@ -2494,8 +2496,6 @@ public:
 
 	~CSphRLPTokenizer()
 	{
-		assert ( g_pRLPEnv );
-
 		if ( !m_bCloned )
 		{
 			if ( m_pTokenIterator )
@@ -3799,10 +3799,7 @@ ISphTokenizer * ISphTokenizer::CreateRLPFilter ( ISphTokenizer * pTokenizer, boo
 
 	CSphRLPTokenizer * pRLP = new CSphRLPTokenizer ( pTokenizer, szRLPRoot, szRLPEnv, szRLPCtx );
 	if ( !pRLP->Init ( sError ) )
-	{
-		SafeDelete ( pTokenizer );
 		SafeDelete ( pRLP );
-	}
 
 	return pRLP;
 }
@@ -15620,7 +15617,7 @@ bool CSphIndex_VLN::LoadHeader ( const char * sHeaderName, bool bStripPath, CSph
 		pTokenizer = ISphTokenizer::CreateRLPFilter ( pTokenizer, m_tSettings.m_bChineseRLP, g_sRLPRoot.cstr(),
 			g_sRLPEnv.cstr(), m_tSettings.m_sRLPContext.cstr(), m_sLastError );
 
-		if ( !m_sLastError.IsEmpty() )
+		if ( !pTokenizer )
 			return false;
 #endif
 
@@ -24683,7 +24680,7 @@ static int TrackBlendedStart ( const ISphTokenizer * pTokenizer, int iBlendedHit
 
 #define BUILD_SUBSTRING_HITS_COUNT 4
 
-void CSphSource_Document::BuildSubstringHits ( CSphDict * pDict, SphDocID_t uDocid, bool bPayload, ESphWordpart eWordpart, bool bSkipEndMarker )
+void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload, ESphWordpart eWordpart, bool bSkipEndMarker )
 {
 	bool bPrefixField = ( eWordpart==SPH_WORDPART_PREFIX );
 	bool bInfixMode = m_iMinInfixLen > 0;
@@ -24732,7 +24729,7 @@ void CSphSource_Document::BuildSubstringHits ( CSphDict * pDict, SphDocID_t uDoc
 			memcpy ( sBuf + 1, sWord, iBytes );
 			sBuf[0] = MAGIC_WORD_HEAD_NONSTEMMED;
 			sBuf[iBytes+1] = '\0';
-			m_tHits.AddHit ( uDocid, pDict->GetWordIDNonStemmed ( sBuf ), m_tState.m_iHitPos );
+			m_tHits.AddHit ( uDocid, m_pDict->GetWordIDNonStemmed ( sBuf ), m_tState.m_iHitPos );
 		}
 
 		memcpy ( sBuf + 1, sWord, iBytes );
@@ -24740,7 +24737,7 @@ void CSphSource_Document::BuildSubstringHits ( CSphDict * pDict, SphDocID_t uDoc
 		sBuf[iBytes+1] = '\0';
 
 		// stemmed word w/markers
-		SphWordID_t iWord = pDict->GetWordIDWithMarkers ( sBuf );
+		SphWordID_t iWord = m_pDict->GetWordIDWithMarkers ( sBuf );
 		if ( !iWord )
 		{
 			m_tState.m_iBuildLastStep = m_iStopwordStep;
@@ -24755,7 +24752,7 @@ void CSphSource_Document::BuildSubstringHits ( CSphDict * pDict, SphDocID_t uDoc
 
 		// stemmed word w/o markers
 		if ( strcmp ( (const char *)sBuf + 1, (const char *)sWord ) )
-			m_tHits.AddHit ( uDocid, pDict->GetWordID ( sBuf + 1, iStemmedLen - 2, true ), m_tState.m_iHitPos );
+			m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( sBuf + 1, iStemmedLen - 2, true ), m_tState.m_iHitPos );
 
 		// restore word
 		memcpy ( sBuf + 1, sWord, iBytes );
@@ -24766,7 +24763,7 @@ void CSphSource_Document::BuildSubstringHits ( CSphDict * pDict, SphDocID_t uDoc
 		if ( iMinInfixLen > iLen )
 		{
 			// index full word
-			m_tHits.AddHit ( uDocid, pDict->GetWordID ( sWord ), m_tState.m_iHitPos );
+			m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( sWord ), m_tState.m_iHitPos );
 			continue;
 		}
 
@@ -24787,15 +24784,15 @@ void CSphSource_Document::BuildSubstringHits ( CSphDict * pDict, SphDocID_t uDoc
 
 			for ( int i=iMinInfixLen; i<=iMaxSubLen; i++ )
 			{
-				m_tHits.AddHit ( uDocid, pDict->GetWordID ( sInfix, sInfixEnd-sInfix, false ), m_tState.m_iHitPos );
+				m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( sInfix, sInfixEnd-sInfix, false ), m_tState.m_iHitPos );
 
 				// word start: add magic head
 				if ( bInfixMode && iStart==0 )
-					m_tHits.AddHit ( uDocid, pDict->GetWordID ( sInfix - 1, sInfixEnd-sInfix + 1, false ), m_tState.m_iHitPos );
+					m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( sInfix - 1, sInfixEnd-sInfix + 1, false ), m_tState.m_iHitPos );
 
 				// word end: add magic tail
 				if ( bInfixMode && i==iLen-iStart )
-					m_tHits.AddHit ( uDocid, pDict->GetWordID ( sInfix, sInfixEnd-sInfix+1, false ), m_tState.m_iHitPos );
+					m_tHits.AddHit ( uDocid, m_pDict->GetWordID ( sInfix, sInfixEnd-sInfix+1, false ), m_tState.m_iHitPos );
 
 				sInfixEnd += m_pTokenizer->GetCodepointLength ( *sInfixEnd );
 			}
@@ -24836,9 +24833,9 @@ void CSphSource_Document::BuildSubstringHits ( CSphDict * pDict, SphDocID_t uDoc
 
 #define BUILD_REGULAR_HITS_COUNT 6
 
-void CSphSource_Document::BuildRegularHits ( CSphDict * pDict, SphDocID_t uDocid, bool bPayload, bool bSkipEndMarker )
+void CSphSource_Document::BuildRegularHits ( SphDocID_t uDocid, bool bPayload, bool bSkipEndMarker )
 {
-	bool bWordDict = pDict->GetSettings().m_bWordDict;
+	bool bWordDict = m_pDict->GetSettings().m_bWordDict;
 	bool bGlobalPartialMatch = !bWordDict && ( m_iMinPrefixLen > 0 || m_iMinInfixLen > 0 );
 
 	if ( !m_tState.m_bProcessingHits )
@@ -24872,7 +24869,7 @@ void CSphSource_Document::BuildRegularHits ( CSphDict * pDict, SphDocID_t uDocid
 			memcpy ( sBuf + 1, sWord, iBytes );
 			sBuf[0] = MAGIC_WORD_HEAD;
 			sBuf[iBytes+1] = '\0';
-			m_tHits.AddHit ( uDocid, pDict->GetWordIDWithMarkers ( sBuf ), m_tState.m_iHitPos );
+			m_tHits.AddHit ( uDocid, m_pDict->GetWordIDWithMarkers ( sBuf ), m_tState.m_iHitPos );
 		}
 
 		ESphTokenMorph eMorph = m_pTokenizer->GetTokenMorph();
@@ -24882,7 +24879,7 @@ void CSphSource_Document::BuildRegularHits ( CSphDict * pDict, SphDocID_t uDocid
 			memcpy ( sBuf + 1, sWord, iBytes );
 			sBuf[0] = MAGIC_WORD_HEAD_NONSTEMMED;
 			sBuf[iBytes+1] = '\0';
-			m_tHits.AddHit ( uDocid, pDict->GetWordIDNonStemmed ( sBuf ), m_tState.m_iHitPos );
+			m_tHits.AddHit ( uDocid, m_pDict->GetWordIDNonStemmed ( sBuf ), m_tState.m_iHitPos );
 		}
 
 		if ( m_bIndexExactWords && eMorph==SPH_TOKEN_MORPH_ORIGINAL )
@@ -24891,7 +24888,7 @@ void CSphSource_Document::BuildRegularHits ( CSphDict * pDict, SphDocID_t uDocid
 			continue;
 		}
 
-		SphWordID_t iWord = pDict->GetWordID ( sWord );
+		SphWordID_t iWord = m_pDict->GetWordID ( sWord );
 		if ( iWord )
 		{
 #if 0
@@ -24976,21 +24973,17 @@ void CSphSource_Document::BuildHits ( CSphString & sError, bool bSkipEndMarker )
 			m_tState.m_iHitPos = HITMAN::Create ( m_tState.m_iField, m_tState.m_iStartPos );
 		}
 
-		CSphDict * pDict = m_pDict;
-		CSphScopedPtr<CSphDict> tDictCloned ( NULL );
-		if ( m_pDict->HasState() )
-		{
-			pDict = m_pDict->Clone();
-			pDict->SetApplyMorph ( m_pTokenizer->GetMorphFlag() );
-			tDictCloned = pDict;
-		}
+		// instead of cloning the dictionary once per document we just set and reset the flag
+		m_pDict->SetApplyMorph ( m_pTokenizer->GetMorphFlag() );
 
 		const CSphColumnInfo & tField = m_tSchema.m_dFields[m_tState.m_iField];
 
 		if ( tField.m_eWordpart!=SPH_WORDPART_WHOLE )
-			BuildSubstringHits ( pDict, uDocid, tField.m_bPayload, tField.m_eWordpart, bSkipEndMarker );
+			BuildSubstringHits ( uDocid, tField.m_bPayload, tField.m_eWordpart, bSkipEndMarker );
 		else
-			BuildRegularHits ( pDict, uDocid, tField.m_bPayload, bSkipEndMarker );
+			BuildRegularHits ( uDocid, tField.m_bPayload, bSkipEndMarker );
+
+		m_pDict->SetApplyMorph ( true );
 
 		if ( m_tState.m_bProcessingHits )
 			break;
