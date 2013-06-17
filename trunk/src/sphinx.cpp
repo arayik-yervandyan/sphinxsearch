@@ -29979,6 +29979,7 @@ CSphQueryResultMeta::CSphQueryResultMeta ()
 , m_iAgentPredictedTime ( 0 )
 , m_iAgentFetchedDocs ( 0 )
 , m_iAgentFetchedHits ( 0 )
+, m_iAgentFetchedSkips ( 0 )
 , m_bHasPrediction ( false )
 {
 }
