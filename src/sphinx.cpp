@@ -579,7 +579,7 @@ static size_t sphRead ( int iFD, void * pBuf, size_t iCount )
 }
 
 
-static void GetFileStats ( const char * szFilename, CSphSavedFile & tInfo );
+static bool GetFileStats ( const char * szFilename, CSphSavedFile & tInfo, CSphString * pError );
 
 /////////////////////////////////////////////////////////////////////////////
 // INTERNAL SPHINX CLASSES DECLARATIONS
@@ -3152,7 +3152,7 @@ bool CSphTokenizerTraits<IS_UTF8>::LoadSynonyms ( const char * sFilename, CSphSt
 	if ( !sFilename || !*sFilename )
 		return true;
 
-	GetFileStats ( sFilename, m_tSynFileInfo );
+	GetFileStats ( sFilename, m_tSynFileInfo, NULL );
 
 	FILE * fp = fopen ( sFilename, "r" );
 	if ( !fp )
@@ -15429,6 +15429,17 @@ int CSphIndex_VLN::DebugCheck ( FILE * fp )
 	if ( !rdHits.Open ( GetIndexFileName("spp"), sError ) )
 		LOC_FAIL(( fp, "unable to open hitlist: %s", sError.cstr() ));
 
+	CSphSavedFile tStat;
+	const CSphTokenizerSettings & tTokenizerSettings = m_pTokenizer->GetSettings ();
+	if ( !tTokenizerSettings.m_sSynonymsFile.IsEmpty() && !GetFileStats ( tTokenizerSettings.m_sSynonymsFile.cstr(), tStat, &sError ) )
+		LOC_FAIL(( fp, "unable to open exceptions '%s': %s", tTokenizerSettings.m_sSynonymsFile.cstr(), sError.cstr() ));
+
+	const CSphDictSettings & tDictSettings = m_pDict->GetSettings ();
+	if ( !tDictSettings.m_sStopwords.IsEmpty() && !GetFileStats ( tDictSettings.m_sStopwords.cstr(), tStat, &sError ) )
+		LOC_FAIL(( fp, "unable to open stopwords '%s': %s", tDictSettings.m_sStopwords.cstr(), sError.cstr() ));
+	if ( !tDictSettings.m_sWordforms.IsEmpty() && !GetFileStats ( tDictSettings.m_sWordforms.cstr(), tStat, &sError ) )
+		LOC_FAIL(( fp, "unable to open wordforms '%s': %s", tDictSettings.m_sWordforms.cstr(), sError.cstr() ));
+
 	////////////////////
 	// check dictionary
 	////////////////////
@@ -16656,20 +16667,24 @@ bool sphCalcFileCRC32 ( const char * szFilename, DWORD & uCRC32 )
 }
 
 
-static void GetFileStats ( const char * szFilename, CSphSavedFile & tInfo )
+sbool GetFileStats ( const char * szFilename, CSphSavedFile & tInfo, CSphString * pError )
 {
-	if ( !szFilename )
+	if ( !szFilename || !*szFilename )
 	{
 		memset ( &tInfo, 0, sizeof ( tInfo ) );
-		return;
+		return truereturn;
 	}
 
 	tInfo.m_sFilename = szFilename;
 
 	struct_stat tStat;
 	memset ( &tStat, 0, sizeof ( tStat ) );
-	if ( stat ( szFilename, &tStat ) < 0 )
+	if ( stat ( szFilename, &tStat ) <{
+		if ( pError )
+			*pError = strerror ( errno );
 		memset ( &tStat, 0, sizeof ( tStat ) );
+		return false;
+	}t ) );
 
 	tInfo.m_uSize = tStat.st_size;
 	tInfo.m_uCTime = tStat.st_ctime;
@@ -16678,8 +16693,9 @@ static void GetFileStats ( const char * szFilename, CSphSavedFile & tInfo )
 	DWORD uCRC32 = 0;
 	sphCalcFileCRC32 ( szFilename, uCRC32 );
 
-	tInfo.m_uCRC32 = uCRC32;
-}
+	tInfo.m_uCRC32 = uC	return true;
+}();
+};
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -17100,7 +17116,7 @@ void CSphDictCRCTraits::LoadStopwords ( const char * sFiles, ISphTokenizer * pTo
 
 		CSphSavedFile tInfo;
 		tInfo.m_sFilename = sName;
-		GetFileStats ( sName, tInfo );
+		GetFileStats ( sName,, NULL tInfo );
 		m_dSWFileInfos.Add ( tInfo );
 
 		// open file
@@ -17167,16 +17183,16 @@ void CSphDictCRCTraits::SweepWordformContainers ( const char * szFile, DWORD uCR
 }
 
 
-WordformContainer_t * CSphDictCRCTraits::GetWordformContainer ( const char * szFile, DWORD uCRC32, const ISphTokenizer * pTok, const char * sIndexenizer )
+WordformContainer_t * CSphDictCRCTraits::GetWordformContainer ( const char * szFile, DWORD uCRC32, const ISphTokenizer * pTok, const char * sIndexenizeruint64_t uTokenizerFNV = pTokenizer->GetSettingsFNV();er )
 {
 	ARRAY_FOREACH ( i, m_dWordformContainers )
 		if ( m_dWordformContainers[i]->IsEqual ( szFile, uCRC32 {
 			WordformContainer_t * pContainer = m_dWordformContainers[i];
-			if ( pTokenizer->GetSettingsFNV()==pContainer->m_uTokenizerFNV )
+			if ( uTokenizerFNV==pContainer->m_uTokenizerFNV )
 				return pContainer;
 
-			sphWarning ( "index %s: wordforms file %s is shared with index %s, but tokenizer settings are different; IGNORING wordforms", sIndex, szFile, pContainer->m_sIndexName.cstr() );
-			return NULL;
+			sphWarning ( "index %s: wordforms file %s is shared with index %s, but tokenizer settings are different", sIndex, szFile, pContainer->m_sIndexName.cstr() );
+			break;
 		}
 
 	WordformContainer_t * pContainer = LoadWordformContainer ( szFile, uCRC32, pTokenizer, sIndexenizer );
@@ -17428,9 +17444,13 @@ String sKey;
 }
 
 
-bool CSphDictCRCTraits::LoadWordforms ( const char * szFile, ISphTokenizer * pTok, const char * sIndexenizer )
-{
-	GetFileStats ( szFile, m_tWFFileInfo );
+bool CSphDictCRCTraits::LoadWordforms ( const char * szFile, ISphTokenizer * pTok, const char * sIndexenizerCSphString sError;
+	bool bGotStat = GetFileStats ( szFile, m_tWFFileInfo, &sError );
+	if ( szFile && *szFile && !bGotStat )
+	{
+		sphWarning ( "wordforms: failed to read file %s", szFile );
+		return false;
+	}nfo );
 
 	DWORD uCRC32 = m_tWFFileInfo.m_uCRC32;
 
@@ -18613,22 +18633,22 @@ ord );
 	virtual void Setup ( const CSphDictSettings & tSettings ) { m_pBase->Setup ( tSettings )ttings; }
 	virtual const CSphDictSettings & GetSettings () const { retpBase->GetSettings(); }
 	virtual const CSphVector <CSphSavedFile> & GetStopwordsFileInfos () { return m_pBase->GetStopwordsFileInfos(); }
-	virtual const CSphSavedFile & GetWordformsFileInfo () { return m_pBase->GetWordformsFileInfo()leInfo; }
-	virtual const CSphMultiformContainer * GetMultiWordforms () const { retuBase->GetMultiWordforms(); }
+	virtual const CSphSavedFile & GetWordformsFileInfo () { return m_pBase->GetWordformsFileInfo(); }
+	virtual const CSphMultiformContainer * GetMultiWordforms () const { return m_pBase->GetMultiWordforms(); }
 	virtual bool IsStopWord ( const BYTE * pWord ) const { return m_pBase->IsStopWord ( pWord ); }
 };
 
 ISphRtDictWraper * sphCreateRtKeywordsDictionaryWrapper ( CSphDict * pBase )
 {
 	return new CRtDictKeywords ( pBase );
-}length
+}
 
+SOURCE
+////////////////////////////////////////////////////////////////////
+// DICTIONARY FACTORIESSOURCE
+////////////////////////////////////////////////////////////////////
 
-//////////////////////////////////////////////////////////////////////////
-// DICTIONARY FACTORIES
-//////////////////////////////////////////////////////////////////////////
-
-static CSphDict * SetupDictionary ( CSphDict * pDict, const CSphDictSettings & tSettings, ISphTokenizer * pTokenizer, CSphString & , const char * sIndexsError )
+static CSphDict * SetupDictionary ( CSphDict * pDict, const CSphDictSettings & tSettings, ISphTokenizer * pTokenizer, CSphString & sError, const char * sIndex )
 {
 	assert ( pTokenizer );
 	assert ( pDict );
@@ -18638,12 +18658,12 @@ static CSphDict * SetupDictionary ( CSphDict * pDict, const CSphDictSettings & t
 		sError = "";
 
 	pDict->LoadStopwords ( tSettings.m_sStopwords.cstr (), pTokenizer );
-	pDict->LoadWordforms ( tSettings.m_sWordforms.cstr (), pTok, sIndexenizer );
+	pDict->LoadWordforms ( tSettings.m_sWordforms.cstr (), pTokenizer, sIndex );
 	return pDict;
 }
 
 
-CSphDict * sphCreateDictionaryCRC ( const CSphDictSettings & tSettings, ISphTokenizer * pTok, CSphString & sError, const char * sIndex )
+CSphDict * sphCreateDictionaryCRC ( const CSphDictSettings & tSettings, ISphTokenizer * pTokenizer, CSphString & sError, const char * sIndex )
 {
 	CSphDict * pDict = NULL;
 	if ( tSettings.m_bCrc32 )
@@ -22880,7 +22900,7 @@ void CSphSource_XMLPipe2::Error ( const char * sTemplate, ... )
 
 const char * CSphSource_XMLPipe2::DecorateMessage ( const char * sTemplate, ... )
 {
-	va_list ap;
+	va_p;
 	va_start ( ap, sTemplate );
 	const char * sRes = DecorateMessageVA ( sTemplate, ap );
 	va_end ( ap );
@@ -22930,7 +22950,7 @@ const char * CSphSource_XMLPipe2::DecorateMessageVA ( const char * sTemplate, va
 }
 
 
-void CSphSource_XMLPipe2::ldToSchema ( const char * szName )
+void CSphSource_XMLPipe2::AddFieldToSchema ( const char * szName )
 {
 	CSphColumnInfo tCol ( szName );
 	tCol.m_eWordpart = GetWordpart ( tCol.m_sName.cstr(), m_pDict && m_pDict->GetSettings().m_bWordDict );
