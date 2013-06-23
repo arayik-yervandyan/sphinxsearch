@@ -2181,20 +2181,20 @@ public:
 	virtual int						GetCodepointLength ( int iCode ) const		{ return m_pTokenizer->GetCodepointLength ( iCode ); }
 	virtual void					EnableQueryParserMode ( bool bEnable )		{ m_pTokenizer->EnableQueryParserMode ( bEnable ); }
 	virtual void					EnableTokenizedMultiformTracking ()			{ m_bBuildMultiform = true; }
-	virtual int						GetLastTokenLen () const					{ return m_dStoredTokens[m_iStart].m_iTokenLen; }
-	virtual bool					GetBoundary ()								{ return m_dStoredTokens[m_iStart].m_bBoundary; }
-	virtual bool					WasTokenSpecial ()							{ return m_dStoredTokens[m_iStart].m_bSpecial; }
+	virtual int						GetLastTokenLen () const					{ return m_iStart<m_dStoredTokens.GetLength() ? m_dStoredTokens[m_iStart].m_iTokenLen : m_pTokenizer->GetLastTokenLen(); }
+	virtual bool					GetBoundary ()								{ return m_iStart<m_dStoredTokens.GetLength() ? m_dStoredTokens[m_iStart].m_bBoundary : m_pTokenizer->GetBoundary(); }
+	virtual bool					WasTokenSpecial ()							{ return m_iStart<m_dStoredTokens.GetLength() ? m_dStoredTokens[m_iStart].m_bSpecial : m_pTokenizer->WasTokenSpecial(); }
 	virtual int						GetOvershortCount ()						{ return m_iStart<m_dStoredTokens.GetLength() ? m_dStoredTokens[m_iStart].m_iOvershortCount : m_pTokenizer->GetOvershortCount(); }
 	virtual BYTE *					GetTokenizedMultiform ()					{ return m_sTokenizedMultiform[0] ? m_sTokenizedMultiform : NULL; }
-	virtual bool					TokenIsBlended () const { return m_dStoredTokens[m_iStart].m_bBlended; }
-	virtual bool					TokenIsBlendedPart () const { return m_dStoredTokens[m_iStart].m_bBlendedPart; }
+	virtual bool					TokenIsBlended () const						{ return m_iStart<m_dStoredTokens.GetLength() ? m_dStoredTokens[m_iStart].m_bBlended : m_pTokenizer->TokenIsBlended(); }
+	virtual bool					TokenIsBlendedPart () const					{ return m_iStart<m_dStoredTokens.GetLength() ? m_dStoredTokens[m_iStart].m_bBlendedPart : m_pTokenizer->TokenIsBlendedPart(); }
 	virtual int						SkipBlended ();
 
 public:
 	virtual ISphTokenizer *			Clone ( bool bEscaped ) const;
 	virtual bool					IsUtf8 () const				{ return m_pTokenizer->IsUtf8 (); }
-	virtual const char *			GetTokenStart () const		{ return m_dStoredTokens[m_iStart].m_szTokenStart; }
-	virtual const char *			GetTokenEnd () const		{ return m_dStoredTokens[m_iStart].m_szTokenEnd; }
+	virtual const char *			GetTokenStart () const		{ return m_iStart<m_dStoredTokens.GetLength() ? m_dStoredTokens[m_iStart].m_szTokenStart : m_pTokenizer->GetTokenStart(); }
+	virtual const char *			GetTokenEnd () const		{ return m_iStart<m_dStoredTokens.GetLength() ? m_dStoredTokens[m_iStart].m_szTokenEnd : m_pTokenizer->GetTokenEnd(); }
 	virtual const char *			GetBufferPtr () const		{ return m_iStart<m_dStoredTokens.GetLength() ? m_dStoredTokens[m_iStart].m_pBufferPtr : m_pTokenizer->GetBufferPtr(); }
 	virtual const char *			GetBufferEnd () const		{ return m_pTokenizer->GetBufferEnd (); }
 	virtual void					SetBufferPtr ( const char * sNewPtr );
@@ -18633,9 +18633,9 @@ ord );
 
 	virtual void LoadStopwords ( const char * sFiles, ISphTokenizer * pTokenizer ) { m_pBase->LoadStopwords ( sFiles, pTokenizer ); }
 	virtual bool LoadWordforms ( const char * sFile, ISphTokenizer * pTokenizer, const char * sIndex ) { return m_pBase->LoadWordforms ( sFile, pTokenizer, sIndex ); }
-	virtual bool Set:ParseMorphology ( const char * szMorph, bool bUseUTF8, CSphString & sE { return m_pBase->SetMorphology ( szMorph, bUseUTF8, sError ); }
-	virtual void Setup ( const CSphDictSettings & tSettings ) { m_pBase->Setup ( tSettings )ttings; }
-	virtual const CSphDictSettings & GetSettings () const { retpBase->GetSettings(); }
+	virtual bool SetMorphology ( const char * szMorph, bool bUseUTF8, CSphString & sError ) { return m_pBase->SetMorphology ( szMorph, bUseUTF8, sError ); }
+	virtual void Setup ( const CSphDictSettings & tSettings ) { m_pBase->Setup ( tSettings ); }
+	virtual const CSphDictSettings & GetSettings () const { return m_pBase->GetSettings(); }
 	virtual const CSphVector <CSphSavedFile> & GetStopwordsFileInfos () { return m_pBase->GetStopwordsFileInfos(); }
 	virtual const CSphSavedFile & GetWordformsFileInfo () { return m_pBase->GetWordformsFileInfo(); }
 	virtual const CSphMultiformContainer * GetMultiWordforms () const { return m_pBase->GetMultiWordforms(); }
@@ -22864,8 +22864,7 @@ void CSphSource_XMLPipe2::Disconnect ()
 {
 	if ( m_pPipe )
 	{
-		pclose ( m_pPipe );
-		m_pPipe = NULL;
+		pclose ( m_pPi		m_pPipe = NULL;
 	}
 
 #if USE_LIBEXPAT
@@ -22902,7 +22901,7 @@ void CSphSource_XMLPipe2::Error ( const char * sTemplate, ... )
 }
 
 
-const charhSource_XMLPipe2::DecorateMessage ( const char * sTemplate, ... )
+const char * CSphSource_XMLPipe2::DecorateMessage ( const char * sTemplate, ... )
 {
 	va_list ap;
 	va_start ( ap, sTemplate );
