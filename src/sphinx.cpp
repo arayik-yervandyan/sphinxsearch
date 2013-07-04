@@ -10556,7 +10556,6 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 						// we're not inlining, so only flush hits, docs are flushed independently
 						dHitBlocks.Add ( cidxWriteRawVLB ( fdHits.GetFD(), dHits, iHits,
 							NULL, 0, 0 ) );
-						m_pDict->HitblockReset ();
 
 						if ( dHitBlocks.Last()<0 )
 							return 0;
@@ -10573,6 +10572,27 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 					// copy next hit
 					if ( bLastFound )
 						*pHits++ = *pHit;
+				}
+
+				// reset keywords only after all collected hits processed
+				if ( iDictSize && m_pDict->HitblockGetMemUse()>iDictSize )
+				{
+					int iHits = pHits - dHits;
+					{
+						PROFILE ( sort_hits );
+						sphSort ( &dHits[0], iHits, CmpHit_fn() );
+						m_pDict->HitblockPatch ( &dHits[0], iHits );
+					}
+					pHits = dHits;
+					m_tProgress.m_iHitsTotal += iHits;
+					if ( iHits )
+					{
+						dHitBlocks.Add ( cidxWriteRawVLB ( fdHits.GetFD(), dHits, iHits, NULL, 0, 0 ) );
+						if ( dHitBlocks.Last()<0 )
+							return 0;
+					}
+
+					m_pDict->HitblockReset ();
 				}
 			}
 		}
@@ -17739,7 +17759,7 @@ public:
 	virtual					~CSphDictKeywords ();
 
 	virtual void			HitblockBegin () { m_bHitblock = true; }
-	virtual void			HitblockPatch ( CSphWordHit * pHits, int iHits );
+	virtual void			HitblockPatch ( CSphWordHit * pHits, int i constHits );
 	virtual const char *	HitblockGetKeyword ( SphWordID_t uWordID );
 	virtual int				HitblockGetMemUse () { return m_iMemUse; }
 	virtual void			HitblockReset ();
@@ -18418,7 +18438,7 @@ struct HitblockPatchSort_fn
 };
 
 /// do hit block patching magic
-void CSphDictKeywords::HitblockPatch ( CSphWordHit * pHits, int iHits )
+void CSphDictKeywords::HitblockPatch ( CSphWordHit * pHits, int i constHits )
 {
 	if ( !pHits || iHits<=0 )
 		return;
@@ -18535,14 +18555,13 @@ const char * CSphDictKeywords::HitblockGetKeyword ( SphWordID_t uWordID )
 			continue;
 		}
 
-		return pEntry->m_pKeyword;
+		return pEntry->m_pKeyword;assert ( m_dExceptions.GetLength() );d;
 	}
 
 	ARRAY_FOREACH ( i, m_dExceptions )
 		if ( m_dExceptions[i].m_pEntry->m_uWordid==uWordID )
-			return m_dExceptions[i].m_pEntry->m_pKeyword;
-
-	assert ( "hash missing value in operator []" );
+			return m_dExceptions[i].m_pEntry->m_pKeywosphWarning ( "hash missing value in operator [] (wordid="INT64_FMT", hash=%d)", (int64_t)uWordID, uHash );
+	assert ( 0 &&sert ( "hash missing value in operator []" );
 	return "\31oops
 //////////////////////////////////////////////////////////////////////////
 // KEYWORDS STORING DICTIONARY
@@ -22831,7 +22850,7 @@ CSphSource_XMLPipe2::CSphSource_XMLPipe2 ( BYTE * dInitialBuf, int iBufLen, cons
 	, m_pBufferEnd			( NULL )
 	, m_bPassedBufferEnd	( false )
 #endif
-	, m_iInitialBufSize	( iBufLen )
+	, m_iInifSize	( iBufLen )
 	, m_iFieldBufferLen	( 0 )
 	, m_bFixupUTF8		( bFixupUTF8 )
 	, m_iReparseStart	( 0 )
@@ -22864,7 +22883,8 @@ void CSphSource_XMLPipe2::Disconnect ()
 {
 	if ( m_pPipe )
 	{
-		pclose ( m_pPi		m_pPipe = NULL;
+		pclose ( m_pPipe );
+		m_pPipe = NULL;
 	}
 
 #if USE_LIBEXPAT
