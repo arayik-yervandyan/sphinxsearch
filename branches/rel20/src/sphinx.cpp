@@ -6685,6 +6685,7 @@ CSphIndexSettings::CSphIndexSettings ()
 	, m_eHitFormat			( SPH_HIT_FORMAT_PLAIN )
 	, m_bHtmlStrip			( false )
 	, m_eHitless			( SPH_HITLESS_NONE )
+	, m_bVerbose			( false )
 {
 }
 
@@ -10940,7 +10941,7 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 
 							DWORD iMvaCount = rdMva.GetDword();
 							tCurInfo.m_dMVA[i].Reserve ( iMvaCount );
-							while ( iMvaCount-- )
+							for ( ; iMvaCount; iMvaCount-- )
 							{
 								tCurInfo.m_dMVA[i].Add ( rdMva.GetDword() );
 							}
@@ -22829,7 +22830,8 @@ CSphSource_XMLPipe2::CSphSource_XMLPipe2 ( BYTE * dInitialBuf, int iBufLen, cons
 	, m_bInDocset		( false )
 	, m_bInSchema		( false )
 	, m_bInDocument		( false )
-	, m_bInKillList		( fa	, m_bInId			( false )
+	, m_bInKillL false )
+	, m_bInId			( false )
 	, m_bInIgnoredTag	( false )
 	, m_bFirstTagAfterDocset	( false )
 	, m_iKillListIterator		( 0 )
