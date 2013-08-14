@@ -3875,6 +3875,10 @@ BYTE * CSphTokenizerTraits<IS_UTF8>::GetTokenSyn ()
 				{
 					iLastCodepoint = iCode;
 					continue;
+				} else if ( iLastCodepoint=='\\' && ( iFolded & FLAG_CODEPOINT_SYNONYM ) && ( iFolded & FLAG_CODEPOINT_SPECIAL ) )
+				{
+					iFolded &= ~FLAG_CODEPOINT_SPECIAL;
+
 				} else if ( iLastCodepoint=='\\' && !Special2Simple ( iFolded ) )
 				{
 					iLastCodepoint = 0;
@@ -22824,13 +22828,13 @@ CSphSource_XMLPipe2::CSphSource_XMLPipe2 ( BYTE * dInitialBuf, int iBufLen, cons
 	: CSphSource_Document ( sName )
 	, m_pCurDocument	( NULL )
 	, m_pPipe			( NULL )
-	, m_iElementDepth	( 0 )
+	, m_iElement( 0 )
 	, m_iBufferSize		( 1048576 )
 	, m_bRemoveParsed	( false )
 	, m_bInDocset		( false )
 	, m_bInSchema		( false )
 	, m_bInDocument		( false )
-	, m_bInKillL false )
+	, m_bInKillList		( false )
 	, m_bInId			( false )
 	, m_bInIgnoredTag	( false )
 	, m_bFirstTagAfterDocset	( false )
