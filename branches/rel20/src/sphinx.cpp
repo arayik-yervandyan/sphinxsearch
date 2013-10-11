@@ -10224,7 +10224,6 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 
 		// joined filter
 		bool bGotJoined = ( m_tSettings.m_eDocinfo!=SPH_DOCINFO_INLINE ) && pSource->HasJoinedFields();
-		CSphVector<SphDocID_t> dAllIds; // FIXME! unlimited RAM use..
 
 		// fetch documents
 		for ( ;; )
@@ -10244,9 +10243,6 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 			// check for eof
 			if ( !pSource->m_tDocInfo.m_iDocID )
 				break;
-
-			if ( bGotJoined )
-				dAllIds.Add ( pSource->m_tDocInfo.m_iDocID );
 
 			// show progress bar
 			if ( m_pProgress
@@ -10518,10 +10514,7 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 		// fetch joined fields
 		if ( bGotJoined )
 		{
-			dAllIds.Uniq();
-
 			SphDocID_t uLastID = 0;
-			bool bLastFound = 0;
 
 			for ( ;; )
 			{
@@ -10568,14 +10561,10 @@ int CSphIndex_VLN::Build ( const CSphVector<CSphSource*> & dSources, int iMemory
 					// filter
 					SphDocID_t uHitID = pHit->m_iDocID;
 					if ( uHitID!=uLastID )
-					{
 						uLastID = uHitID;
-						bLastFound = ( dAllIds.BinarySearch ( uHitID )!=NULL );
-					}
 
 					// copy next hit
-					if ( bLastFound )
-						*pHits++ = *pHit;
+					*pHits++ = *pHit;
 				}
 
 				// reset keywords only after all collected hits processed
@@ -20170,6 +20159,7 @@ CSphSource_Document::CSphSource_Document ( const char * sName )
 	, m_eOnFileFieldError ( FFE_IGNORE_FIELD )
 	, m_fpDumpRows ( NULL )
 	, m_iPlainFieldsLength ( 0 )
+	, m_bIdsSorted ( false )
 	, m_iMaxHits ( MAX_SOURCE_HITS )
 {
 }
@@ -20192,6 +20182,8 @@ bool CSphSource_Document::IterateDocument ( CSphString & sError )
 	for ( ;; )
 	{
 		m_tState.m_dFields = NextDocument ( sError );
+		if ( HasJoinedFields() )
+			m_dAllIds.Add ( m_tDocInfo.m_iDocID );
 		if ( m_tDocInfo.m_iDocID==0 )
 			return true;
 
@@ -21638,7 +21630,13 @@ pData;
 #endif // USE_ZLIB
 
 
-ISphHits * CSphSource_SQL::IterateJoinedHits ( CSphString & sError )
+ISphHits * CSphSource_SQL::IterateJoinedHits ( CSphString & sError// iterating of joined hits happens after iterating hits from main query
+	// so we may be sure at this moment no new IDs will be put in m_dAllIds
+	if ( !m_bIdsSorted )
+	{
+		m_dAllIds.Uniq();
+		m_bIdsSorted = true;
+	}or )
 {
 	m_tHits.m_dData.Resize ( 0 );
 
@@ -21658,6 +21656,10 @@ ISphHits * CSphSource_SQL::IterateJoinedHits ( CSphString & sError )
 		{
 			// next row
 			m_tDocInfo.m_iDocID = sphToDocid ( SqlColumn(0) ); // FIXME! handle conversion errors and zero/max values?
+
+lets skip joined document totally if there was no such document ID returned by main query
+			if ( !m_dAllIds.BinarySearch ( m_tDocInfo.m_iDocID ) )
+				continue;alues?
 
 			// field start? restart ids
 			if ( !m_iJoinedHitID )
@@ -22826,14 +22828,14 @@ void xmlErrorHandler ( void * arg, const char * msg, xmlParserSeverities severit
 	if ( severity==XML_PARSER_SEVERITY_ERROR )
 	{
 		int iLine = xmlTextReaderLocatorLineNumber ( locator );
-		CSphSource_XMLPipe2 * pSource = (CSphSource_XMLPipe2 *) arg;
+		CSphSource_XMLP pSource = (CSphSource_XMLPipe2 *) arg;
 		pSource->Error ( "%s (line=%d)", msg, iLine );
 	}
 }
 #endif
 
 
-CSphSource_XMLPipe2::CSphSource_XMLPipe2 ( BYTE * dInitialBuf, int iBufLen, const char * sNam iFieldBufferMax, bool bFixupUTF8 )
+CSphSource_XMLPipe2::CSphSource_XMLPipe2 ( BYTE * dInitialBuf, int iBufLen, const char * sName, int iFieldBufferMax, bool bFixupUTF8 )
 	: CSphSource_Document ( sName )
 	, m_pCurDocument	( NULL )
 	, m_pPipe			( NULL )
