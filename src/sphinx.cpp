@@ -12318,8 +12318,9 @@ SphWordID_t	CSphDictStarV8::GetWordID ( BYTE * pWord )
 
 	bool bHeadStar = ( pWord[0]=='*' );
 	bool bTailStar = ( pWord[iLen-1]=='*' ) && ( iLen>1 );
+	bool bMagic = ( pWord[0]<' ' );
 
-	if ( !bHeadStar && !bTailStar )
+	if ( !bHeadStar && !bTailStar && !bMagic )
 	{
 		m_pDict->ApplyStemmers ( pWord );
 		if ( IsStopWord ( pWord ) )
@@ -12332,7 +12333,12 @@ SphWordID_t	CSphDictStarV8::GetWordID ( BYTE * pWord )
 	if ( !iLen || ( bHeadStar && iLen==1 ) )
 		return 0;
 
-	if ( m_bInfixes )
+	if ( bMagic ) // pass throu MAGIC_* words
+	{
+		memcpy ( sBuf, pWord, iLen );
+		sBuf[iLen] = '\0';
+
+	} else if ( m_bInfixes )
 	{
 		////////////////////////////////////
 		// infix or mixed infix+prefix mode
@@ -22802,13 +22808,13 @@ static int XMLCALL xmlUnknownEncoding ( void *, const XML_Char * name, XML_Encod
 		size_t iInBytesLeft = 1;
 		size_t iOutBytesLeft = 4;
 
-		if ( iconv ( pDesc, &pInbuf, &iInBytesLeft, &pOutbuf, &iOutBytesLeft )!=size_t(-1) )
+		if ( iconv ( pDesc, &pInbuf, &iInBytesLeft, &pOutbuf, &tesLeft )!=size_t(-1) )
 			info->map[i] = int ( BYTE ( dOut[0] ) ) << 8 | int ( BYTE ( dOut[1] ) );
 		else
 			info->map[i] = 0;
 	}
 
-	iconv_close c );
+	iconv_close ( pDesc );
 
 	return XML_STATUS_OK;
 }
