@@ -16739,7 +16739,7 @@ void CSphIndex_VLN::DebugDumpDict ( FILE * fp )
 
 bool CSphIndex_VLN::Prealloc ( bool bMlock, bool bStripPath, CSphString & sWarning )
 {
-	MEMORY ( SPH_MEM_IDX_DISK );
+	MEMORY ( MEM_INDEX_DISK );
 
 	// reset
 	Dealloc ();
@@ -17075,7 +17075,7 @@ template < typename T > bool CSphIndex_VLN::PrereadSharedBuffer ( CSphSharedBuff
 
 bool CSphIndex_VLN::Preread ()
 {
-	MEMORY ( SPH_MEM_IDX_DISK );
+	MEMORY ( MEM_INDEX_DISK );
 
 	sphLogDebug ( "CSphIndex_VLN::Preread invoked" );
 	if ( !m_bPreallocated )
@@ -18671,7 +18671,7 @@ bool CSphIndex_VLN::MultiQuery ( const CSphQuery * pQuery, CSphQueryResult * pRe
 	assert ( pQuery );
 	CSphQueryProfile * pProfile = pResult->m_pProfile;
 
-	MEMORY ( SPH_MEM_IDX_DISK_MULTY_QUERY );
+	MEMORY ( MEM_DISK_QUERY );
 
 	// to avoid the checking of a ppSorters's element for NULL on every next step, just filter out all nulls right here
 	CSphVector<ISphMatchSorter*> dSorters;
@@ -18776,7 +18776,7 @@ bool CSphIndex_VLN::MultiQueryEx ( int iQueries, const CSphQuery * pQueries,
 	if ( iQueries==1 )
 		return MultiQuery ( pQueries, ppResults[0], 1, ppSorters, tArgs );
 
-	MEMORY ( SPH_MEM_IDX_DISK_MULTY_QUERY_EX );
+	MEMORY ( MEM_DISK_QUERYEX );
 
 	assert ( pQueries );
 	assert ( ppSorters );
