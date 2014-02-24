@@ -22194,7 +22194,7 @@ protected:
 
 public:
 					InfixBuilder_c();
-	virtual void	AddWord ( const BYTE * pWord, int iWordLength, int iCheckpoint );
+	virtual void	AddWord ( const BYTE * pWord, int iWordLength, int iCheckpoint, bool bHasMorphology );
 	virtual void	SaveEntries ( CSphWriter & wrDict );
 	virtual int		SaveEntryBlocks ( CSphWriter & wrDict );
 	virtual int		GetBlocksWordsSize () const { return m_dBlocksWords.GetLength(); }
@@ -22254,8 +22254,17 @@ InfixBuilder_c<SIZE>::InfixBuilder_c()
 
 /// single-byte case, 2-dword infixes
 template<>
-void InfixBuilder_c<2>::AddWord ( const BYTE * pWord, int iWordLength, int iCheckpoint )
+void InfixBuilder_c<2>::AddWord ( const BYTE * pWord, int iWordLength, int iCheckpoint, bool bHasMorphology )
 {
+	if ( bHasMorphology && *pWord!=MAGIC_WORD_HEAD_NONSTEMMED )
+		return;
+
+	if ( *pWord<0x20 ) // skip heading magic chars, like NONSTEMMED maker
+	{
+		pWord++;
+		iWordLength--;
+	}
+
 	Infix_t<2> sKey;
 	for ( int p=0; p<=iWordLength-2; p++ )
 	{
@@ -22285,8 +22294,17 @@ void InfixBuilder_c<2>::AddWord ( const BYTE * pWord, int iWordLength, int iChec
 
 /// UTF-8 case, 3/5-dword infixes
 template < int SIZE >
-void InfixBuilder_c<SIZE>::AddWord ( const BYTE * pWord, int iWordLength, int iCheckpoint )
+void InfixBuilder_c<SIZE>::AddWord ( const BYTE * pWord, int iWordLength, int iCheckpoint, bool bHasMorphology )
 {
+	if ( bHasMorphology && *pWord!=MAGIC_WORD_HEAD_NONSTEMMED )
+		return;
+
+	if ( *pWord<0x20 ) // skip heading magic chars, like NONSTEMMED maker
+	{
+		pWord++;
+		iWordLength--;
+	}
+
 	int iCodes = 0; // codepoints in current word
 	BYTE dBytes[SPH_MAX_WORD_LEN+1]; // byte offset for each codepoints
 
@@ -22303,6 +22321,10 @@ void InfixBuilder_c<SIZE>::AddWord ( const BYTE * pWord, int iWordLength, int iC
 		}
 		if ( !iLen )
 			iLen = 1;
+
+		// skip word with large codepoints
+		if ( iLen>SIZE )
+			return;
 
 		assert ( iLen>=1 && iLen<=4 );
 		p += iLen;
@@ -23040,6 +23062,7 @@ bool CSphDictKeywords::DictEnd ( DictHeader_t * pHeader, int iMemLimit, CSphStri
 		qWords.Push ( tEntry );
 	}
 
+	bool bHasMorphology = HasMorphology();
 	CSphKeywordDeltaWriter tLastKeyword;
 	int iWords = 0;
 	while ( qWords.GetLength() )
@@ -23086,7 +23109,7 @@ bool CSphDictKeywords::DictEnd ( DictHeader_t * pHeader, int iMemLimit, CSphStri
 
 		// build infixes
 		if ( pInfixer )
-			pInfixer->AddWord ( (const BYTE*)tWord.m_sKeyword, iLen, m_dCheckpoints.GetLength() );
+			pInfixer->AddWord ( (const BYTE*)tWord.m_sKeyword, iLen, m_dCheckpoints.GetLength(), bHasMorphology );
 
 		// next
 		int iBin = tWord.m_iBlock;
@@ -31632,6 +31655,7 @@ void sphDictBuildInfixes ( const char * sPath )
 	if ( !pInfixer )
 		sphDie ( "infix upgrade: %s", sError.cstr() );
 
+	bool bHasMorphology = !tDictSettings.m_sMorphology.IsEmpty();
 	// scan all dict entries, generate infixes
 	// (in a separate block, so that tDictReader gets destroyed, and file closed)
 	{
@@ -31643,7 +31667,7 @@ void sphDictBuildInfixes ( const char * sPath )
 		{
 			const BYTE * sWord = tDictReader.GetWord();
 			int iLen = strlen ( (const char *)sWord );
-			pInfixer->AddWord ( sWord, iLen, tDictReader.GetCheckpoint() );
+			pInfixer->AddWord ( sWord, iLen, tDictReader.GetCheckpoint(), bHasMorphology );
 		}
 	}
 
