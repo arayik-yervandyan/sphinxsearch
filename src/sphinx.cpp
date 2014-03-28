@@ -25761,10 +25761,11 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 		memcpy ( sBuf + 1, sWord, iBytes );
 		sBuf[iBytes+1] = '\0';
 
+		SphWordID_t uExactWordid = 0;
 		if ( m_bIndexExactWords )
 		{
 			sBuf[0] = MAGIC_WORD_HEAD_NONSTEMMED;
-			m_tHits.AddHit ( uDocid, m_pDict->GetWordIDNonStemmed ( sBuf ), m_tState.m_iHitPos );
+			uExactWordid = m_pDict->GetWordIDNonStemmed ( sBuf );
 		}
 
 		sBuf[0] = MAGIC_WORD_HEAD;
@@ -25776,6 +25777,9 @@ void CSphSource_Document::BuildSubstringHits ( SphDocID_t uDocid, bool bPayload,
 			m_tState.m_iBuildLastStep = m_iStopwordStep;
 			continue;
 		}
+
+		if ( m_bIndexExactWords )
+			m_tHits.AddHit ( uDocid, uExactWordid, m_tState.m_iHitPos );
 		iBlendedHitsStart = iLastBlendedStart;
 		m_tHits.AddHit ( uDocid, iWord, m_tState.m_iHitPos );
 		m_tState.m_iBuildLastStep = m_pTokenizer->TokenIsBlended() ? 0 : 1;
@@ -25919,11 +25923,13 @@ void CSphSource_Document::BuildRegularHits ( SphDocID_t uDocid, bool bPayload, b
 			memcpy ( sBuf + 1, sWord, iBytes );
 			sBuf[0] = MAGIC_WORD_HEAD_NONSTEMMED;
 			sBuf[iBytes+1] = '\0';
-			m_tHits.AddHit ( uDocid, m_pDict->GetWordIDNonStemmed ( sBuf ), m_tState.m_iHitPos );
 		}
 
 		if ( m_bIndexExactWords && eMorph==SPH_TOKEN_MORPH_ORIGINAL )
 		{
+			if ( m_pDict->GetWordID ( sWord ) )
+				m_tHits.AddHit ( uDocid, m_pDict->GetWordIDNonStemmed ( sBuf ), m_tState.m_iHitPos );
+
 			m_tState.m_iBuildLastStep = m_pTokenizer->TokenIsBlended() ? 0 : 1;
 			continue;
 		}
@@ -25937,8 +25943,10 @@ void CSphSource_Document::BuildRegularHits ( SphDocID_t uDocid, bool bPayload, b
 			printf ( "doc %d. pos %d. %s\n", uDocid, HITMAN::GetPos ( m_tState.m_iHitPos ), sWord );
 #endif
 			iBlendedHitsStart = iLastBlendedStart;
-			m_tHits.AddHit ( uDocid, iWord, m_tState.m_iHitPos );
 			m_tState.m_iBuildLastStep = m_pTokenizer->TokenIsBlended() ? 0 : 1;
+			m_tHits.AddHit ( uDocid, iWord, m_tState.m_iHitPos );
+			if ( m_bIndexExactWords && eMorph!=SPH_TOKEN_MORPH_GUESS )
+				m_tHits.AddHit ( uDocid, m_pDict->GetWordIDNonStemmed ( sBuf ), m_tState.m_iHitPos );
 		} else
 			m_tState.m_iBuildLastStep = m_iStopwordStep;
 	}
