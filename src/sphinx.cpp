@@ -29985,8 +29985,8 @@ struct RemapXSV_t
 class CSphSource_BaseSV : public CSphSource_Document, public CSphSchemaConfigurator<CSphSource_BaseSV>
 {
 public:
-	explicit			CSphSource_BaseSV ( const char * sName );
-	~CSphSource_BaseSV ();
+	explicit		CSphSource_BaseSV ( const char * sName );
+	virtual			~CSphSource_BaseSV ();
 
 	virtual bool	Connect ( CSphString & sError );				///< run the command and open the pipe
 	virtual void	Disconnect ();									///< close the pipe
@@ -30023,7 +30023,7 @@ protected:
 	// output
 	CSphFixedVector<BYTE *>		m_dFields;
 
-	FILE *						m_pPipe;			///< incoming stream
+	FILE *						m_pFP;
 	int							m_iDataStart;
 	int							m_iDataLeft;
 	int							m_iLine;
@@ -30034,9 +30034,7 @@ protected:
 class CSphSource_TSV : public CSphSource_BaseSV
 {
 public:
-	explicit CSphSource_TSV ( const char * sName );
-	virtual ~CSphSource_TSV();
-
+	explicit				CSphSource_TSV ( const char * sName ) : CSphSource_BaseSV ( sName ) {}
 	virtual ESphParseResult	SplitColumns ( CSphString & sError );					///< parse incoming chunk and emit some hits
 	virtual bool			SetupSchema ( const CSphConfigSection & hSource, bool bWordDict, CSphString & sError );
 };
@@ -30045,12 +30043,9 @@ public:
 class CSphSource_CSV : public CSphSource_BaseSV
 {
 public:
-	explicit CSphSource_CSV ( const char * sName, const char * sDelimiter = NULL );
-	virtual ~CSphSource_CSV();
-
+	explicit				CSphSource_CSV ( const char * sName, const char * sDelimiter = NULL );
 	virtual ESphParseResult	SplitColumns ( CSphString & sError );					///< parse incoming chunk and emit some hits
 	virtual bool			SetupSchema ( const CSphConfigSection & hSource, bool bWordDict, CSphString & sError );
-
 	void					SetDelimiter ( const char * sDelimiter );
 
 private:
@@ -30130,7 +30125,7 @@ struct SortedRemapXSV_t : public RemapXSV_t
 
 bool CSphSource_BaseSV::Setup ( const CSphConfigSection & hSource, FILE * pPipe, CSphString & sError )
 {
-	m_pPipe = pPipe;
+	m_pFP = pPipe;
 	m_tSchema.Reset ();
 	bool bWordDict = ( m_pDict && m_pDict->GetSettings().m_bWordDict );
 
@@ -30251,10 +30246,10 @@ bool CSphSource_BaseSV::Connect ( CSphString & sError )
 
 void CSphSource_BaseSV::Disconnect()
 {
-	if ( m_pPipe )
+	if ( m_pFP )
 	{
-		pclose ( m_pPipe );
-		m_pPipe = NULL;
+		fclose ( m_pFP );
+		m_pFP = NULL;
 	}
 	m_tHits.m_dData.Reset();
 }
@@ -30283,7 +30278,7 @@ bool CSphSource_BaseSV::IterateStart ( CSphString & sError )
 	m_iDataLeft = 0;
 
 	// initial buffer update
-	int iRead = fread ( m_dBuf.Begin(), 1, m_dBuf.GetLength(), m_pPipe );
+	int iRead = fread ( m_dBuf.Begin(), 1, m_dBuf.GetLength(), m_pFP );
 	if ( !iRead )
 	{
 		sError.SetSprintf ( "source '%s': read error '%s'", m_tSchema.m_sName.cstr(), strerror(errno) );
@@ -30390,16 +30385,6 @@ BYTE **	CSphSource_BaseSV::NextDocument ( CSphString & sError )
 }
 
 
-CSphSource_TSV::CSphSource_TSV ( const char * sName )
-: CSphSource_BaseSV ( sName )
-{
-}
-
-CSphSource_TSV::~CSphSource_TSV()
-{
-}
-
-
 CSphSource_BaseSV::ESphParseResult CSphSource_TSV::SplitColumns ( CSphString & sError )
 {
 	// move up tail to buffer head
@@ -30465,7 +30450,7 @@ CSphSource_BaseSV::ESphParseResult CSphSource_TSV::SplitColumns ( CSphString & s
 		if ( iOff==m_dBuf.GetLength() )
 			m_dBuf.Resize ( m_dBuf.GetLength()*2 );
 
-		int iGot = fread ( m_dBuf.Begin() + iOff, 1, m_dBuf.GetLength() - iOff, m_pPipe );
+		int iGot = fread ( m_dBuf.Begin() + iOff, 1, m_dBuf.GetLength() - iOff, m_pFP );
 		if ( !iGot )
 		{
 			if ( !iCol )
@@ -30532,10 +30517,6 @@ CSphSource_CSV::CSphSource_CSV ( const char * sName, const char * sDelimiter )
 {
 	m_iDelimiter = BYTE ( ',' );
 	SetDelimiter ( sDelimiter );
-}
-
-CSphSource_CSV::~CSphSource_CSV()
-{
 }
 
 
@@ -30646,7 +30627,7 @@ CSphSource_BaseSV::ESphParseResult CSphSource_CSV::SplitColumns ( CSphString & s
 		if ( iDstOff==m_dBuf.GetLength() )
 			m_dBuf.Resize ( m_dBuf.GetLength()*2 );
 
-		int iGot = fread ( m_dBuf.Begin() + iDstOff, 1, m_dBuf.GetLength() - iDstOff, m_pPipe );
+		int iGot = fread ( m_dBuf.Begin() + iDstOff, 1, m_dBuf.GetLength() - iDstOff, m_pFP );
 		if ( !iGot )
 		{
 			if ( !iCol )
