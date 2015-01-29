@@ -25579,11 +25579,10 @@ CSphSource::CSphSource ( const char * sName )
 	, m_pDict ( NULL )
 	, m_pFieldFilter ( NULL )
 	, m_tSchema ( sName )
-	, m_bStripHTML ( false )
+	, m_pStripper ( NULL )
 	, m_iNullIds ( 0 )
 	, m_iMaxIds ( 0 )
 {
-	m_pStripper = new CSphHTMLStripper ( true );
 }
 
 
@@ -25609,6 +25608,8 @@ const CSphSourceStats & CSphSource::GetStats ()
 bool CSphSource::SetStripHTML ( const char * sExtractAttrs, const char * sRemoveElements,
 	bool bDetectParagraphs, const char * sZones, CSphString & sError )
 {
+	m_pStripper = new CSphHTMLStripper ( true );
+
 	if ( !m_pStripper->SetIndexedAttrs ( sExtractAttrs, sError ) )
 		return false;
 
@@ -25621,7 +25622,6 @@ bool CSphSource::SetStripHTML ( const char * sExtractAttrs, const char * sRemove
 	if ( !m_pStripper->SetZones ( sZones, sError ) )
 		return false;
 
-	m_bStripHTML = true;
 	return true;
 }
 
@@ -26400,7 +26400,7 @@ void CSphSource_Document::BuildHits ( CSphString & sError, bool bSkipEndMarker )
 				continue;
 
 			// strip html
-			if ( m_bStripHTML )
+			if ( m_pStripper )
 			{
 				m_pStripper->Strip ( (BYTE*)sTextToIndex );
 				iFieldBytes = (int) strlen ( (char*)sTextToIndex );
